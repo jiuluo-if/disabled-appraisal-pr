@@ -1,10 +1,12 @@
 import express from 'express';
 import cors from 'cors';
 import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { assessmentTypeSchema, requestSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
 import { createProvider, ServiceError } from './provider.js';
 import { assess } from './assessment.js';
+import { validateImage } from './facts.js';
 import { legacyResponse } from './results.js';
 
 function legacyInput(body) {
@@ -17,18 +19,66 @@ function legacyInput(body) {
 
 function validateImages(images) {
   for (const image of images) {
-    const data = Buffer.from(image.data, 'base64');
-    const valid = /^[A-Za-z0-9+/]+={0,2}$/.test(image.data)
-      && ((image.mimeType === 'image/jpeg' && data[0] === 0xff && data[1] === 0xd8)
-      || (image.mimeType === 'image/png' && data.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
-      || (image.mimeType === 'image/webp' && data.toString('ascii', 0, 4) === 'RIFF' && data.toString('ascii', 8, 12) === 'WEBP'));
-    if (!valid) throw new ServiceError(400, 'INVALID_IMAGE', '图片格式与内容不符，请重新上传JPEG、PNG或WebP图片。');
+    const checked = validateImage(image);
+    if (!checked.ok) throw new ServiceError(400, 'INVALID_IMAGE', `${checked.error}，请重新上传JPEG、PNG或WebP图片。`);
   }
+}
+
+export function createAnalysisCache({ ttlMs = 900_000, capacity = 200, now = Date.now } = {}) {
+  const entries = new Map();
+  const inFlight = new Map();
+  let hits = 0;
+  let misses = 0;
+  const keyFor = input => {
+    const { forceReanalysis, ...cacheInput } = input;
+    return createHash('sha256').update(JSON.stringify(cacheInput), 'utf8').digest('hex');
+  };
+  function get(key) {
+    const entry = entries.get(key);
+    if (!entry) return undefined;
+    if (entry.expiresAt <= now()) { entries.delete(key); return undefined; }
+    entries.delete(key); entries.set(key, entry);
+    return entry.value;
+  }
+  function set(key, value) {
+    for (const [existingKey, entry] of entries) if (entry.expiresAt <= now()) entries.delete(existingKey);
+    entries.delete(key); entries.set(key, { value, expiresAt: now() + ttlMs });
+    while (entries.size > capacity) entries.delete(entries.keys().next().value);
+  }
+  async function run(input, requestId, produce) {
+    const key = keyFor(input);
+    if (!input.forceReanalysis) {
+      const cached = get(key);
+      if (cached) { hits += 1; return { ...cached, requestId }; }
+      if (inFlight.has(key)) {
+        hits += 1;
+        return { ...(await inFlight.get(key)), requestId };
+      }
+    }
+    misses += 1;
+    const promise = Promise.resolve().then(produce);
+    if (!input.forceReanalysis) inFlight.set(key, promise);
+    try {
+      const result = await promise;
+      set(key, result);
+      return { ...result, requestId };
+    } finally {
+      if (inFlight.get(key) === promise) inFlight.delete(key);
+    }
+  }
+  function stats() {
+    for (const [key, entry] of entries) if (entry.expiresAt <= now()) entries.delete(key);
+    return { entries: entries.size, inFlight: inFlight.size, hits, misses };
+  }
+  return { run, stats };
 }
 
 export function createApp(config, options = {}) {
   const app = express();
   const provider = options.provider || createProvider(config, options.fetchImpl);
+  const analysisCache = options.analysisCache || createAnalysisCache({
+    ttlMs: config.cacheTtlMs || 900_000, capacity: config.cacheCapacity || 200, now: options.now || Date.now,
+  });
   app.disable('x-powered-by');
   app.use(cors());
   app.use((req, res, next) => {
@@ -44,6 +94,7 @@ export function createApp(config, options = {}) {
     const health = await provider.readiness();
     res.status(health.status === 'ready' ? 200 : 503).json(health);
   });
+  app.get('/api/cache/stats', (req, res) => res.json(analysisCache.stats()));
   app.get('/api/standards/:type', (req, res) => {
     const kind = assessmentTypeSchema.safeParse(req.params.type);
     if (!kind.success) throw new ServiceError(404, 'STANDARD_NOT_FOUND', '未找到该评估类型的标准。');
@@ -59,7 +110,8 @@ export function createApp(config, options = {}) {
       const parsed = requestSchema.safeParse(legacyInput(req.body));
       if (!parsed.success) throw new ServiceError(400, 'INVALID_REQUEST', parsed.error.issues[0].message);
       validateImages(parsed.data.images);
-      const result = await assess(parsed.data, { provider, config, signal: controller.signal, requestId: req.requestId });
+      const result = await analysisCache.run(parsed.data, req.requestId,
+        () => assess(parsed.data, { provider, config, signal: controller.signal, requestId: req.requestId }));
       if (!res.destroyed) res.json({ result, candidates: [{ content: { parts: [{ text: JSON.stringify(legacyResponse(result)) }] } }] });
     } catch (error) {
       if (!res.destroyed) next(controller.signal.aborted ? controller.signal.reason : error);

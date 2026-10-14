@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { normalizeFactExtractionResponse } from './facts.js';
 
 export class ServiceError extends Error {
   constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -42,7 +43,8 @@ export function createProvider(config, fetchImpl = fetch) {
     const content = choice?.message?.content;
     if (typeof content !== 'string' || !content.trim()) throw new ServiceError(502, 'EMPTY_RESULT', '未收到完整的分析结果，请重试。');
     try {
-      const value = JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+      let value = JSON.parse(content.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, ''));
+      if (name === 'fact_extraction') value = normalizeFactExtractionResponse(value);
       return schema.parse(value);
     } catch {
       if (!repair) return complete({ model, schema, name, signal, repair: true, messages: [

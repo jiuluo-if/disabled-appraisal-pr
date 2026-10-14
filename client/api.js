@@ -4,7 +4,7 @@ export const apiBase = import.meta.env.VITE_API_BASE || '/api';
 
 export async function analyze(input, signal) {
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(new DOMException('分析超时，请稍后重试。', 'TimeoutError')), 110000);
+  const timer = setTimeout(() => timeout.abort(new DOMException('分析超时，请稍后重试。', 'TimeoutError')), 200000);
   const cancel = () => timeout.abort(signal.reason);
   signal.addEventListener('abort', cancel, { once: true });
   if (signal.aborted) cancel();

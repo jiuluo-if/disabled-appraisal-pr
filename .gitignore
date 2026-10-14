@@ -10,6 +10,9 @@ playwright-report/
 .env
 .env.*
 !.env.example
+**/.env
+**/.env.*
+!**/.env.example
 *.pem
 *.key
 *.crt
@@ -26,3 +29,12 @@ playwright-report/
 .ssl-update-*/
 .backup-*/
 .update-*/
+
+# Local agent plans, private API diagnostics, and temporary test runners
+.planning/
+**/.kimi-*.cjs
+**/*-raw-diagnostic.json
+**/*-repeat-results.json
+**/test-results/
+*.har
+*.trace

@@ -1,0 +1,32 @@
+[
+  {
+    "id": "rib_numbers_and_side",
+    "assessmentType": "injury",
+    "text": "左侧第3、4肋骨骨折。",
+    "purpose": "Check laterality and named rib numbers."
+  },
+  {
+    "id": "one_rib_one_site",
+    "assessmentType": "injury",
+    "text": "第六肋骨骨折1处。",
+    "purpose": "Distinguish the sixth rib from one fracture site."
+  },
+  {
+    "id": "suspected_and_negative",
+    "assessmentType": "injury",
+    "text": "病历一记载疑似第六肋骨骨折；复查报告记载未见骨折。",
+    "purpose": "Preserve uncertainty and contradictory negative evidence."
+  },
+  {
+    "id": "excluded_fracture",
+    "assessmentType": "injury",
+    "text": "资料记载排除第六肋骨骨折。",
+    "purpose": "Keep explicit exclusion distinct from a confirmed fracture."
+  },
+  {
+    "id": "pain_without_diagnosis",
+    "assessmentType": "injury",
+    "text": "左侧胸部疼痛，未提供影像检查或明确诊断。",
+    "purpose": "Avoid inferring a diagnosis from pain alone."
+  }
+]

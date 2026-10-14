@@ -132,3 +132,16 @@ test('exported report preserves insufficiency, missing materials and official pr
   assert.match(text, /暂不输出等级/); assert.match(text, /补充CT报告/); assert.match(text, /2013年公布版/);
   assert.match(text, /不是正式司法鉴定意见/);
 });
+
+test('exported reports retain conflict status, source facts, and review references', () => {
+  const result = resultFixture('injury');
+  Object.assign(result, { status: 'needs_review', grade: null, requiresReview: true,
+    conflicts: [{ factIds: ['F1', 'F2'], reason: '骨折记载互相矛盾，需复核。' }],
+    facts: [
+      { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'conflicted', assertedCertainty: 'uncertain', source: 'description', evidence: '报告甲疑似骨折', finding: '损伤类型：骨折', verification: 'quoted' },
+      { id: 'F2', field: 'injury_type', value: 'rib_fracture', certainty: 'conflicted', assertedCertainty: 'excluded', source: 'description', evidence: '报告乙未见骨折', finding: '损伤类型：骨折', verification: 'quoted' },
+    ] });
+  const text = reportText(result);
+  assert.match(text, /需复核/); assert.match(text, /骨折记载互相矛盾/);
+  assert.match(text, /报告甲疑似骨折/); assert.match(text, /存在冲突/);
+});

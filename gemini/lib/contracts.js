@@ -3,7 +3,7 @@ import { z } from 'zod';
 const text = z.string().trim().max(8000);
 const shortText = z.string().trim().max(1000);
 export const assessmentTypeSchema = z.enum(['injury', 'disability']);
-export const statusSchema = z.enum(['preliminary', 'insufficient', 'not_applicable']);
+export const statusSchema = z.enum(['preliminary', 'insufficient', 'needs_review', 'not_applicable']);
 
 export const requestSchema = z.object({
   assessmentType: assessmentTypeSchema,
@@ -15,6 +15,7 @@ export const requestSchema = z.object({
   })).max(6).default([]),
   injuryDate: z.union([z.iso.date(), z.literal(''), z.null()]).default(''),
   treatmentStatus: z.enum(['unknown', 'ongoing', 'stable']).default('unknown'),
+  forceReanalysis: z.boolean().default(false),
 }).superRefine((value, context) => {
   if (!value.description && !value.images.length) {
     context.addIssue({ code: 'custom', message: '请填写病历内容或上传报告图片。' });
@@ -42,6 +43,7 @@ export const providerResultSchema = z.object({
     conditions: z.array(z.object({
       condition: shortText,
       evidence: shortText,
+      factIds: z.array(z.string().trim().min(1).max(24)).max(30).optional(),
       met: z.boolean().nullable(),
     })).min(1).max(12),
   })).max(16),
@@ -52,6 +54,26 @@ export const providerResultSchema = z.object({
 
 export const extractionSchema = z.object({
   pages: z.array(z.object({ imageIndex: z.number().int().min(1).max(6), text, issues: z.array(shortText).max(15) })).max(6),
+});
+
+export const factCertaintySchema = z.enum(['reported', 'observed', 'derived', 'uncertain', 'excluded', 'conflicted', 'unknown']);
+export const extractedFactSchema = z.object({
+  id: z.string().trim().max(24).optional(),
+  field: z.string().trim().min(1).max(64),
+  value: z.json(),
+  certainty: factCertaintySchema,
+  source: z.enum(['description', 'image']),
+  evidence: shortText,
+});
+export const factConflictSchema = z.object({
+  factIds: z.array(z.string().trim().min(1).max(24)).max(30),
+  reason: shortText,
+});
+export const factExtractionSchema = z.object({
+  facts: z.array(extractedFactSchema).max(200),
+  missingMaterials: z.array(shortText).max(100),
+  conflicts: z.array(factConflictSchema).max(100),
+  requiresReview: z.boolean(),
 });
 
 export const standardSchema = z.object({
@@ -66,15 +88,20 @@ export const resultSchema = providerResultSchema.omit({ references: true, facts:
   schemaVersion: z.literal(2),
   assessmentType: assessmentTypeSchema,
   standard: standardSchema,
-  facts: z.array(z.object({
-    finding: shortText, source: z.enum(['description', 'image']), evidence: shortText,
+  facts: z.array(extractedFactSchema.extend({
+    finding: shortText,
     verification: z.enum(['quoted', 'image_pending']),
+    assertedCertainty: factCertaintySchema.optional(),
+    derivedFrom: z.array(z.string().trim().min(1).max(24)).max(30).optional(),
   })),
+  conflicts: z.array(factConflictSchema).max(100),
+  requiresReview: z.boolean(),
   references: z.array(z.object({
     id: shortText, grade: shortText, category: shortText, text,
     sourceUrl: z.url(), evidence: shortText, reasoning: shortText,
     relation: z.enum(['supports', 'incomplete', 'differential']),
-    conditions: z.array(z.object({ condition: shortText, evidence: shortText, met: z.boolean().nullable() })),
+    conditions: z.array(z.object({ condition: shortText, evidence: shortText,
+      factIds: z.array(z.string().trim().min(1).max(24)).max(30).optional(), met: z.boolean().nullable() })),
   })),
   recognizedText: z.string().max(60000),
   createdAt: z.iso.datetime(),
