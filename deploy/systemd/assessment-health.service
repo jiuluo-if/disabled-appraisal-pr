@@ -1,0 +1,10 @@
+[Unit]
+Description=Assessment site, model readiness and TLS certificate checks
+After=network-online.target gemini.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/node /www/wwwroot/gemini/healthcheck.mjs
+Environment=CERT_WARN_DAYS=21
+TimeoutStartSec=25

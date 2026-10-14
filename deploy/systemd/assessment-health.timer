@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily assessment service and certificate monitoring
+
+[Timer]
+OnCalendar=daily
+RandomizedDelaySec=10m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,5 +1,8 @@
 # Dependencies and runtime state
 node_modules/
+dist/
+test-results/
+playwright-report/
 *.log
 .DS_Store
 
