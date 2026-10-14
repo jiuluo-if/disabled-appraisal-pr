@@ -45,12 +45,16 @@ export function normalizeResult(raw, input, context) {
       const traceable = includesEvidence(sourceText, condition.evidence);
       return { ...condition, evidence: traceable ? condition.evidence : '', met: traceable ? condition.met : null };
     });
-    const confirmed = includesEvidence(sourceText, proposed.evidence) && conditions.every(condition => condition.met === true);
+    const aggregateTraceable = includesEvidence(sourceText, proposed.evidence);
+    const confirmed = conditions.every(condition => condition.met === true);
+    if (!aggregateTraceable && proposed.relation === 'supports' && confirmed) {
+      warnings.push('部分条款汇总引用未能逐字回查，已用逐项核对的材料原文替代。');
+    }
     const relation = proposed.relation === 'supports' && !confirmed ? 'incomplete' : proposed.relation;
     if (clause.grade && proposed.relation === 'supports' && !confirmed) {
       missingMaterials.push(`补充 ${clause.id} 所要求条件的明确报告、测量值或检查记录。`);
     }
-    references.push({ ...clause, sourceUrl: standard.sourceUrl, evidence: includesEvidence(sourceText, proposed.evidence) ? proposed.evidence : '',
+    references.push({ ...clause, sourceUrl: standard.sourceUrl, evidence: aggregateTraceable ? proposed.evidence : conditions.find(condition => condition.evidence)?.evidence || '',
       reasoning: proposed.relation === 'supports' && !confirmed ? '材料原文尚不能完整支持本条必要条件，需补充或核对，不用于当前定级。' : proposed.reasoning,
       relation, conditions });
   }

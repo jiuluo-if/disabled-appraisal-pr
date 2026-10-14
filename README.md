@@ -103,7 +103,11 @@ npm run test:browser
 The automated checks cover citation and evidence validation, differing grading
 systems, incomplete results, corrupted history, request timeouts, cancellation,
 provider errors, text/image uploads, desktop/mobile rendering and report export.
-CI runs these checks without production credentials or paid model requests.
+The GitHub Actions template in `deploy/github/ci.yml` runs these checks without
+production credentials or paid model requests. To activate it, install it as
+`.github/workflows/ci.yml` using a GitHub credential with workflow write access.
+The current publishing credential does not have that permission; automatic CI
+is not enabled yet.
 
 `dist/` is generated and ignored by Git. React, icons, styles and validation code
 are served locally from bundled assets; no runtime Babel or external CDN is

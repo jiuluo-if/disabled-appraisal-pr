@@ -33,6 +33,18 @@ test('valid results use official text rather than model-invented clause wording'
   }
 });
 
+test('verbatim condition evidence remains usable when a redundant summary quote was paraphrased', () => {
+  const raw = providerFixture('disability');
+  raw.references[0].evidence = '已接受部分脾脏切除';
+  const result = normalize(raw, 'disability');
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '九级伤残');
+  assert.equal(result.references[0].evidence, '脾部分切除术后');
+  assert.ok(result.warnings.some(item => item.includes('逐项核对')));
+  raw.references[0].conditions[0].evidence = '已接受部分脾脏切除';
+  assert.equal(normalize(raw, 'disability').grade, null);
+});
+
 test('invented clause IDs remove the grade and definitive model reasoning', () => {
   const raw = providerFixture(); raw.references[0].clauseId = '5.999.999'; raw.reasoning = '确定是轻伤二级。';
   const result = normalize(raw);
