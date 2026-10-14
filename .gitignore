@@ -1,0 +1,25 @@
+# Dependencies and runtime state
+node_modules/
+*.log
+.DS_Store
+
+# Local configuration and certificates
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+*.zip
+
+# Server backups and certificate update staging
+*.bak
+*.bak-*
+*.bf
+.ssl-backup-*/
+.ssl-update-*/
+.backup-*/
+.update-*/

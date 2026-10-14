@@ -1,0 +1,17 @@
+[Unit]
+Description=Gemini HTTPS proxy
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/www/wwwroot/gemini
+Environment=NODE_ENV=production
+EnvironmentFile=/www/wwwroot/gemini/.env
+ExecStart=/usr/bin/node /www/wwwroot/gemini/server.js
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
