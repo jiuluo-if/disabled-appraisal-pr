@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { createApp } from '../gemini/lib/app.js';
+import { createAnalysisCache, createApp } from '../gemini/lib/app.js';
 import { createProvider, ServiceError } from '../gemini/lib/provider.js';
-import { providerResultSchema } from '../gemini/lib/contracts.js';
+import { factExtractionSchema, providerResultSchema } from '../gemini/lib/contracts.js';
 import { inputs, providerFixture } from './fixtures.js';
 
 const config = { apiKey: 'test-key', apiUrl: 'https://example.test/v1/chat/completions',
@@ -16,7 +16,9 @@ async function withApp(options, run, overrides = {}) {
   const url = `http://127.0.0.1:${server.address().port}`;
   try { await run(url); } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }
 }
-const provider = { complete: async () => providerFixture(), readiness: async () => ({ status: 'ready', configuredModelsAvailable: true }) };
+const provider = { complete: async request => request.name === 'fact_extraction'
+  ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+  : providerFixture(), readiness: async () => ({ status: 'ready', configuredModelsAvailable: true }) };
 const post = (url, input, signal) => fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal });
 
 test('analysis returns validated result and legacy envelope; live and ready are separate', async () => {
@@ -32,6 +34,30 @@ test('analysis returns validated result and legacy envelope; live and ready are 
   });
 });
 
+test('valid legacy contents requests remain compatible and preserve the uploaded MIME type', async () => {
+  const png = Buffer.alloc(45);
+  Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').copy(png);
+  png.writeUInt32BE(1, 16); png.writeUInt32BE(1, 20); png.write('IEND', 37, 'ascii'); png[44] = 0x82;
+  const calls = [];
+  const provider = { readiness: async () => ({ status: 'ready', configuredModelsAvailable: true }), async complete(request) {
+    calls.push(request.name);
+    if (request.name === 'medical_report_transcription') return { pages: [{ imageIndex: 1, text: '成年人脾部分切除术后', issues: [] }] };
+    if (request.name === 'fact_extraction') return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+    return { ...providerFixture('disability'), facts: [] };
+  } };
+  await withApp({ provider }, async url => {
+    const response = await fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [
+        { text: '请依据《人体损伤致残程度分级》分析。成年人脾部分切除术后。' },
+        { inline_data: { mime_type: 'image/png', data: png.toString('base64') } },
+      ] }] }) });
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.result.assessmentType, 'disability');
+    assert.deepEqual(calls, ['medical_report_transcription', 'fact_extraction', 'assessment_result']);
+  });
+});
+
 test('invalid body, MIME mismatch and malformed JSON return structured errors', async () => {
   await withApp({ provider }, async url => {
     assert.equal((await post(url, { contents: [{ parts: {} }] })).status, 400);
@@ -41,6 +67,23 @@ test('invalid body, MIME mismatch and malformed JSON return structured errors', 
     assert.equal(malformed.status, 400); assert.equal((await malformed.json()).error.code, 'INVALID_JSON');
     const encoding = await fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'not-supported' }, body: JSON.stringify(inputs.injury) });
     assert.equal(encoding.status, 415); assert.equal((await encoding.json()).error.code, 'UNSUPPORTED_ENCODING');
+  });
+});
+
+test('truncated but correctly signed image bytes are rejected before model calls', async () => {
+  let calls = 0;
+  const provider = { ...providerFixture, complete: async request => {
+    calls += 1;
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+      : providerFixture();
+  } };
+  await withApp({ provider }, async url => {
+    const truncated = Buffer.from('89504e470d0a1a0a', 'hex').toString('base64');
+    const response = await post(url, { ...inputs.injury, images: [{ name: 'truncated.png', mimeType: 'image/png', data: truncated }] });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, 'INVALID_IMAGE');
+    assert.equal(calls, 0);
   });
 });
 
@@ -88,6 +131,100 @@ test('JSON repair is bounded and invalid results never become an apparent succes
   });
   await assert.rejects(mocked.complete({ model: 'test-text', schema: providerResultSchema, name: 'result', messages: [], signal: new AbortController().signal }), error => error.code === 'INVALID_RESULT');
   assert.equal(count, 2);
+});
+
+test('provider adapts both observed Kimi conflict-object shapes into the strict fact schema', async () => {
+  const shapes = [
+    { between: ['F1', 'F2'], description: '疑似骨折与复查未见骨折' },
+    { fact_ids: ['F1', 'F2'], description: '疑似骨折与复查未见骨折' },
+  ];
+  for (const conflict of shapes) {
+    const content = JSON.stringify({
+      facts: [
+        { id: 'F1', field: 'rib_fracture', value: 'suspected', certainty: 'uncertain', source_type: 'medical_record', source_excerpt: '疑似第六肋骨骨折' },
+        { id: 'F2', field: 'rib_fracture', value: 'excluded', certainty: 'excluded', source_type: 'medical_record', source_excerpt: '复查报告未见骨折' },
+      ], missing_information: [], conflicts: [conflict], requires_review: true,
+    });
+    let payload;
+    const mocked = createProvider(config, async (_url, init) => {
+      payload = JSON.parse(init.body);
+      return Response.json({ choices: [{ message: { content }, finish_reason: 'stop' }] });
+    });
+    const result = await mocked.complete({ model: 'kimi-k2.6', schema: factExtractionSchema,
+      name: 'fact_extraction', messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'synthetic input' }] });
+    assert.deepEqual(result.conflicts, [{ factIds: ['F1', 'F2'], reason: conflict.description }]);
+    assert.equal(result.facts[0].source, 'description');
+    assert.equal(payload.response_format.type, 'json_schema');
+    assert.deepEqual(payload.thinking, { type: 'disabled' });
+  }
+});
+
+test('upstream status errors never expose provider response bodies', async () => {
+  const cases = [[401, 'PROVIDER_CONFIGURATION'], [403, 'PROVIDER_CONFIGURATION'], [404, 'MODEL_UNAVAILABLE'], [429, 'UPSTREAM_BUSY'], [503, 'UPSTREAM_BUSY']];
+  for (const [status, code] of cases) {
+    const mocked = createProvider(config, async () => Response.json({ error: { message: 'upstream secret payload' } }, { status }));
+    await assert.rejects(mocked.complete({ model: 'kimi-k2.6', schema: providerResultSchema, name: 'assessment_result', messages: [] }), error => {
+      assert.equal(error.code, code); assert.equal(error.message.includes('secret'), false); return true;
+    });
+  }
+});
+
+test('ordinary identical requests reuse validated results; forceReanalysis bypasses the cache', async () => {
+  const calls = [];
+  const provider = { async complete(request) {
+    calls.push(request.name);
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+      : { ...providerFixture('injury'), facts: [] };
+  } };
+  await withApp({ provider }, async url => {
+    const first = await post(url, inputs.injury); assert.equal(first.status, 200);
+    const firstBody = await first.json();
+    const repeated = await post(url, inputs.injury); assert.equal(repeated.status, 200);
+    const repeatedBody = await repeated.json();
+    assert.deepEqual(calls, ['fact_extraction', 'assessment_result']);
+    assert.equal(firstBody.result.grade, repeatedBody.result.grade);
+    assert.equal(firstBody.result.status, repeatedBody.result.status);
+    assert.notEqual(firstBody.result.requestId, repeatedBody.result.requestId);
+    const forced = await post(url, { ...inputs.injury, forceReanalysis: true }); assert.equal(forced.status, 200);
+    assert.deepEqual(calls, ['fact_extraction', 'assessment_result', 'fact_extraction', 'assessment_result']);
+  });
+});
+
+test('twenty concurrent identical requests share one fact and assessment run', async () => {
+  const calls = [];
+  const provider = { async complete(request) {
+    calls.push(request.name);
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+      : { ...providerFixture('injury'), facts: [] };
+  } };
+  await withApp({ provider }, async url => {
+    const responses = await Promise.all(Array.from({ length: 20 }, () => post(url, inputs.injury)));
+    assert.ok(responses.every(response => response.status === 200));
+    const results = await Promise.all(responses.map(response => response.json()));
+    assert.deepEqual(calls, ['fact_extraction', 'assessment_result']);
+    assert.equal(new Set(results.map(item => item.result.grade)).size, 1);
+    assert.equal(new Set(results.map(item => item.result.requestId)).size, 20);
+  });
+});
+
+test('analysis cache expires entries and enforces its bounded capacity', async () => {
+  let now = 100;
+  const cache = createAnalysisCache({ ttlMs: 10, capacity: 1, now: () => now });
+  let calls = 0;
+  const producer = async () => ({ value: ++calls });
+  assert.deepEqual(await cache.run({ description: 'A' }, 'r1', producer), { value: 1, requestId: 'r1' });
+  assert.deepEqual(await cache.run({ description: 'A' }, 'r2', producer), { value: 1, requestId: 'r2' });
+  assert.equal(calls, 1);
+  await cache.run({ description: 'B' }, 'r3', producer);
+  assert.equal(cache.stats().entries, 1);
+  await cache.run({ description: 'A' }, 'r4', producer);
+  assert.equal(calls, 3);
+  now += 11;
+  await cache.run({ description: 'A' }, 'r5', producer);
+  assert.equal(calls, 4);
 });
 
 test('truncated upstream output is rejected even if a partial JSON value happens to parse', async () => {

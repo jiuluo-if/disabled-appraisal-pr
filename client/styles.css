@@ -86,10 +86,14 @@ textarea:disabled, input:disabled, select:disabled { background: #f8f9fa; }
 .report-heading { margin-bottom: 19px; }
 .conclusion { background: #f5f8fb; border-left: 3px solid var(--accent); padding: 18px 19px; }
 .conclusion.insufficient, .conclusion.not_applicable { background: #fdf8ed; border-left-color: #b67b18; }
+.conclusion.needs_review { background: #fff4ef; border-left-color: #b34b37; }
 .conclusion h3 { font-size: 25px; font-weight: 650; margin: 11px 0 9px; line-height: 1.45; overflow-wrap: anywhere; }
 .conclusion p { font-size: 13px; color: #5a6570; line-height: 1.8; }
 .status-label { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 550; color: #23755d; white-space: normal; }
 .status-label.insufficient, .status-label.not_applicable { color: #9a681b; }
+.status-label.needs_review { color: #a34238; }
+.conflicts-section { background: #fff8f5; border-left: 3px solid #b34b37; padding-left: 14px; }
+.conflicts-section > h3 { color: #963b2e; }
 .report-section { padding: 23px 0; border-bottom: 1px solid #e9edf0; }
 .report-section > h3 { display: flex; align-items: center; gap: 7px; margin-bottom: 11px; }
 .report-section p, .report-section li { font-size: 13px; line-height: 1.85; color: #4d5964; overflow-wrap: anywhere; }

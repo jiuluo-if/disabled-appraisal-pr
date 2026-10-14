@@ -63,6 +63,23 @@ for (const type of ['injury', 'disability']) {
     await expect(page.getByText('旧版记录可能包含模拟结果，未纳入已核对记录。')).toBeVisible();
     await expect(page.getByText('暂无已保存的评估记录')).toBeVisible();
   });
+  test(`${type}: contradictory facts remain visible and force a review status`, async ({ page }) => {
+    const result = resultFixture(type);
+    result.status = 'needs_review'; result.grade = null; result.requiresReview = true;
+    result.facts = [
+      { ...result.facts[0], id: 'F1', certainty: 'conflicted', assertedCertainty: 'uncertain', evidence: '报告甲疑似肋骨骨折' },
+      { ...result.facts[0], id: 'F2', certainty: 'conflicted', assertedCertainty: 'excluded', evidence: '报告乙未见肋骨骨折' },
+    ];
+    result.conflicts = [{ factIds: ['F1', 'F2'], reason: '同一事实存在相互矛盾的来源记载，需人工复核。' }];
+    await page.route('**/api/analyze', route => route.fulfill({ json: { result } }));
+    await open(page);
+    await page.getByRole('textbox', { name: '病历与检查记录' }).fill(inputs[type].description);
+    await page.getByRole('button', { name: '开始评估' }).click();
+    await expect(page.locator('.status-label.needs_review')).toContainText('需复核');
+    await expect(page.locator('.conflicts-section')).toContainText('相互矛盾');
+    await expect(page.locator('.fact-list')).toContainText('存在冲突');
+    await expect(page.locator('.conclusion h3')).toHaveText('暂不输出等级');
+  });
   test(`${type}: cancelling a pending request cannot display a late result`, async ({ page }) => {
     await page.route('**/api/analyze', async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.fulfill({ json: { result: resultFixture(type) } }).catch(() => {}); });
     await open(page);

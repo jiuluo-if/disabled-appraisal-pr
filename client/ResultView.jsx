@@ -2,7 +2,8 @@ import React, { useState } from 'react';
 import { AlertTriangle, Check, CheckCircle2, ClipboardCopy, Download, ExternalLink, FileText, Loader2, Printer, RotateCcw, Save } from 'lucide-react';
 import { downloadReport, reportText } from './report.js';
 
-const statusNames = { preliminary: '初步评估', insufficient: '材料不足', not_applicable: '标准不适用' };
+const statusNames = { preliminary: '初步评估', insufficient: '材料不足', needs_review: '需复核', not_applicable: '标准不适用' };
+const certaintyNames = { reported: '材料陈述', observed: '已观察', derived: '规则推导', uncertain: '不确定', excluded: '已排除', conflicted: '存在冲突', unknown: '待核实' };
 
 export function ResultView({ result, busy, elapsed, error, onRetry, retryDisabled, onSave, saved, onEditText }) {
   const [copied, setCopied] = useState(false);
@@ -50,10 +51,20 @@ export function ResultView({ result, busy, elapsed, error, onRetry, retryDisable
       <h3>分析依据</h3>
       <p className="preserve-lines">{result.reasoning}</p>
     </section>
+    {((result.conflicts || []).length > 0 || result.requiresReview) && <section className="report-section conflicts-section">
+      <h3><AlertTriangle size={17} />需复核的资料冲突</h3>
+      {(result.conflicts || []).length > 0 ? <ul>{result.conflicts.map((conflict, index) => <li key={index}>
+        <strong>{conflict.reason}</strong>
+        {conflict.factIds?.length > 0 && <ul>{conflict.factIds.map(id => {
+          const fact = result.facts.find(item => item.id === id);
+          return <li key={id}>{id}{fact ? ` · ${fact.finding} · ${fact.evidence}` : ''}</li>;
+        })}</ul>}
+      </li>)}</ul> : <p>存在待核实事实；当前不输出等级。</p>}
+    </section>}
     <section className="report-section">
       <h3>材料事实 <span className="section-count">{result.facts.length}</span></h3>
       {result.facts.length ? <div className="fact-list">{result.facts.map((fact, index) => <div className="fact-row" key={index}>
-        <div className="fact-title"><strong>{fact.finding}</strong><span className="source-label">{fact.source === 'image' ? '图片识别 · 待核对' : '描述原文'}</span></div>
+        <div className="fact-title"><strong>{fact.finding}</strong><span className="source-label">{fact.source === 'image' ? '图片识别 · 待核对' : '描述原文'} · {certaintyNames[fact.certainty]}</span></div>
         <blockquote>{fact.evidence}</blockquote>
       </div>)}</div> : <p className="muted">暂无能够回查的明确事实。</p>}
     </section>
