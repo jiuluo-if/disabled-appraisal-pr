@@ -33,6 +33,31 @@ function evaluateRibCondition(condition, facts) {
   return null;
 }
 
+function deterministicRibReferences(clauses, facts, sourceUrl) {
+  const candidates = clauses.flatMap(clause => {
+    if (!/肋骨骨折/.test(clause.text)) return [];
+    const condition = clause.text.split(/[；;。]/).map(value => value.trim()).find(value => /肋骨骨折/.test(value));
+    if (!condition) return [];
+    const met = evaluateRibCondition(condition, facts);
+    const relevantFields = /(?:处数|\d+\s*处|[一二两三四五六七八九十]+\s*处)/.test(condition)
+      ? ['fracture_site_count'] : ['injury_type'];
+    const relevantFacts = facts.filter(fact => fact.source === 'description' && fact.verification === 'quoted'
+      && relevantFields.includes(fact.field));
+    return [{ clause, condition, met, relevantFacts }];
+  });
+  return candidates.map(({ clause, condition, met, relevantFacts }) => {
+    const gradeRank = grades.injury.indexOf(clause.grade);
+    const hasHigherIncompleteClause = candidates.some(candidate => grades.injury.indexOf(candidate.clause.grade) < gradeRank
+      && candidate.met === null);
+    const relation = met === true ? (hasHigherIncompleteClause ? 'differential' : 'supports') : 'incomplete';
+    const evidence = relevantFacts[0]?.evidence || '';
+    return { ...clause, sourceUrl, evidence,
+      reasoning: relation === 'differential' ? '较重条款所需条件尚未确认，本条仅作对照。'
+        : met === true ? '可回查事实与本地条文条件相符。' : '材料原文尚不能完整支持本条条件，需补充或核对。',
+      relation, conditions: [{ condition, evidence, factIds: relevantFacts.map(fact => fact.id), met }] };
+  }).sort((a, b) => a.id.localeCompare(b.id, 'en'));
+}
+
 export function normalizeResult(raw, input, context) {
   const generated = providerResultSchema.parse(raw);
   const { standard } = catalogs[input.assessmentType];
@@ -48,8 +73,9 @@ export function normalizeResult(raw, input, context) {
   const warnings = [...generated.warnings, ...(context.extractionWarnings || [])];
   const conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
   const requiresReview = context.requiresReview === true || conflicts.length > 0;
+  const hasValidatedFacts = Array.isArray(context.extractedFacts);
   const missingMaterials = canonicalMissingMaterials([
-    ...generated.missingMaterials,
+    ...(hasValidatedFacts ? [] : generated.missingMaterials),
     ...(Array.isArray(context.factMissingMaterials) ? context.factMissingMaterials : []),
   ]);
   const facts = [];
@@ -118,25 +144,34 @@ export function normalizeResult(raw, input, context) {
         : '材料原文尚不能完整支持本条条件，需补充或核对，不用于当前定级。',
       relation, conditions });
   }
+  const hasReliableRibFact = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture'
+    && ['reported', 'observed', 'derived'].includes(fact.certainty)
+    && fact.source === 'description' && fact.verification === 'quoted');
+  const stableRibReferences = !requiresReview && hasReliableRibFact
+    ? deterministicRibReferences(context.clauses, facts, standard.sourceUrl) : [];
+  if (stableRibReferences.length) {
+    references.splice(0, references.length, ...references.filter(reference => !/肋骨骨折/.test(reference.text)), ...stableRibReferences);
+    invalidReference = false;
+  }
+  if (requiresReview) references.splice(0, references.length);
   let status = generated.status;
   let grade = generated.grade;
   if (requiresReview) status = 'needs_review';
-  const hasValidatedFacts = Array.isArray(context.extractedFacts);
   const blockingMissingMaterials = !hasValidatedFacts && missingMaterials.length > 0;
   const supportedReference = references.find(reference => grades[input.assessmentType].includes(reference.grade)
-    && (generated.grade == null || generated.grade === reference.grade)
+    && (stableRibReferences.length > 0 || generated.grade == null || generated.grade === reference.grade)
     && reference.relation === 'supports' && reference.conditions.length > 0
     && reference.conditions.every(condition => condition.met === true));
+  const explicitAlternativeStandard = /工伤|劳动能力鉴定|保险合同|保险条款/.test(input.description);
+  if (!requiresReview && !supportedReference) {
+    if (status === 'needs_review') status = 'insufficient';
+    if (status === 'not_applicable' && !explicitAlternativeStandard) status = 'insufficient';
+  }
   if (!requiresReview && !invalidReference && !blockingMissingMaterials && facts.length > 0 && supportedReference) {
     status = 'preliminary';
     grade = supportedReference.grade;
     for (let index = references.length - 1; index >= 0; index -= 1) {
       if (references[index].grade && (references[index].relation !== 'supports' || references[index].grade !== grade)) references.splice(index, 1);
-    }
-    if (!/侧别|左侧|右侧|双侧/.test(supportedReference.text)) {
-      for (let index = missingMaterials.length - 1; index >= 0; index -= 1) {
-        if (/侧别|侧位|左右侧/.test(missingMaterials[index])) missingMaterials.splice(index, 1);
-      }
     }
   } else if (status === 'preliminary') {
     if (!supportedReference || !grades[input.assessmentType].includes(grade) || invalidReference || blockingMissingMaterials) {
@@ -159,6 +194,45 @@ export function normalizeResult(raw, input, context) {
         reference.reasoning = '关键事实存在冲突或待核实内容，本条不用于等级判断。';
       }
     }
+  }
+  if (hasValidatedFacts) {
+    if (status === 'needs_review') {
+      missingMaterials.splice(0, missingMaterials.length,
+        conflicts.length ? '核对冲突事实所涉及的原始资料。' : '核实关键事实的原始资料。');
+    } else if (status === 'preliminary') {
+      missingMaterials.length = 0;
+    } else if (status === 'insufficient') {
+      missingMaterials.splice(0, missingMaterials.length,
+        ...canonicalMissingMaterials(context.factMissingMaterials || []));
+      const excludedOnlyFacts = facts.length > 0 && facts.every(fact => fact.certainty === 'excluded');
+      const hasReliableRibFact = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture'
+        && ['reported', 'observed', 'derived'].includes(fact.certainty)
+        && fact.source === 'description' && fact.verification === 'quoted');
+      const hasExplicitSiteCount = facts.some(fact => fact.field === 'fracture_site_count'
+        && ['reported', 'observed', 'derived'].includes(fact.certainty)
+        && fact.source === 'description' && fact.verification === 'quoted');
+      const hasUnresolvedRibSiteThreshold = references.some(reference => /肋骨骨折/.test(reference.text)
+        && /(?:\d+|[零〇一二两三四五六七八九十百]+)\s*处以上/.test(reference.text));
+      if (hasReliableRibFact && hasUnresolvedRibSiteThreshold && !hasExplicitSiteCount) {
+        missingMaterials.push('骨折处数未在原文中明确记载，需核实');
+      }
+      if (excludedOnlyFacts) missingMaterials.splice(0, missingMaterials.length);
+      if (input.assessmentType === 'disability' && input.treatmentStatus === 'ongoing') {
+        missingMaterials.push('原发损伤及相关并发症治疗终结或临床效果稳定后的复查与功能评定资料。');
+      }
+      if (missingMaterials.length === 0) missingMaterials.push('补充与适用条款相关的客观材料。');
+    }
+  }
+  const hasRibFacts = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture');
+  const hasOnlySourceBackedRibFacts = facts.length > 0 && facts.every(fact =>
+    ['injury_type', 'anatomical_site', 'laterality', 'fractured_rib_numbers', 'fractured_rib_count', 'fracture_site_count'].includes(fact.field)
+      && /肋骨/.test(fact.evidence));
+  const hasRibReferences = references.some(reference => /肋骨骨折/.test(reference.text));
+  if (status === 'insufficient' && !requiresReview && hasRibFacts && hasRibReferences) {
+    const stableReferences = deterministicRibReferences(context.clauses, facts, standard.sourceUrl);
+    if (stableReferences.length) references.splice(0, references.length,
+      ...(hasOnlySourceBackedRibFacts ? [] : references.filter(reference => !/肋骨骨折/.test(reference.text))),
+      ...stableReferences);
   }
   references.sort((a, b) => Number(!a.grade) - Number(!b.grade) || a.id.localeCompare(b.id, 'en'));
   for (const reference of references) reference.conditions.sort((a, b) => a.condition.localeCompare(b.condition, 'zh-CN'));

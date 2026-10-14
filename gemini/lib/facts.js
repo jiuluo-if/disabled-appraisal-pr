@@ -105,6 +105,16 @@ function normalizeRibFacts(inputText) {
   return facts;
 }
 
+function normalizeGenericNegativeFractureFacts(inputText) {
+  const text = normalizeInput(inputText);
+  return text.split(/(?<=[。；;\n])/u).map(clause => clause.trim()).filter(clause => {
+    if (!/骨折/.test(clause) || /肋骨/.test(clause) || canonicalCertainty(clause, 'reported') !== 'excluded') return false;
+    return /未见|未发现|排除|不存在|没有|无|阴性|否认/.test(clause);
+  }).map(source_excerpt => ({
+    field: 'injury_type', value: 'fracture', certainty: 'excluded', source_type: 'user_text', source_excerpt,
+  }));
+}
+
 function stableJson(value) {
   if (Array.isArray(value)) {
     const normalized = value.map(stableJson);
@@ -126,9 +136,10 @@ function canonicalCertainty(evidence, proposed) {
 function canonicalMissingMaterials(items = []) {
   const aliases = [
     [/^(?:applicable_assessment_standard_entries|assessment_standard|鉴定标准条款|可适用的伤情鉴定标准条款).*$/i, '可适用的鉴定标准条款'],
-    [/^(?:definitive_diagnosis|明确诊断|医学诊断结果).*$/i, '明确诊断或复查结论'],
-    [/^(?:diagnosis_report|diagnosis_materials|临床诊断(?:报告|资料)|诊断报告|诊断资料).*$/i, '诊断资料'],
-    [/^(?:imaging_examination|影像学?检查(?:报告)?|影像资料).*$/i, '影像检查报告'],
+    [/^(?:definitive_diagnosis|diagnosis_certificate|diagnosis_proof|diagnosis_materials|diagnosis_report|明确诊断|医学诊断结果|诊断证明|诊断资料|诊断报告|诊断意见|胸部损伤诊断).*$/i, '明确诊断或复查结论'],
+    [/^(?:fracture_site_count|骨折处数)(?:未在(?:原文|材料)中?明确(?:记载|说明|提供)|未明确).*$/i, '骨折处数未在原文中明确记载，需核实'],
+    [/^(?:临床诊断(?:报告|资料)).*$/i, '明确诊断或复查结论'],
+    [/^(?:imaging_examination|imaging_report|影像学?检查(?:报告|资料)?|影像资料|影像学资料|影像学图像|胸部影像学?检查(?:报告|资料)?|胸部影像资料).*$/i, '影像检查报告'],
     [/^(?:sixth_rib_laterality|laterality|肋骨侧别|侧别).*$/i, '肋骨侧别'],
   ];
   return [...new Set(items.filter(item => typeof item === 'string').map(item => {
@@ -260,7 +271,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
 
   const deterministicFacts = [];
   for (const [source, sourceText] of Object.entries(sourceTexts)) {
-    for (const fact of normalizeRibFacts(sourceText)) {
+    for (const fact of [...normalizeRibFacts(sourceText), ...normalizeGenericNegativeFractureFacts(sourceText)]) {
       const excerpt = sourceClause(sourceText, fact.source_excerpt) || fact.source_excerpt;
       deterministicFacts.push({
         ...(fact.id ? { parserId: fact.id } : {}), field: fact.field, value: stableJson(fact.value),
@@ -281,15 +292,49 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   for (const sourceFact of raw.facts) {
     const providedEvidence = normalizeInput(sourceFact.evidence);
     const providedSource = sourceFact.source;
+    if (sourceFact.value == null) continue;
     const source = sourceTexts[providedSource].includes(providedEvidence) ? providedSource
       : sourceTexts.description.includes(providedEvidence) ? 'description'
         : sourceTexts.image.includes(providedEvidence) ? 'image' : null;
     if (!source || !providedEvidence) { invalidEvidence = true; continue; }
     const fullEvidence = sourceClause(sourceTexts[source], providedEvidence) || providedEvidence;
-    if (sourceFact.value == null) continue;
     let certainty = canonicalCertainty(fullEvidence, sourceFact.certainty);
     let field = canonicalField(sourceFact.field);
     let value = stableJson(sourceFact.value);
+
+    if (field === 'other' && value && typeof value === 'object' && !Array.isArray(value)
+      && typeof value.statement === 'string'
+      && normalizeInput(fullEvidence).includes(normalizeInput(value.statement))) {
+      value = normalizeInput(value.statement);
+    }
+
+    if (field === 'other' && typeof value === 'string' && /(?:骨折|fracture)/i.test(value)
+      && deterministicFacts.some(item => item.source === source && item.certainty === certainty
+        && ribFields.has(item.field) && item.evidence === fullEvidence
+        && normalizeInput(fullEvidence).includes(normalizeInput(value)))) continue;
+
+    const repeatsSameClauseSymptomSite = field === 'anatomical_site' && typeof value === 'string'
+      && raw.facts.some(candidate => {
+        if (canonicalField(candidate.field) !== 'symptom' || candidate.source !== source) return false;
+        const symptomQuote = normalizeInput(candidate.evidence);
+        if (!symptomQuote || !sourceTexts[source].includes(symptomQuote)) return false;
+        const symptomClause = sourceClause(sourceTexts[source], symptomQuote);
+        const siteClause = sourceClause(sourceTexts[source], providedEvidence);
+        return Boolean(symptomClause && symptomClause === siteClause
+          && normalizeInput(fullEvidence).includes(normalizeInput(value)));
+      });
+    if (repeatsSameClauseSymptomSite) continue;
+
+    if (field === 'anatomical_site' && typeof value === 'string' && /肋骨/.test(value) && !/肋骨/.test(fullEvidence)) {
+      invalidEvidence = true;
+      continue;
+    }
+
+    const sameClauseHasSiteCount = field === 'fractured_rib_count' && deterministicFacts.some(item =>
+      item.source === source && item.field === 'fracture_site_count'
+        && sourceClause(sourceTexts[source], item.evidence) === sourceClause(sourceTexts[source], fullEvidence));
+    const quotesRibRootCount = /(?:\d+|[零〇一二两三四五六七八九十百]+)\s*(?:根|条)(?:肋骨)?/.test(fullEvidence);
+    if (sameClauseHasSiteCount && !quotesRibRootCount) continue;
 
     if (field === 'anatomical_site' && typeof value === 'string' && /^(?:rib|ribs|肋骨)$/i.test(value.trim())
       || field === 'anatomical_site' && typeof value === 'string' && /肋骨/.test(value)) value = '肋骨';
@@ -321,8 +366,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (field === 'fractured_rib_numbers' && Array.isArray(value) && value.length === 0 && certainty === 'excluded') {
       field = 'injury_type'; value = 'rib_fracture';
     }
-    if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())
-      && /肋骨/.test(sourceTexts[source])) value = 'rib_fracture';
+    if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())) {
+      value = /(?:肋骨|rib)/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
+    }
 
     const isRibFinding = isRibAlias(field) && /骨折|肋骨/i.test(`${field} ${fullEvidence}`);
     const parsedForEvidence = normalizeRibFacts(providedEvidence);
@@ -343,13 +389,17 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       if (mapped) { mapRawIdToRelatedRibFacts(sourceFact.id, source, fullEvidence, certainty); continue; }
     }
 
-    if ((field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())
-      && /肋骨|rib/i.test(fullEvidence))
-      || (/^(?:rib_fracture|sixth_rib_fracture|fracture)$/.test(field) && deterministicFacts.some(item => item.source === source && isRibAlias(item.field)))) {
-      field = 'injury_type'; value = 'rib_fracture';
-    } else if (field === 'symptom') {
-      value = fullEvidence;
+    if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())) {
+      value = /肋骨|rib/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
     }
+    if (certainty === 'excluded' && (
+      ['diagnosis', 'injury_type'].includes(field) && typeof value === 'string' && /骨折|fracture/i.test(value)
+      || field === 'fractured_rib_numbers' && Array.isArray(value) && value.length === 0
+      || /^(?:rib_fracture|sixth_rib_fracture|fracture)$/.test(field)
+    )) {
+      field = 'injury_type'; value = /(?:肋骨|rib)/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
+    }
+    if (field === 'symptom') value = fullEvidence;
     const normalized = { ...(sourceFact.id ? { rawIds: [sourceFact.id] } : {}), field, value, certainty,
       source, evidence: fullEvidence, finding: factFinding(field, value, certainty) };
     const target = addFact(normalized, sourceFact.id || null);
@@ -399,9 +449,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const sameValue = JSON.stringify(left.value) === JSON.stringify(right.value);
       const certaintyConflict = sameValue && new Set([left.certainty, right.certainty]).has('uncertain')
         && new Set([left.certainty, right.certainty]).has('excluded');
+      const fractureSpecificityConflict = field === 'injury_type' && !sameValue
+        && new Set([left.certainty, right.certainty]).has('uncertain')
+        && new Set([left.certainty, right.certainty]).has('excluded')
+        && new Set([left.value, right.value]).has('fracture')
+        && new Set([left.value, right.value]).has('rib_fracture');
       const conflictingCount = ['fractured_rib_count', 'fracture_site_count'].includes(field)
         && !sameValue && /报告|病历|复查|检查/.test(left.evidence) && /报告|病历|复查|检查/.test(right.evidence);
-      if (certaintyConflict || conflictingCount) addConflict([left.id, right.id]);
+      if (certaintyConflict || fractureSpecificityConflict || conflictingCount) addConflict([left.id, right.id]);
     }
   }
   if (unlinkedModelConflict && conflictsByIds.size === 0) conflictsByIds.set('unlinked', []);
