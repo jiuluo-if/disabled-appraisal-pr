@@ -74,7 +74,7 @@ export function App({ type }) {
     event?.preventDefault();
     if (busy || uploading || (!description.trim() && !images.length)) return;
     const controller = new AbortController();
-    const id = crypto.randomUUID();
+    const id = Symbol('analysis');
     active.current = { id, controller };
     const input = { assessmentType: type, description: description.trim(), injuryDate, treatmentStatus,
       images: images.map(({ name, mimeType, data }) => ({ name, mimeType, data })) };
@@ -135,7 +135,7 @@ export function App({ type }) {
           <div className="assessment-actions"><button type="button" className="icon-button reset-button" aria-label="清空材料" title="清空材料" disabled={uploading} onClick={reset}><RotateCcw size={18} /></button><button type="submit" className="primary-button" disabled={busy || uploading || (!description.trim() && !images.length)}>{busy ? <Loader2 size={18} className="spin" /> : <BrandIcon size={18} />}{busy ? '正在分析' : error ? '重新分析' : '开始评估'}</button>{busy && <button type="button" className="secondary-button" onClick={cancel}><X size={16} />取消</button>}</div>
           <div className="analysis-progress" aria-live="polite">{busy ? `正在核对材料与条款 · ${elapsed} 秒` : uploading ? '正在读取和处理图片' : ''}</div>
         </form>
-        <div ref={resultRef} className="result-container"><ResultView result={result} onSave={save} saved={Boolean(result && records.some(record => record.id === result.requestId))} onEditText={text => { setDescription(previous => `${previous}\n\n${text}`.trim()); invalidate(); document.getElementById('description')?.focus(); }} /></div>
+        <div ref={resultRef} className="result-container"><ResultView result={result} busy={busy} elapsed={elapsed} error={error} onRetry={() => submit()} retryDisabled={uploading || (!description.trim() && !images.length)} onSave={save} saved={Boolean(result && records.some(record => record.id === result.requestId))} onEditText={text => { setDescription(previous => `${previous}\n\n${text}`.trim()); invalidate(); document.getElementById('description')?.focus(); }} /></div>
       </div>}
       {tab === 'standards' && <StandardsView type={type} />}
       {tab === 'history' && <section className="history-view"><div className="section-heading"><h2>本机评估记录</h2>{(records.length > 0 || legacy) && <button type="button" className="text-button destructive" onClick={clearRecords}><Trash2 size={16} />清空记录</button>}</div>

@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { AlertTriangle, Check, CheckCircle2, ClipboardCopy, Download, ExternalLink, FileText, Printer, Save } from 'lucide-react';
+import { AlertTriangle, Check, CheckCircle2, ClipboardCopy, Download, ExternalLink, FileText, Loader2, Printer, RotateCcw, Save } from 'lucide-react';
 import { downloadReport, reportText } from './report.js';
 
 const statusNames = { preliminary: '初步评估', insufficient: '材料不足', not_applicable: '标准不适用' };
 
-export function ResultView({ result, onSave, saved, onEditText }) {
+export function ResultView({ result, busy, elapsed, error, onRetry, retryDisabled, onSave, saved, onEditText }) {
   const [copied, setCopied] = useState(false);
   const [copyError, setCopyError] = useState('');
   async function copy() {
@@ -14,6 +14,17 @@ export function ResultView({ result, onSave, saved, onEditText }) {
       setTimeout(() => setCopied(false), 2000);
     } catch { setCopyError('复制失败，可使用下载报告。'); }
   }
+  if (busy) return <section className="result-area result-empty result-pending" aria-label="评估结果" aria-busy="true">
+    <Loader2 size={32} strokeWidth={1.5} className="spin" />
+    <h2>正在核对材料与条款</h2>
+    <p className="result-status-copy" role="status">已等待 {elapsed} 秒</p>
+  </section>;
+  if (!result && error) return <section className="result-area result-empty result-failed" aria-label="评估结果">
+    <AlertTriangle size={32} strokeWidth={1.5} />
+    <h2>本次评估未完成</h2>
+    <p className="result-status-copy">{error}</p>
+    <button type="button" className="secondary-button" disabled={retryDisabled} onClick={onRetry}><RotateCcw size={16} />重试</button>
+  </section>;
   if (!result) return <section className="result-area result-empty" aria-label="评估结果">
     <FileText size={32} strokeWidth={1.5} />
     <h2>暂无评估结果</h2>
@@ -69,6 +80,7 @@ export function ResultView({ result, onSave, saved, onEditText }) {
     <footer className="report-footer">
       <p>{result.standard.name} · {result.standard.version}</p>
       <p>{new Date(result.createdAt).toLocaleString('zh-CN')} · 本结果为辅助分析，不是正式司法鉴定意见。</p>
+      <p>请求编号：{result.requestId}</p>
     </footer>
   </article>;
 }

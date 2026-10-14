@@ -28,15 +28,16 @@ for (const type of ['injury', 'disability']) {
     let count = 0;
     await page.route('**/api/analyze', route => {
       count++;
-      return count === 1 ? route.fulfill({ status: 503, json: { error: { message: '当前分析模型不可用。' } } }) : route.fulfill({ json: { result: resultFixture(type) } });
+      return count === 1 ? route.fulfill({ status: 503, headers: { 'x-request-id': 'failed-request-test' }, json: { error: { message: '当前分析模型不可用。' } } }) : route.fulfill({ json: { result: resultFixture(type) } });
     });
     await open(page);
     await page.getByRole('textbox', { name: '病历与检查记录' }).fill(inputs[type].description);
     await page.getByRole('button', { name: '开始评估' }).click();
     await expect(page.getByRole('alert')).toContainText('模型不可用');
-    await expect(page.getByRole('heading', { name: '暂无评估结果' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '本次评估未完成' })).toBeVisible();
+    await expect(page.locator('.result-failed')).toContainText('failed-request-test');
     expect(await page.evaluate(kind => localStorage.getItem(`appraisal_${kind}_history_v2`), type)).toBeNull();
-    await page.getByRole('button', { name: '重新分析' }).click();
+    await page.getByRole('button', { name: '重试', exact: true }).click();
     await expect(page.locator('.conclusion h3')).toHaveText(`初步考虑：${type === 'injury' ? '轻伤二级' : '九级伤残'}`);
     await page.getByRole('button', { name: '保存到本机', exact: true }).click();
     await page.getByRole('tab', { name: /本机记录/ }).click();
@@ -63,13 +64,28 @@ for (const type of ['injury', 'disability']) {
     await expect(page.getByText('暂无已保存的评估记录')).toBeVisible();
   });
   test(`${type}: cancelling a pending request cannot display a late result`, async ({ page }) => {
-    await page.route('**/api/analyze', async route => { await new Promise(resolve => setTimeout(resolve, 450)); await route.fulfill({ json: { result: resultFixture(type) } }).catch(() => {}); });
+    await page.route('**/api/analyze', async route => { await new Promise(resolve => setTimeout(resolve, 1500)); await route.fulfill({ json: { result: resultFixture(type) } }).catch(() => {}); });
+    await open(page);
+    await page.evaluate(() => { crypto.randomUUID = undefined; });
+    await page.getByRole('textbox', { name: '病历与检查记录' }).fill(inputs[type].description);
+    await page.getByRole('button', { name: '开始评估' }).click();
+    await expect(page.getByRole('heading', { name: '正在核对材料与条款' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: '暂无评估结果' })).toHaveCount(0);
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(page.getByRole('alert')).toContainText('已取消');
+    await expect(page.locator('.result-failed')).toContainText('已取消');
+    await page.waitForTimeout(1650);
+    await expect(page.locator('.conclusion')).toHaveCount(0);
+  });
+  test(`${type}: a disconnected request shows a retryable failure, not an empty result`, async ({ page }) => {
+    await page.route('**/api/analyze', route => route.abort('failed'));
     await open(page);
     await page.getByRole('textbox', { name: '病历与检查记录' }).fill(inputs[type].description);
     await page.getByRole('button', { name: '开始评估' }).click();
-    await page.getByRole('button', { name: '取消', exact: true }).click();
-    await expect(page.getByRole('alert')).toContainText('已取消');
-    await page.waitForTimeout(550);
+    await expect(page.getByRole('alert')).toContainText('未能收到分析服务的响应');
+    await expect(page.getByRole('heading', { name: '本次评估未完成' })).toBeVisible();
+    await expect(page.getByRole('button', { name: '重试', exact: true })).toBeEnabled();
+    await expect(page.locator('.result-pending')).toHaveCount(0);
     await expect(page.locator('.conclusion')).toHaveCount(0);
   });
   test(`${type}: report pictures have correct encoded MIME, full previews and small-screen layout`, async ({ page }) => {

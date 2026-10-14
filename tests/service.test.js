@@ -39,6 +39,8 @@ test('invalid body, MIME mismatch and malformed JSON return structured errors', 
     assert.equal(image.status, 400); assert.equal((await image.json()).error.code, 'INVALID_IMAGE');
     const malformed = await fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{broken' });
     assert.equal(malformed.status, 400); assert.equal((await malformed.json()).error.code, 'INVALID_JSON');
+    const encoding = await fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Encoding': 'not-supported' }, body: JSON.stringify(inputs.injury) });
+    assert.equal(encoding.status, 415); assert.equal((await encoding.json()).error.code, 'UNSUPPORTED_ENCODING');
   });
 });
 
