@@ -12,6 +12,9 @@ const integer = (name, fallback, minimum, maximum) => {
 
 try {
   if (!process.env.KIMI_API_KEY) throw new Error('KIMI_API_KEY is required; configure gemini/.env');
+  const thinking = process.env.KIMI_THINKING === 'enabled' ? 'enabled' : 'disabled';
+  const temperature = Number(process.env.KIMI_TEMPERATURE || (thinking === 'enabled' ? 1 : 0.6));
+  if (!Number.isFinite(temperature)) throw new Error('Invalid KIMI_TEMPERATURE');
   const config = {
     apiKey: process.env.KIMI_API_KEY,
     apiUrl: process.env.KIMI_API_URL || 'https://api.moonshot.cn/v1/chat/completions',
@@ -19,7 +22,8 @@ try {
     visionModel: process.env.KIMI_VISION_MODEL || 'kimi-k2.6',
     timeoutMs: integer('REQUEST_TIMEOUT_MS', 90000, 1000, 300000),
     maxTokens: integer('KIMI_MAX_TOKENS', 10000, 1024, 32768),
-    thinking: process.env.KIMI_THINKING === 'enabled' ? 'enabled' : 'disabled',
+    thinking,
+    temperature,
     jsonMode: process.env.KIMI_JSON_MODE === 'object' ? 'object' : 'schema',
   };
   const options = {
