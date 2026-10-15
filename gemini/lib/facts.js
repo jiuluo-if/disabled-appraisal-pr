@@ -649,7 +649,7 @@ function validateImage({ mimeType, data } = {}) {
     const isLastChunk = offset + 4096 >= data.length;
     const validChunk = isLastChunk
       ? /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=|[A-Za-z0-9+/]{4})?$/.test(chunk)
-      : /^[A-Za-z0-9+/]{4}$/.test(chunk);
+      : /^[A-Za-z0-9+/]+$/.test(chunk);
     if (!validChunk) return { ok: false, error: '图片编码无效' };
   }
   const buffer = Buffer.from(data, 'base64');

@@ -56,3 +56,18 @@ test('image validation sniffs actual supported bytes and rejects spoofed, malfor
   assert.equal(validateImage({ mimeType: 'image/png', data: '%%%=' }).ok, false);
   assert.equal(validateImage(image('image/png', Buffer.alloc(8 * 1024 * 1024 + 1))).ok, false);
 });
+
+test('image validation accepts base64 across chunk boundaries and rejects misplaced padding', () => {
+  for (const size of [3072, 3073, 6144, 6145, 50000]) {
+    const bytes = Buffer.alloc(size);
+    Buffer.from([0xff, 0xd8, 0xff, 0xe0]).copy(bytes);
+    bytes[bytes.length - 2] = 0xff;
+    bytes[bytes.length - 1] = 0xd9;
+    const input = image('image/jpeg', bytes);
+    assert.equal(validateImage(input).ok, true, `JPEG with ${size} bytes`);
+    for (const invalid of ['%', '=', '\n']) {
+      const data = input.data.slice(0, 20) + invalid + input.data.slice(21);
+      assert.equal(validateImage({ ...input, data }).ok, false, `invalid ${JSON.stringify(invalid)}`);
+    }
+  }
+});
