@@ -16,7 +16,10 @@ export function createProvider(config, fetchImpl = fetch) {
       ? [{ ...messages[0], content: `${formatInstruction}\n\n${messages[0].content}` }, ...messages.slice(1)]
       : [{ role: 'system', content: formatInstruction }, ...messages];
     const payload = { model, messages: instructedMessages, response_format: format, max_tokens: config.maxTokens };
-    if (/^kimi-k2\.[56]$/.test(model)) payload.thinking = { type: config.thinking };
+    if (/^kimi-k2\.[56]$/.test(model)) {
+      payload.thinking = { type: config.thinking };
+      if (Number.isFinite(config.temperature)) payload.temperature = config.temperature;
+    }
     let response;
     try {
       response = await fetchImpl(config.apiUrl, { method: 'POST',

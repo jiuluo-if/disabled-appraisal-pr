@@ -146,7 +146,7 @@ test('provider adapts both observed Kimi conflict-object shapes into the strict 
       ], missing_information: [], conflicts: [conflict], requires_review: true,
     });
     let payload;
-    const mocked = createProvider(config, async (_url, init) => {
+    const mocked = createProvider({ ...config, temperature: 0.6 }, async (_url, init) => {
       payload = JSON.parse(init.body);
       return Response.json({ choices: [{ message: { content }, finish_reason: 'stop' }] });
     });
@@ -156,6 +156,7 @@ test('provider adapts both observed Kimi conflict-object shapes into the strict 
     assert.equal(result.facts[0].source, 'description');
     assert.equal(payload.response_format.type, 'json_schema');
     assert.deepEqual(payload.thinking, { type: 'disabled' });
+    assert.equal(payload.temperature, 0.6);
   }
 });
 

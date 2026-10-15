@@ -476,7 +476,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   if (unsupportedSiteCount) missingMaterials.push('骨折处数未在原文中明确记载，需核实');
   const uniqueMissing = [...new Set(missingMaterials)].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const hasUncertain = facts.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
-  const requiresReview = raw.requiresReview || conflicts.length > 0 || hasUncertain || invalidEvidence;
+  const requiresReview = conflicts.length > 0 || hasUncertain || invalidEvidence;
   return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => fact), missingMaterials: uniqueMissing, conflicts, requiresReview };
 }
 

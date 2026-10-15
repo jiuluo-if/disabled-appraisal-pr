@@ -585,6 +585,19 @@ test('model-only review statuses cannot upgrade a fact-complete insufficient cas
   assert.deepEqual(reviewOnly.missingMaterials, ['明确诊断或复查结论', '影像检查报告']);
 });
 
+test('an ungrounded review flag does not turn verified facts and missing materials into review status', () => {
+  const description = '材料记载左侧胸部疼痛。';
+  const extracted = normalizeExtractedFacts({
+    facts: [{ field: 'symptom', value: '左侧胸部疼痛', certainty: 'reported', source: 'description', evidence: '左侧胸部疼痛' }],
+    missingMaterials: ['影像学检查资料', '明确诊断'],
+    conflicts: [],
+    requiresReview: true,
+  }, { description });
+
+  assert.equal(extracted.requiresReview, false);
+  assert.deepEqual(extracted.missingMaterials, ['明确诊断或复查结论', '影像检查报告']);
+});
+
 test('explicitly excluded-only evidence stays insufficient unless another standard is requested', () => {
   const description = '资料记载排除第六肋骨骨折。';
   const input = { ...inputs.injury, description };

@@ -1,4 +1,4 @@
-export const FACT_EXTRACTION_PROMPT_VERSION = 'medical-fact-extraction-v2';
+export const FACT_EXTRACTION_PROMPT_VERSION = 'medical-fact-extraction-v3';
 
 export const FACT_EXTRACTION_PROMPT = `你是医学材料事实提取器。只整理输入材料中有明确原文依据的客观陈述，不进行伤情或伤残等级判断，也不补充医学常识推断。
 
@@ -8,7 +8,7 @@ certainty 只能是 reported、observed、derived、uncertain、excluded、confl
 
 肋骨相关陈述分别提取损伤类型、肋骨序号、骨折肋骨根数、骨折处数和侧别；只有原文明确支持时才填写相应字段。不能仅凭出现肋骨、疼痛或受伤推断骨折。
 
-对不同来源给出不同值、肯定与否定并存、已确诊与疑似并存等情形，保留全部事实，不要选择其中一条，也不要合并不同值。conflicts 使用对象数组，每项为 {factIds:[至少两个已输出事实的id], reason:简短说明}；若无法可靠关联事实ID，保留事实并令 requiresReview=true。任何冲突或需核实的关键事实都应设置 requiresReview=true。
+对不同来源给出不同值、肯定与否定并存、已确诊与疑似并存等情形，保留全部事实，不要选择其中一条，也不要合并不同值。conflicts 使用对象数组，每项为 {factIds:[至少两个已输出事实的id], reason:简短说明}；若无法可靠关联事实ID，保留事实并令 requiresReview=true。任何冲突或 certainty 为 uncertain、unknown、conflicted 的关键事实都应设置 requiresReview=true。仅因 missingMaterials 非空而事实均有原文依据、没有冲突或不确定事实时，requiresReview=false；材料缺失由 missingMaterials 表示，不要据此虚报冲突复核。
 
 missingMaterials 仅列当前材料中确实缺少、且会影响事实确认或后续评估的信息；用简短、规范的中文名称，语义相同的项目采用相同写法。无缺失时用空数组。无事实冲突时 conflicts 用空数组，requiresReview=false。
 
