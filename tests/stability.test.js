@@ -466,11 +466,15 @@ test('a single explicit current event overrides inconsistent IDs on separately q
   const snapshot = normalizeExtractedFacts({ facts: [
     { id: 'F0', field: 'anatomical_site', value: '肋骨', certainty: 'reported', source: 'description', evidence: '本次事故后左侧第3肋骨有1处骨折线', eventId: 'E1' },
     { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '本次事故后左侧第3肋骨有1处骨折线', eventId: 'E1' },
+    { id: 'F7', field: 'diagnosis', value: '肋骨骨折', certainty: 'reported', source: 'description', evidence: '本次事故后左侧第3肋骨有1处骨折线', eventId: 'E2' },
     { id: 'F6', field: 'anatomical_site', value: '肋骨', certainty: 'reported', source: 'description', evidence: '左侧第4肋骨有1处骨折线', eventId: 'E2' },
     { id: 'F2', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '左侧第4肋骨有1处骨折线', eventId: 'E2' },
     { id: 'F3', field: 'fractured_rib_numbers', value: [3], certainty: 'reported', source: 'description', evidence: '本次事故后左侧第3肋骨有1处骨折线', eventId: 'E1' },
     { id: 'F4', field: 'fractured_rib_numbers', value: [4], certainty: 'reported', source: 'description', evidence: '左侧第4肋骨有1处骨折线', eventId: 'E2' },
     { id: 'F5', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description', evidence: '共2处骨折', eventId: 'E2' },
+    { id: 'F8', field: 'prior_injury', value: false, certainty: 'reported', source: 'description', evidence: '既往没有肋骨损伤' },
+    { id: 'F9', field: 'treatment', value: '治疗已终结', certainty: 'reported', source: 'description', evidence: '治疗已终结' },
+    { id: 'F10', field: 'other', value: '病情稳定', certainty: 'reported', source: 'description', evidence: '病情稳定' },
   ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
 
   const currentRibFacts = snapshot.facts.filter(fact => ['anatomical_site', 'injury_type', 'fractured_rib_numbers', 'fracture_site_count'].includes(fact.field));
