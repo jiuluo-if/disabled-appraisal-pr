@@ -278,7 +278,7 @@ test('a full source quote links the deterministic rib site count to its model ev
     { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
       evidence: '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折', eventId: 'E1' },
     { id: 'F2', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description',
-      evidence: description, eventId: 'E1' },
+      evidence: description },
   ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
   const siteCounts = snapshot.facts.filter(fact => fact.field === 'fracture_site_count');
   assert.equal(siteCounts.length, 1);
@@ -430,6 +430,22 @@ test('event IDs survive fact normalization and separate episode-level difference
   assert.ok(sameEpisode.conflicts.some(conflict => conflict.factIds.some(id =>
     sameEpisode.facts.find(fact => fact.id === id)?.field === 'injury_type')));
   assert.equal(sameEpisode.requiresReview, true);
+});
+
+test('unscoped rib facts from separate dated accidents do not receive a shared inferred event ID', () => {
+  const description = '2021年事故左侧第3肋骨骨折，共1处骨折。2025年事故右侧第4肋骨骨折，共2处骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const ribFacts = snapshot.facts.filter(fact => ['injury_type', 'fracture_site_count'].includes(fact.field));
+  assert.ok(ribFacts.length > 0);
+  assert.ok(ribFacts.every(fact => !fact.eventId));
+});
+
+test('an explicit current rib event remains scoped when the source denies prior rib injury', () => {
+  const description = '既往没有肋骨损伤。本次事故后左侧第3肋骨有1处骨折线,左侧第4肋骨有1处骨折线,共2处骨折';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const ribFacts = snapshot.facts.filter(fact => ['injury_type', 'fracture_site_count'].includes(fact.field));
+  assert.ok(ribFacts.length > 0);
+  assert.ok(ribFacts.every(fact => fact.eventId === 'E1'));
 });
 
 test('string-form conflict notices remain visible even when they do not cite fact IDs', () => {
@@ -664,6 +680,28 @@ test('separately described rib fractures use their explicit sentence total for t
   assert.equal(result.status, 'preliminary');
   assert.equal(result.grade, '轻伤二级');
   assert.equal(result.references.find(reference => reference.id === '5.6.4.b')?.relation, 'supports');
+});
+
+test('deterministic rib clause evaluation is not blocked by malformed model condition groups', () => {
+  const description = '2025年4月12日急诊CT报告明确记载:本次事故后左侧第3肋骨有1处骨折线,左侧第4肋骨有1处骨折线,共2处骨折';
+  const input = { ...inputs.injury, description };
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+  const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
+  const raw = { ...providerFixture('injury'), status: 'insufficient', grade: null, references: [
+    { ...providerFixture('injury').references[0], clauseId: '5.6.4.b', evidence: description, relation: 'incomplete',
+      conditions: [{ condition: '肋骨骨折且骨折处数2处以上', evidence: description, met: true, factIds: [injury.id, siteCount.id] }] },
+  ] };
+  const result = normalizeResult(raw, input, {
+    clauses: retrieveClauses('injury', description), requestId: 'rib-model-condition-fallback', model: 'test-model',
+    extractedFacts: snapshot.facts,
+    conflicts: snapshot.conflicts, requiresReview: snapshot.requiresReview, factMissingMaterials: snapshot.missingMaterials,
+  });
+
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻伤二级');
+  assert.deepEqual(result.references.map(reference => reference.id), ['5.6.4.b']);
+  assert.equal(result.warnings.some(warning => /条件组存在重复或未映射文本/.test(warning)), false);
 });
 
 test('repeated rib analysis emits the same locally relevant clause set when K2.6 selects different citations', () => {

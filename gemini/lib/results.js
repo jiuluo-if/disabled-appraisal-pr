@@ -340,6 +340,7 @@ export function normalizeResult(raw, input, context) {
       verification: fact.source === 'image' ? 'image_pending' : 'quoted' });
   }
   let invalidReference = unknownInlineCitation;
+  let invalidRibConditionMapping = false;
   if (unknownInlineCitation) warnings.push('部分自由文本引用不在本次原文依据中，已不采纳其结论。');
   const references = [];
   for (const proposed of generated.references) {
@@ -359,8 +360,11 @@ export function normalizeResult(raw, input, context) {
     if (clause.grade && clause.conditionLogic?.annotation === 'explicit') {
       const bound = bindExplicitGroups(clause, proposed.conditions, facts);
       if (bound.invalid) {
-        invalidReference = true;
-        warnings.push(`条款 ${clause.id} 的条件组存在重复或未映射文本，未用于等级判断。`);
+        if (/肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;
+        else {
+          invalidReference = true;
+          warnings.push(`条款 ${clause.id} 的条件组存在重复或未映射文本，未用于等级判断。`);
+        }
       }
       const confirmed = bound.met === true;
       references.push({ ...clause, sourceUrl: standard.sourceUrl,
@@ -439,6 +443,10 @@ export function normalizeResult(raw, input, context) {
     && fact.source === 'description' && fact.verification === 'quoted');
   const stableRibReferences = !requiresReview && hasReliableRibFact
     ? deterministicRibReferences(context.clauses, facts, standard.sourceUrl) : [];
+  if (invalidRibConditionMapping && !requiresReview && !stableRibReferences.length) {
+    invalidReference = true;
+    warnings.push('肋骨条款条件组存在重复或未映射文本，且无法由已核验事实重新评估。');
+  }
   if (stableRibReferences.length) {
     references.splice(0, references.length, ...references.filter(reference => !/肋骨骨折/.test(reference.text)), ...stableRibReferences);
   }

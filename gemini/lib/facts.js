@@ -339,6 +339,18 @@ function sourceReferenceMatches(reference, { description = '', recognizedText = 
     && normalizeInput(page.text).includes(quote));
 }
 
+function hasSingleExplicitCurrentRibEvent(text) {
+  const normalized = normalizeInput(text || '');
+  const currentCues = [...normalized.matchAll(/(?:本次|此次|当前)(?:事故|外伤|受伤|损伤)(?:后)?/g)];
+  const eventMentions = [...normalized.matchAll(/事故|外伤|受伤/g)];
+  if (currentCues.length !== 1 || eventMentions.length !== 1) return false;
+  const affirmativePriorRibInjury = normalized.split(/[。；;\n]/).some(clause =>
+    /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(clause)
+      && /(?:肋骨|骨折|损伤)/.test(clause)
+      && !/(?:没有|无|未见|未发现|排除|否认)/.test(clause));
+  return !affirmativePriorRibInjury;
+}
+
 function factFinding(field, value, certainty) {
   const labels = {
     injury_type: '损伤类型', laterality: '侧别', fractured_rib_numbers: '骨折肋骨序号',
@@ -392,6 +404,20 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   let invalidEventLink = false;
   let unsupportedSiteCount = false;
   const ribFields = new Set(['injury_type', 'anatomical_site', 'laterality', 'fractured_rib_numbers', 'fractured_rib_count', 'fracture_site_count']);
+  const usedEventIds = new Set(raw.facts.map(fact => fact.eventId).filter(Boolean));
+  const descriptionRibEventIds = new Set(raw.facts.filter(fact => fact.source === 'description'
+    && (isRibAlias(fact.field) || /肋骨|rib/i.test(`${fact.value} ${fact.evidence}`)))
+    .map(fact => fact.eventId).filter(Boolean));
+  let inferredDescriptionEventId = null;
+  if (hasSingleExplicitCurrentRibEvent(sourceTexts.description) && descriptionRibEventIds.size <= 1) {
+    if (descriptionRibEventIds.size === 1) inferredDescriptionEventId = [...descriptionRibEventIds][0];
+    else {
+      let nextEventNumber = 1;
+      while (usedEventIds.has(`E${nextEventNumber}`)) nextEventNumber += 1;
+      inferredDescriptionEventId = `E${nextEventNumber}`;
+    }
+  }
+  const inferredEventIds = { description: inferredDescriptionEventId };
   const addFact = (fact, rawId = null) => {
     const key = stableFactKey(fact);
     const existing = facts.find(item => stableFactKey(item) === key);
@@ -442,7 +468,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const parent = deterministicFacts.find(item => item.parserId === fact.parserDerivedFrom[0]);
       evidence = parent ? sourceClause(sourceTexts[parent.source], parent.evidence) || parent.evidence : '';
     }
-    addFact({ ...fact, evidence, sourceRefs: sourceRefsForFact(fact.source, evidence, sourceTexts[fact.source]),
+    addFact({ ...fact, ...(ribFields.has(fact.field) && inferredEventIds[fact.source]
+      ? { eventId: inferredEventIds[fact.source] } : {}), evidence,
+    sourceRefs: sourceRefsForFact(fact.source, evidence, sourceTexts[fact.source]),
       finding: factFinding(fact.field, fact.value, fact.certainty) });
   }
 
@@ -469,6 +497,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && normalizeInput(item.evidence).includes(providedEvidence));
     const ribRelatedRawFact = isRibAlias(sourceFact.field)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
+    const eventId = sourceFact.eventId || (ribRelatedRawFact ? inferredEventIds[source] : null);
     const historicalRibFact = field !== 'fracture_site_count' && ribRelatedRawFact && (Boolean(priorFact)
       || /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(fullEvidence) && /骨折|fracture/i.test(fullEvidence));
     if (historicalRibFact) {
@@ -488,7 +517,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         && item.field === field && quotedCountValues.includes(item.value)
         && (sourceClause(item.evidence, providedEvidence) || sourceClause(providedEvidence, item.evidence)))
         .map(item => [stableFactKey(item), item])).values()];
-      if (sourceFact.eventId && siteCountCandidates.length > 1) {
+      if (eventId && siteCountCandidates.length > 1) {
         invalidEventLink = true;
         continue;
       }
@@ -496,7 +525,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const mappedSiteCount = matchingValue.length === 1 ? matchingValue[0]
         : matchingValue.length === 0 && siteCountCandidates.length === 1 ? siteCountCandidates[0] : null;
       if (mappedSiteCount) {
-        mapRawIdToRelatedRibFacts(sourceFact.id, source, mappedSiteCount.evidence, certainty, sourceFact.eventId || null);
+        mapRawIdToRelatedRibFacts(sourceFact.id, source, mappedSiteCount.evidence, certainty, eventId || null);
         continue;
       }
       if (siteCountCandidates.length) {
@@ -610,12 +639,12 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     const countToken = field === 'fracture_site_count'
       ? fullEvidence.match(/[0-9零〇一二两三四五六七八九十百]+\s*处/)?.[0] : null;
     const countEvidence = countToken ? sourceClause(sourceTexts[source], countToken) || countToken : null;
-    const normalized = { ...(sourceFact.id ? { rawIds: [sourceFact.id] } : {}), ...(sourceFact.eventId ? { eventId: sourceFact.eventId } : {}), field, value, certainty,
+    const normalized = { ...(sourceFact.id ? { rawIds: [sourceFact.id] } : {}), ...(eventId ? { eventId } : {}), field, value, certainty,
       sourceRefs: sourceRefsForFact(source, countEvidence || fullEvidence, sourceTexts[source]),
       source, evidence: countEvidence || fullEvidence, finding: factFinding(field, value, certainty) };
     const target = addFact(normalized, sourceFact.id || null);
     if (sourceFact.id && !target.rawIds?.includes(sourceFact.id)) target.rawIds = [...(target.rawIds || []), sourceFact.id];
-    mapRawIdToRelatedRibFacts(sourceFact.id, source, fullEvidence, certainty, sourceFact.eventId || null);
+    mapRawIdToRelatedRibFacts(sourceFact.id, source, fullEvidence, certainty, eventId || null);
   }
 
   const deduplicatedFacts = new Map();
