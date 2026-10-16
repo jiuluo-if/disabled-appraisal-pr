@@ -8,6 +8,7 @@ const SUPPORTED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/bmp', 'image/heic', 'image/heif'
 ]);
 const CHINESE_DIGITS = { 零: 0, 〇: 0, 一: 1, 二: 2, 两: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const ADDITIONAL_BONE_SITES = '颅骨|鼻骨|锁骨|肩胛骨|胸骨|椎体|椎骨|颈椎|胸椎|腰椎|骶椎|骶骨|尾椎|尾骨|骨盆|髋骨|髂骨|耻骨|坐骨|股骨|髌骨|胫骨|腓骨|肱骨|尺骨|桡骨|腕骨|掌骨|指骨|跗骨|距骨|跟骨|舟骨|跖骨|趾骨|颧骨|颌骨';
 
 function normalizeInput(value = '') {
   return String(value)
@@ -60,6 +61,25 @@ function hasUnresolvedOtherExperiencer(text) {
   return false;
 }
 
+function hasRibSpecificFractureStatement(text) {
+  const ribSites = [...text.matchAll(/肋骨/g)];
+  const otherBoneSites = [...text.matchAll(new RegExp(ADDITIONAL_BONE_SITES, 'g'))];
+  let ribCursor = 0;
+  let otherSiteCursor = 0;
+  let lastRibIndex = -1;
+  let lastOtherSiteIndex = -1;
+  for (const fracture of text.matchAll(/骨折/g)) {
+    while (ribCursor < ribSites.length && ribSites[ribCursor].index < fracture.index) {
+      lastRibIndex = ribSites[ribCursor++].index;
+    }
+    while (otherSiteCursor < otherBoneSites.length && otherBoneSites[otherSiteCursor].index < fracture.index) {
+      lastOtherSiteIndex = otherBoneSites[otherSiteCursor++].index;
+    }
+    if (lastRibIndex > lastOtherSiteIndex) return true;
+  }
+  return false;
+}
+
 function historicalSectionHeading(text, start) {
   const historicalTitles = new Set(['既往史', '既往病史', '既往疾病史', '既往损伤史', '既往外伤史']);
   const sectionTitles = [...historicalTitles, '现病史', '主诉', '病程记录', '诊断', '检查结果', '影像学检查',
@@ -73,6 +93,8 @@ function historicalSectionHeading(text, start) {
 function normalizeRibFacts(inputText) {
   const text = normalizeInput(inputText);
   const facts = [];
+  let cachedRibClause = null;
+  let cachedRibClauseHasFracture = false;
   const pattern = /肋骨/g;
   let match;
   while ((match = pattern.exec(text)) !== null) {
@@ -81,7 +103,11 @@ function normalizeRibFacts(inputText) {
     const clauseEndOffset = clauseTail.search(/[。；;，,\n]/);
     const clauseEnd = clauseEndOffset < 0 ? text.length : match.index + clauseEndOffset;
     const clauseText = text.slice(clauseStart, clauseEndOffset < 0 ? text.length : match.index + clauseEndOffset);
-    if (!clauseText.includes('骨折')) continue;
+    if (clauseText !== cachedRibClause) {
+      cachedRibClause = clauseText;
+      cachedRibClauseHasFracture = hasRibSpecificFractureStatement(clauseText);
+    }
+    if (!cachedRibClauseHasFracture) continue;
     const prefix = text.slice(clauseStart, match.index).slice(-80);
     const historicalHeading = historicalSectionHeading(text, clauseStart);
     const ordinal = prefix.match(/第\s*[0-9零〇一二两三四五六七八九十百]+(?:(?:\s*(?:根|条))?\s*(?:、|，|,|和|及|与)\s*(?:第\s*)?[0-9零〇一二两三四五六七八九十百]+(?:\s*(?:根|条))?)*\s*(?:根|条)?$/);
@@ -89,7 +115,13 @@ function normalizeRibFacts(inputText) {
     const sideMatch = [...prefix.matchAll(/(?:左侧|左边|右侧|右边|双侧)/g)].at(-1);
     const segment = `${sideMatch?.[0] || ''}${ordinal?.[0] || count?.[0] || ''}`;
     const fractureEnd = text.indexOf('骨折', pattern.lastIndex);
-    const certainty = certaintyFor(text, clauseStart, fractureEnd >= 0 && fractureEnd < clauseEnd ? fractureEnd + 2 : clauseEnd);
+    const assertionEnd = fractureEnd >= 0 && fractureEnd < clauseEnd ? fractureEnd + 2 : clauseEnd;
+    const assertionContext = text.slice(clauseStart, assertionEnd);
+    const temporalCues = [...assertionContext.matchAll(/既往(?:史)?|曾经|曾有|陈旧性?|旧伤|本次(?:事故后)?|此次(?:事故后)?|当前|目前/g)];
+    const latestTemporalCue = temporalCues.at(-1);
+    const latestCueIsCurrent = latestTemporalCue && /^(?:本次|此次|当前|目前)/.test(latestTemporalCue[0]);
+    const certaintyStart = latestCueIsCurrent ? clauseStart + latestTemporalCue.index + latestTemporalCue[0].length : clauseStart;
+    const certainty = certaintyFor(text, certaintyStart, assertionEnd);
     const side = /左侧|左边/.test(sideMatch?.[0] || '') ? 'left' : /右侧|右边/.test(sideMatch?.[0] || '') ? 'right' : /双侧/.test(sideMatch?.[0] || '') ? 'bilateral' : null;
     const numberTokens = [...(ordinal?.[0] || count?.[0] || '').matchAll(/(?:第\s*)?([0-9零〇一二两三四五六七八九十百]+)/g)]
       .map((item) => parseNumber(item[1]))
@@ -117,8 +149,15 @@ function normalizeRibFacts(inputText) {
     const sentenceFollowing = text.slice(pattern.lastIndex, sentenceEnd);
     // A sentence total can cover several rib mentions, but never infer its scope across another fracture site.
     const sentenceClauses = sentenceText.split(/[，,、]/);
-    const hasUnrelatedFractureClause = sentenceClauses.some(clause => /骨折/.test(clause)
-      && !/肋骨/.test(clause) && !/(?:共|累计)\s*[0-9零〇一二两三四五六七八九十百]+\s*处骨折/.test(clause));
+    const fractureDetails = sentenceClauses.filter(clause => /骨折/.test(clause)
+      && !/(?:共|累计)\s*[0-9零〇一二两三四五六七八九十百]+\s*处骨折/.test(clause));
+    const additionalBoneSite = new RegExp(ADDITIONAL_BONE_SITES);
+    const hasUnrelatedFractureClause = fractureDetails.some(clause => !/肋骨/.test(clause)
+      || additionalBoneSite.test(clause)
+      || /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(clause)
+      || certaintyFor(clause, 0, clause.length) !== 'reported'
+      || hasUnresolvedOtherExperiencer(clause)
+      || [...clause.matchAll(/骨折/g)].length > [...clause.matchAll(/肋骨/g)].length);
     const aggregateSiteCounts = hasUnrelatedFractureClause ? [] : [...sentenceFollowing.matchAll(
       /(?:^|[，,、])\s*(?:共|累计)\s*([0-9零〇一二两三四五六七八九十百]+)\s*处(?=骨折)/g)];
     const ordinalPattern = /第\s*[0-9零〇一二两三四五六七八九十百]+(?:(?:\s*(?:根|条))?\s*(?:、|，|,|和|及|与)\s*(?:第\s*)?[0-9零〇一二两三四五六七八九十百]+(?:\s*(?:根|条))?)*\s*(?:根|条)?肋骨/g;
@@ -136,7 +175,8 @@ function normalizeRibFacts(inputText) {
       return fact;
     };
 
-    if (historicalHeading || /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(clauseText)) {
+    const latestCueIsHistorical = latestTemporalCue && !latestCueIsCurrent;
+    if (historicalHeading || latestCueIsHistorical) {
       add('prior_injury', 'rib_fracture', historicalEvidenceTooLong ? 'unknown' : certainty);
       continue;
     }
@@ -155,7 +195,8 @@ function normalizeRibFacts(inputText) {
     }
 
     const explicitSiteCount = aggregateSiteCounts.length === 1 ? aggregateSiteCounts[0]
-      : following.match(/^\s*(?:骨折\s*[，,、]?\s*)?[，,、]?\s*(?:共|累计)?\s*([0-9零〇一二两三四五六七八九十百]+)\s*处/);
+      : following.match(/^\s*(?:骨折\s*[，,、]?\s*)?[，,、]?\s*(?:共|累计)?\s*([0-9零〇一二两三四五六七八九十百]+)\s*处/)
+        || clauseText.match(/(?:共|累计)?\s*([0-9零〇一二两三四五六七八九十百]+)\s*处(?=\s*(?:肋骨\s*)?骨折)/);
     if (explicitSiteCount) {
       const siteCountFact = add('fracture_site_count', parseNumber(explicitSiteCount[1]));
       siteCountFact.source_excerpt = `${explicitSiteCount[1]}处`;
@@ -418,12 +459,17 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     let certainty = canonicalCertainty(fullEvidence, sourceFact.certainty);
     let field = canonicalField(sourceFact.field);
     let value = stableJson(sourceFact.value);
+    const parsedForEvidence = normalizeRibFacts(fullEvidence);
+    const claimsRibFracture = field === 'injury_type' && typeof value === 'string'
+      && /^(?:rib_fracture|sixth_rib_fracture|肋骨骨折)$/i.test(value.trim());
+    const claimsRibDiagnosis = field === 'diagnosis' && typeof value === 'string'
+      && /(?:肋骨|rib).*(?:骨折|fracture)|(?:骨折|fracture).*(?:肋骨|rib)/i.test(value);
 
     const priorFact = facts.find(item => item.field === 'prior_injury' && item.source === source
       && normalizeInput(item.evidence).includes(providedEvidence));
     const ribRelatedRawFact = isRibAlias(sourceFact.field)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
-    const historicalRibFact = ribRelatedRawFact && (Boolean(priorFact)
+    const historicalRibFact = field !== 'fracture_site_count' && ribRelatedRawFact && (Boolean(priorFact)
       || /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(fullEvidence) && /骨折|fracture/i.test(fullEvidence));
     if (historicalRibFact) {
       if (priorFact && sourceFact.id) {
@@ -433,6 +479,37 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         if (!priorFact.rawIds.includes(sourceFact.id)) priorFact.rawIds.push(sourceFact.id);
         rawIdToKeys.set(sourceFact.id, new Set([...(rawIdToKeys.get(sourceFact.id) || []), stableFactKey(priorFact)]));
       }
+      continue;
+    }
+    if (field === 'fracture_site_count') {
+      const quotedCountValues = [...providedEvidence.matchAll(/[0-9零〇一二两三四五六七八九十百]+\s*处/g)]
+        .map(match => parseNumber(match[0].replace(/\s*处$/, '')));
+      const siteCountCandidates = [...new Map(deterministicFacts.filter(item => item.source === source
+        && item.field === field && quotedCountValues.includes(item.value)
+        && (sourceClause(item.evidence, providedEvidence) || sourceClause(providedEvidence, item.evidence)))
+        .map(item => [stableFactKey(item), item])).values()];
+      if (sourceFact.eventId && siteCountCandidates.length > 1) {
+        invalidEventLink = true;
+        continue;
+      }
+      const matchingValue = siteCountCandidates.filter(item => item.value === value);
+      const mappedSiteCount = matchingValue.length === 1 ? matchingValue[0]
+        : matchingValue.length === 0 && siteCountCandidates.length === 1 ? siteCountCandidates[0] : null;
+      if (mappedSiteCount) {
+        mapRawIdToRelatedRibFacts(sourceFact.id, source, mappedSiteCount.evidence, certainty, sourceFact.eventId || null);
+        continue;
+      }
+      if (siteCountCandidates.length) {
+        unsupportedSiteCount = true;
+        continue;
+      }
+    }
+    const evidenceHasRibFracture = parsedForEvidence.some(item => item.field === 'injury_type' && item.value === 'rib_fracture');
+    const unsupportedRibAlias = isRibAlias(sourceFact.field) && field !== 'fracture_site_count' && !evidenceHasRibFracture;
+    const unsupportedRibType = claimsRibFracture && !evidenceHasRibFracture;
+    const unsupportedRibDiagnosis = claimsRibDiagnosis && !hasRibSpecificFractureStatement(fullEvidence);
+    if (unsupportedRibAlias || unsupportedRibType || unsupportedRibDiagnosis) {
+      invalidEvidence = true;
       continue;
     }
 
@@ -494,18 +571,17 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       field = 'injury_type'; value = 'rib_fracture';
     }
     if (field === 'diagnosis' && typeof value === 'string'
-      && /(?:肋骨|rib).*(?:骨折|fracture)|(?:骨折|fracture).*(?:肋骨|rib)/i.test(`${value} ${fullEvidence}`)) {
+      && hasRibSpecificFractureStatement(fullEvidence)) {
       field = 'injury_type'; value = 'rib_fracture';
     }
     if (field === 'fractured_rib_numbers' && Array.isArray(value) && value.length === 0 && certainty === 'excluded') {
       field = 'injury_type'; value = 'rib_fracture';
     }
     if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())) {
-      value = /(?:肋骨|rib)/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
+      value = hasRibSpecificFractureStatement(fullEvidence) ? 'rib_fracture' : 'fracture';
     }
 
     const isRibFinding = isRibAlias(field) && /骨折|肋骨/i.test(`${field} ${fullEvidence}`);
-    const parsedForEvidence = normalizeRibFacts(providedEvidence);
     if (isRibFinding && parsedForEvidence.length) {
       const matchField = /(?:number|序号)/i.test(field) ? 'fractured_rib_numbers'
         : /site|处数/i.test(field) ? 'fracture_site_count'
@@ -519,14 +595,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     }
 
     if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())) {
-      value = /肋骨|rib/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
+      value = hasRibSpecificFractureStatement(fullEvidence) ? 'rib_fracture' : 'fracture';
     }
     if (certainty === 'excluded' && (
       ['diagnosis', 'injury_type'].includes(field) && typeof value === 'string' && /骨折|fracture/i.test(value)
       || field === 'fractured_rib_numbers' && Array.isArray(value) && value.length === 0
       || /^(?:rib_fracture|sixth_rib_fracture|fracture)$/.test(field)
     )) {
-      field = 'injury_type'; value = /(?:肋骨|rib)/i.test(fullEvidence) ? 'rib_fracture' : 'fracture';
+      field = 'injury_type'; value = hasRibSpecificFractureStatement(fullEvidence) ? 'rib_fracture' : 'fracture';
     }
     if (field === 'symptom') value = fullEvidence;
     const countToken = field === 'fracture_site_count'

@@ -186,6 +186,103 @@ test('rib pain without a fracture statement does not create a rib-fracture fact'
   assert.deepEqual(normalizeRibFacts('左侧肋骨区域疼痛，未提供影像检查。'), []);
 });
 
+test('a model rib-fracture fact cannot borrow evidence from a nasal fracture', () => {
+  const description = '左侧第3肋骨区域疼痛伴鼻骨骨折';
+  const claims = [
+    { field: 'injury_type', value: 'rib_fracture' },
+    { field: 'fractured_rib_count', value: 1 },
+    { field: 'fractured_rib_numbers', value: [3] },
+    { field: 'fracture_site_count', value: 2 },
+    { field: 'diagnosis', value: '肋骨骨折' },
+  ];
+  for (const [index, claim] of claims.entries()) {
+    const snapshot = normalizeExtractedFacts({ facts: [
+      { id: `F${index + 1}`, ...claim, certainty: 'reported', source: 'description', evidence: description },
+    ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+    assert.equal(snapshot.facts.some(fact => ['injury_type', 'fractured_rib_count', 'fractured_rib_numbers', 'fracture_site_count'].includes(fact.field)), false, claim.field);
+    assert.equal(snapshot.facts.some(fact => fact.field === claim.field && JSON.stringify(fact.value) === JSON.stringify(claim.value)), false, claim.field);
+    if (claim.field === 'fracture_site_count') assert.ok(snapshot.missingMaterials.some(item => /骨折处数/.test(item)));
+    else assert.equal(snapshot.requiresReview, true, claim.field);
+  }
+});
+
+test('a source-quoted sentence total still maps to the deterministic rib fracture-site count', () => {
+  const description = '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '左侧第3肋骨有1处骨折线' },
+    { id: 'F2', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description', evidence: '共2处骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(snapshot.requiresReview, false);
+  assert.equal(snapshot.facts.find(fact => fact.field === 'fracture_site_count')?.value, 2);
+});
+
+test('a model site-count value cannot override the number in its source quote', () => {
+  const description = '左侧第3肋骨骨折，共2处骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'fracture_site_count', value: 99, certainty: 'reported', source: 'description', evidence: '共2处骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(snapshot.facts.filter(fact => fact.field === 'fracture_site_count').length, 1);
+  assert.equal(snapshot.facts.find(fact => fact.field === 'fracture_site_count')?.value, 2);
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('a model count above the quoted fracture-site count cannot support a rib threshold', () => {
+  const description = '左侧第3肋骨有1处骨折线，共1处骨折。';
+  const input = { ...inputs.injury, description };
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'fracture_site_count', value: 99, certainty: 'reported', source: 'description', evidence: '共1处骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+  const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
+  const clauses = retrieveClauses('injury', description);
+  const raw = structuredClone(providerFixture('injury'));
+  raw.grade = '轻伤二级';
+  raw.references = [{ ...raw.references[0], clauseId: '5.6.4.b', evidence: description, relation: 'supports', conditions: [
+    { condition: '肋骨骨折', evidence: '左侧第3肋骨有1处骨折线', met: true, factIds: [injury.id] },
+    { condition: '骨折处数2处以上', evidence: '共1处骨折', met: true, factIds: [siteCount.id] },
+  ] }];
+  const result = normalizeResult(raw, input, { clauses, requestId: 'quoted-count-overrides-model-value', model: 'test-model',
+    extractedFacts: snapshot.facts, conflicts: snapshot.conflicts, requiresReview: snapshot.requiresReview,
+    factMissingMaterials: snapshot.missingMaterials });
+  assert.equal(siteCount.value, 1);
+  assert.equal(result.status, 'insufficient');
+  assert.equal(result.grade, null);
+});
+
+test('a model laterality value cannot contradict the source-quoted rib side', () => {
+  const description = '左侧第3肋骨骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'laterality', value: 'right', certainty: 'reported', source: 'description', evidence: description },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.deepEqual(snapshot.facts.filter(fact => fact.field === 'laterality').map(fact => fact.value), ['left']);
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('a full source quote links the deterministic rib site count to its model event', () => {
+  const description = '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折。既往没有肋骨损伤';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
+      evidence: '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折', eventId: 'E1' },
+    { id: 'F2', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description',
+      evidence: description, eventId: 'E1' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const siteCounts = snapshot.facts.filter(fact => fact.field === 'fracture_site_count');
+  assert.equal(siteCounts.length, 1);
+  assert.equal(siteCounts[0].value, 2);
+  assert.equal(siteCounts[0].eventId, 'E1');
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('a full quote across different accidents cannot assign one accident site count to another', () => {
+  const description = '2021年事故左侧第3肋骨骨折，共1处骨折。2025年事故右侧第4肋骨骨折，共2处骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description',
+      evidence: description, eventId: 'E1' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(snapshot.requiresReview, true);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'fracture_site_count' && fact.value === 2 && fact.eventId === 'E1'), false);
+});
+
 test('rib ordinals, rib count, and fracture-site count stay separate', () => {
   const facts = normalizeRibFacts('左侧第3、4肋骨骨折，共2处骨折');
   assert.deepEqual(facts.find(fact => fact.field === 'fractured_rib_numbers')?.value, [3, 4]);
