@@ -592,6 +592,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const fallback = deterministicFacts.find(item => item.source === source && item.field === matchField && item.certainty === certainty);
       const mapped = match || fallback;
       if (mapped && mapRawIdToRelatedRibFacts(sourceFact.id, source, fullEvidence, certainty, sourceFact.eventId || null)) continue;
+      // Keep only source-backed rib-root counts: 只保留有原文依据的肋骨根数。
+      if (field === 'fractured_rib_count' && !quotesRibRootCount) continue;
     }
 
     if (field === 'injury_type' && typeof value === 'string' && /^(?:骨折|肋骨骨折|fracture|rib_fracture)$/i.test(value.trim())) {

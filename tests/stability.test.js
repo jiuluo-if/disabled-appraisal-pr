@@ -258,6 +258,20 @@ test('a model laterality value cannot contradict the source-quoted rib side', ()
   assert.equal(snapshot.requiresReview, false);
 });
 
+test('two model rib counts cannot conflict when the source only gives rib ordinals and fracture sites', () => {
+  const description = '2025年4月12日急诊CT报告明确记载:本次事故后左侧第3肋骨有1处骨折线,左侧第4肋骨有1处骨折线,共2处骨折';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'fractured_rib_count', value: 1, certainty: 'reported', source: 'description', evidence: description },
+    { id: 'F2', field: 'fractured_rib_count', value: 2, certainty: 'reported', source: 'description', evidence: description },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(snapshot.facts.some(fact => fact.field === 'fractured_rib_count'), false);
+  assert.equal(snapshot.conflicts.length, 0);
+  assert.equal(snapshot.requiresReview, false);
+  assert.deepEqual(snapshot.facts.filter(fact => fact.field === 'fractured_rib_numbers')
+    .map(fact => fact.value[0]).sort((a, b) => a - b), [3, 4]);
+  assert.equal(snapshot.facts.find(fact => fact.field === 'fracture_site_count')?.value, 2);
+});
+
 test('a full source quote links the deterministic rib site count to its model event', () => {
   const description = '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折。既往没有肋骨损伤';
   const snapshot = normalizeExtractedFacts({ facts: [
