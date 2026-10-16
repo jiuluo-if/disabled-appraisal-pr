@@ -409,7 +409,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     && (isRibAlias(fact.field) || /肋骨|rib/i.test(`${fact.value} ${fact.evidence}`)))
     .map(fact => fact.eventId).filter(Boolean));
   let inferredDescriptionEventId = null;
-  if (hasSingleExplicitCurrentRibEvent(sourceTexts.description) && descriptionRibEventIds.size <= 1) {
+  if (hasSingleExplicitCurrentRibEvent(sourceTexts.description)) {
     if (descriptionRibEventIds.size === 1) inferredDescriptionEventId = [...descriptionRibEventIds][0];
     else {
       let nextEventNumber = 1;
@@ -497,7 +497,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && normalizeInput(item.evidence).includes(providedEvidence));
     const ribRelatedRawFact = isRibAlias(sourceFact.field)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
-    const eventId = sourceFact.eventId || (ribRelatedRawFact ? inferredEventIds[source] : null);
+    const eventId = ribRelatedRawFact && inferredEventIds[source]
+      ? inferredEventIds[source] : sourceFact.eventId || null;
     const historicalRibFact = field !== 'fracture_site_count' && ribRelatedRawFact && (Boolean(priorFact)
       || /(?:既往(?:史)?|曾经|曾有|陈旧性?|旧伤)/.test(fullEvidence) && /骨折|fracture/i.test(fullEvidence));
     if (historicalRibFact) {

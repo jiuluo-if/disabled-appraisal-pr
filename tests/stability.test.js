@@ -448,6 +448,19 @@ test('an explicit current rib event remains scoped when the source denies prior 
   assert.ok(ribFacts.every(fact => fact.eventId === 'E1'));
 });
 
+test('a single explicit current rib event overrides inconsistent model event IDs', () => {
+  const description = '2025年4月12日急诊CT报告明确记载:本次事故后左侧第3肋骨有1处骨折线,左侧第4肋骨有1处骨折线,共2处骨折';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: description, eventId: 'E1' },
+    { id: 'F2', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description', evidence: '共2处骨折', eventId: 'E2' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const currentRibFacts = snapshot.facts.filter(fact => ['injury_type', 'fracture_site_count'].includes(fact.field));
+  assert.ok(currentRibFacts.length > 1);
+  assert.equal(new Set(currentRibFacts.map(fact => fact.eventId)).size, 1);
+  assert.equal(snapshot.requiresReview, false);
+  assert.equal(snapshot.conflicts.length, 0);
+});
+
 test('string-form conflict notices remain visible even when they do not cite fact IDs', () => {
   const snapshot = normalizeExtractedFacts({
     facts: [{ id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'uncertain', source: 'description', evidence: '疑似骨折' }],
