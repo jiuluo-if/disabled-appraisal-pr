@@ -528,6 +528,33 @@ test('official clause conditions override K2.6 invented laterality requirements 
   assert.doesNotMatch(first.summary + first.reasoning + second.summary + second.reasoning, /右侧/);
 });
 
+test('separately described rib fractures use their explicit sentence total for the injury grade', () => {
+  const description = '本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折。既往没有肋骨损伤';
+  const input = { ...inputs.injury, description };
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
+  assert.equal(siteCount?.value, 2);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'fractured_rib_count' && fact.value === 1), false);
+
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+  const raw = structuredClone(providerFixture('injury'));
+  raw.grade = '轻伤二级';
+  raw.references = [{ ...raw.references[0], clauseId: '5.6.4.b', evidence: description,
+    relation: 'supports', conditions: [
+      { condition: '肋骨骨折', evidence: '左侧第3肋骨有1处骨折线', met: true, factIds: [injury.id] },
+      { condition: '骨折处数2处以上', evidence: '共2处骨折', met: true, factIds: [siteCount?.id].filter(Boolean) },
+    ] }];
+  const result = normalizeResult(raw, input, {
+    clauses: retrieveClauses('injury', description), requestId: 'comma-separated-rib-site-total', model: 'test-model',
+    extractedFacts: snapshot.facts.map(fact => ({ ...fact, eventId: 'E1' })),
+    conflicts: snapshot.conflicts, requiresReview: snapshot.requiresReview, factMissingMaterials: snapshot.missingMaterials,
+  });
+
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻伤二级');
+  assert.equal(result.references.find(reference => reference.id === '5.6.4.b')?.relation, 'supports');
+});
+
 test('repeated rib analysis emits the same locally relevant clause set when K2.6 selects different citations', () => {
   const description = '左侧第3、4肋骨骨折。';
   const input = { ...inputs.injury, description };

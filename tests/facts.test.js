@@ -28,6 +28,16 @@ test('rib ordinal, number of ribs, and fracture sites remain distinct', () => {
   assert.equal(sixRibs.some(fact => fact.field === 'fractured_rib_numbers'), false);
 });
 
+test('a total fracture-site count applies across comma-separated rib descriptions', () => {
+  const facts = normalizeRibFacts('本次事故后左侧第3肋骨有1处骨折线，左侧第4肋骨有1处骨折线，共2处骨折。既往没有肋骨损伤');
+  assert.equal(facts.find(fact => fact.field === 'fracture_site_count')?.value, 2);
+});
+
+test('a sentence total covering rib and non-rib fractures is not assigned to the rib count', () => {
+  const facts = normalizeRibFacts('左侧第3肋骨有1处骨折线，鼻骨骨折，共2处骨折');
+  assert.equal(facts.some(fact => fact.field === 'fracture_site_count'), false);
+});
+
 test('laterality belongs to its own rib clause and later explicit side does not leak', () => {
   const facts = normalizeRibFacts('左侧第3肋骨骨折，右侧第5肋骨骨折');
   assert.deepEqual(facts.filter(fact => fact.field === 'laterality').map(fact => fact.value), ['left', 'right']);

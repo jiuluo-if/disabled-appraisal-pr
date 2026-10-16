@@ -107,6 +107,25 @@ function normalizeRibFacts(inputText) {
     const historicalEvidenceTooLong = historicalExcerpt.length > 1000;
     const sourceExcerpt = historicalHeading && !historicalEvidenceTooLong ? historicalExcerpt
       : text.slice(excerptStart, excerptEnd).trim();
+    const sentenceStart = Math.max(text.lastIndexOf('。', match.index), text.lastIndexOf('；', match.index),
+      text.lastIndexOf(';', match.index), text.lastIndexOf('\n', match.index), text.lastIndexOf('!', match.index),
+      text.lastIndexOf('！', match.index), text.lastIndexOf('?', match.index), text.lastIndexOf('？', match.index)) + 1;
+    const sentenceTail = text.slice(pattern.lastIndex);
+    const sentenceEndOffset = sentenceTail.search(/[。；;\n!?！？]/);
+    const sentenceEnd = sentenceEndOffset < 0 ? text.length : pattern.lastIndex + sentenceEndOffset;
+    const sentenceText = text.slice(sentenceStart, sentenceEnd);
+    const sentenceFollowing = text.slice(pattern.lastIndex, sentenceEnd);
+    // A sentence total can cover several rib mentions, but never infer its scope across another fracture site.
+    const sentenceClauses = sentenceText.split(/[，,、]/);
+    const hasUnrelatedFractureClause = sentenceClauses.some(clause => /骨折/.test(clause)
+      && !/肋骨/.test(clause) && !/(?:共|累计)\s*[0-9零〇一二两三四五六七八九十百]+\s*处骨折/.test(clause));
+    const aggregateSiteCounts = hasUnrelatedFractureClause ? [] : [...sentenceFollowing.matchAll(
+      /(?:^|[，,、])\s*(?:共|累计)\s*([0-9零〇一二两三四五六七八九十百]+)\s*处(?=骨折)/g)];
+    const ordinalPattern = /第\s*[0-9零〇一二两三四五六七八九十百]+(?:(?:\s*(?:根|条))?\s*(?:、|，|,|和|及|与)\s*(?:第\s*)?[0-9零〇一二两三四五六七八九十百]+(?:\s*(?:根|条))?)*\s*(?:根|条)?肋骨/g;
+    const sentenceRibNumbers = new Set([...sentenceText.matchAll(ordinalPattern)].flatMap(item =>
+      [...item[0].matchAll(/(?:第\s*)?([0-9零〇一二两三四五六七八九十百]+)/g)]
+        .map(number => parseNumber(number[1])).filter(number => Number.isInteger(number) && number > 0)));
+    const aggregateCountCoversMultipleRibs = aggregateSiteCounts.length === 1 && sentenceRibNumbers.size > 1;
     const add = (field, value, itemCertainty = certainty, sourceType = 'user_text', derivedFrom) => {
       const fact = {
         id: `F${facts.length + 1}`, field, value, certainty: itemCertainty,
@@ -130,10 +149,13 @@ function normalizeRibFacts(inputText) {
     } else if (numberTokens.length) {
       const ribNumbersFact = add('fractured_rib_numbers', [...new Set(numberTokens)].sort((a, b) => a - b));
       const derivedCertainty = ['reported', 'observed'].includes(certainty) ? 'derived' : certainty;
-      add('fractured_rib_count', ribNumbersFact.value.length, derivedCertainty, 'derived', [ribNumbersFact.id]);
+      if (!(aggregateCountCoversMultipleRibs && numberTokens.length === 1)) {
+        add('fractured_rib_count', ribNumbersFact.value.length, derivedCertainty, 'derived', [ribNumbersFact.id]);
+      }
     }
 
-    const explicitSiteCount = following.match(/^\s*(?:骨折\s*[，,、]?\s*)?[，,、]?\s*(?:共|累计)?\s*([0-9零〇一二两三四五六七八九十百]+)\s*处/);
+    const explicitSiteCount = aggregateSiteCounts.length === 1 ? aggregateSiteCounts[0]
+      : following.match(/^\s*(?:骨折\s*[，,、]?\s*)?[，,、]?\s*(?:共|累计)?\s*([0-9零〇一二两三四五六七八九十百]+)\s*处/);
     if (explicitSiteCount) {
       const siteCountFact = add('fracture_site_count', parseNumber(explicitSiteCount[1]));
       siteCountFact.source_excerpt = `${explicitSiteCount[1]}处`;

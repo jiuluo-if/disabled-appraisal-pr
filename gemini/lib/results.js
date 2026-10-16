@@ -93,8 +93,14 @@ function evaluateConditionLeaf(node, facts) {
   const candidates = facts.filter(fact => fact.field === (node.factMatch?.field || node.predicate?.field)
     && fact.source === 'description' && fact.verification === 'quoted');
   const relevant = candidates.filter(fact => {
-    if (node.factMatch) return node.factMatch.values.some(value => sameValue(value, fact.value))
-      && includesEvidence(fact.evidence, node.sourceText);
+    if (node.factMatch) {
+      const valueMatches = node.factMatch.values.some(value => sameValue(value, fact.value));
+      const exactEvidence = includesEvidence(fact.evidence, node.sourceText);
+      const ribFractureEvidence = node.factMatch.field === 'injury_type'
+        && node.factMatch.values.includes('rib_fracture') && normalize(node.sourceText) === normalize('肋骨骨折')
+        && /肋骨/.test(fact.evidence) && /骨折/.test(fact.evidence);
+      return valueMatches && (exactEvidence || ribFractureEvidence);
+    }
     return predicateEvidenceValue(node.predicate, fact) !== null;
   });
   const positive = relevant.filter(fact => reliableCertainties.has(fact.certainty));
