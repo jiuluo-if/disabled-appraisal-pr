@@ -100,6 +100,28 @@
             }
           ]
         }
+      },
+      "5.6.5.a": {
+        "annotation": "explicit",
+        "logic": {
+          "op": "any",
+          "sourceText": "肋骨骨折；肋软骨骨折。",
+          "conditionText": "肋骨骨折或肋软骨骨折",
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "肋骨骨折",
+              "conditionText": "肋骨骨折",
+              "factMatch": { "field": "injury_type", "values": ["rib_fracture"] }
+            },
+            {
+              "op": "condition",
+              "sourceText": "肋软骨骨折",
+              "conditionText": "肋软骨骨折",
+              "factMatch": { "field": "injury_type", "values": ["costal_cartilage_fracture"] }
+            }
+          ]
+        }
       }
     }
   }

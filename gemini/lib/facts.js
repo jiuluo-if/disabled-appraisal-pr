@@ -751,10 +751,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || right.certainty === 'excluded' && ['reported', 'observed', 'derived'].includes(left.certainty));
   }));
 
-  const missingMaterials = canonicalMissingMaterials(raw.missingMaterials);
+  const hasExplicitFractureSiteCount = facts.some(fact => fact.field === 'fracture_site_count'
+    && ['reported', 'observed', 'derived'].includes(fact.certainty)
+    && Number.isInteger(fact.value) && fact.value >= 0 && fact.sourceRefs?.length > 0);
+  const missingMaterials = canonicalMissingMaterials(raw.missingMaterials).filter(item =>
+    !hasExplicitFractureSiteCount || item !== '骨折处数未在原文中明确记载，需核实');
   const extractionWarnings = invalidEvidence
     ? ['事实提取中有内容缺少可回查原文，已忽略，未作为评估依据。'] : [];
-  if (unsupportedSiteCount) missingMaterials.push('骨折处数未在原文中明确记载，需核实');
+  if (unsupportedSiteCount && !hasExplicitFractureSiteCount) missingMaterials.push('骨折处数未在原文中明确记载，需核实');
   const uniqueMissing = [...new Set(missingMaterials)].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const hasUncertain = facts.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
   const ambiguousInjuryTypeShape = facts.some(fact => fact.field === 'injury_type' && typeof fact.value !== 'string');
