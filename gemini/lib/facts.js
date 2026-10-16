@@ -496,6 +496,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     const priorFact = facts.find(item => item.field === 'prior_injury' && item.source === source
       && normalizeInput(item.evidence).includes(providedEvidence));
     const ribRelatedRawFact = isRibAlias(sourceFact.field)
+      || hasRibSpecificFractureStatement(fullEvidence)
       || field === 'anatomical_site' && /肋骨|rib/i.test(`${value} ${fullEvidence}`)
       || field === 'diagnosis' && hasRibSpecificFractureStatement(fullEvidence)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
@@ -751,14 +752,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   }));
 
   const missingMaterials = canonicalMissingMaterials(raw.missingMaterials);
-  if (invalidEvidence) missingMaterials.push('部分事实无法在提交材料中回查，需人工核对');
+  const extractionWarnings = invalidEvidence
+    ? ['事实提取中有内容缺少可回查原文，已忽略，未作为评估依据。'] : [];
   if (unsupportedSiteCount) missingMaterials.push('骨折处数未在原文中明确记载，需核实');
   const uniqueMissing = [...new Set(missingMaterials)].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const hasUncertain = facts.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
   const ambiguousInjuryTypeShape = facts.some(fact => fact.field === 'injury_type' && typeof fact.value !== 'string');
-  const requiresReview = conflicts.length > 0 || hasUncertain || invalidEvidence || invalidEventLink
+  const requiresReview = conflicts.length > 0 || hasUncertain || invalidEventLink
     || unlinkedFractureStatusDisagreement || ambiguousInjuryTypeShape;
-  return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => fact), missingMaterials: uniqueMissing, conflicts, requiresReview };
+  return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => fact), missingMaterials: uniqueMissing,
+    conflicts, requiresReview, warnings: extractionWarnings };
 }
 
 function canonicalFacts(facts) {
