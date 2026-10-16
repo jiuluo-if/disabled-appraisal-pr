@@ -123,6 +123,17 @@
           ]
         }
       }
+    },
+    "disability": {
+      "5.9.4.2": {
+        "annotation": "explicit",
+        "logic": {
+          "op": "condition",
+          "sourceText": "脾部分切除术",
+          "conditionText": "脾部分切除术后",
+          "factMatch": { "field": "treatment", "values": ["partial_splenectomy", "脾部分切除术"] }
+        }
+      }
     }
   }
 }

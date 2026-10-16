@@ -88,20 +88,23 @@ test('condition logic applies numeric predicates only to typed source-backed cou
   assert.equal(evaluate([{ ...count('F3', 2), certainty: 'uncertain' }]).met, null);
 });
 
-test('opaque clauses remain unknown even when a model claims the full quoted phrase supports a grade', () => {
+test('quoted partial splenectomy supports the explicit ninth-grade clause', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.4.2');
-  const quote = '脾部分切除术后';
-  const input = { ...inputs.disability, description: `成年人出院记录明确记载${quote}。` };
-  const fact = { id: 'F1', field: 'treatment', value: 'partial_splenectomy', certainty: 'reported',
-    source: 'description', evidence: quote, finding: quote, verification: 'quoted' };
-  const raw = { ...providerFixture('disability'), facts: [], references: [{ clauseId: clause.id, evidence: quote,
-    reasoning: '', relation: 'supports', conditions: [{ condition: quote, evidence: quote, factIds: ['F1'], met: true }] }] };
-  const result = normalizeResult(raw, input, { clauses: [clause], requestId: 'opaque-fail-closed-test', model: 'test-model',
+  const evidence = '成年人因本次事故接受脾部分切除术';
+  const input = { ...inputs.disability, description: evidence };
+  const fact = { id: 'F1', field: 'treatment', value: '脾部分切除术', certainty: 'reported',
+    source: 'description', evidence, finding: '治疗情况：脾部分切除术', verification: 'quoted' };
+  const raw = { ...providerFixture('disability'), status: 'preliminary', grade: clause.grade, facts: [],
+    references: [{ clauseId: clause.id, evidence,
+      reasoning: '', relation: 'supports', conditions: [{ condition: '脾部分切除术后', evidence,
+        factIds: ['F1'], met: false }] }] };
+  const result = normalizeResult(raw, input, { clauses: [clause], requestId: 'splenectomy-explicit-clause-test', model: 'test-model',
     extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
 
-  assert.equal(result.status, 'insufficient');
-  assert.equal(result.grade, null);
-  assert.equal(result.references[0].conditions[0].met, null);
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '九级伤残');
+  assert.equal(result.references[0].relation, 'supports');
+  assert.equal(result.references[0].conditions[0].met, true);
 });
 
 test('mixed OR and AND metadata materializes required groups and does not trust model met values', () => {
