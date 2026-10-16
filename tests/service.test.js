@@ -22,7 +22,16 @@ const provider = { complete: async request => request.name === 'fact_extraction'
 const post = (url, input, signal) => fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal });
 
 test('analysis returns validated result and legacy envelope; live and ready are separate', async () => {
-  await withApp({ provider }, async url => {
+  const evidence = 'CT报告明确记载左侧第3、4肋骨骨折，共2处骨折，均为本次外伤导致，无既往损伤。';
+  const source = 'CT报告明确记载左侧第3、4肋骨骨折';
+  const assessmentProvider = { ...provider, complete: async request => request.name === 'fact_extraction'
+    ? { facts: [
+      { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: source, eventId: 'E1' },
+      { id: 'F2', field: 'fracture_site_count', value: 2, certainty: 'reported', source: 'description', evidence: '共2处骨折', eventId: 'E1' },
+    ], missingMaterials: [], conflicts: [], requiresReview: false }
+    : providerFixture() };
+  assert.equal(inputs.injury.description, evidence);
+  await withApp({ provider: assessmentProvider }, async url => {
     const response = await post(url, inputs.injury); assert.equal(response.status, 200);
     const body = await response.json(); assert.equal(body.result.grade, '轻伤二级');
     assert.equal(JSON.parse(body.candidates[0].content.parts[0].text).grade, '轻伤二级');

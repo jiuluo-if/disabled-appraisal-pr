@@ -2,8 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assess } from '../gemini/lib/assessment.js';
 import { normalizeResult } from '../gemini/lib/results.js';
-import { retrieveClauses } from '../gemini/lib/catalog.js';
+import { catalogs, retrieveClauses } from '../gemini/lib/catalog.js';
 import { normalizeExtractedFacts, normalizeRibFacts } from '../gemini/lib/facts.js';
+import { FACT_EXTRACTION_PROMPT } from '../gemini/lib/prompts.js';
 import { inputs, providerFixture } from './fixtures.js';
 
 const conflictInput = {
@@ -42,6 +43,78 @@ function mockProvider(rawFacts) {
   };
 }
 
+test('fact extraction prompt separates conditional, historical, source, time and subject context', () => {
+  assert.match(FACT_EXTRACTION_PROMPT, /若、如果、假如[\s\S]*certainty 使用 unknown/);
+  assert.match(FACT_EXTRACTION_PROMPT, /既往[\s\S]*prior_injury[\s\S]*本次损伤/);
+  assert.match(FACT_EXTRACTION_PROMPT, /不同时间、报告来源和陈述主体/);
+  assert.match(FACT_EXTRACTION_PROMPT, /家属或他人/);
+  assert.match(FACT_EXTRACTION_PROMPT, /限定词[\s\S]*不跨逗号、分号或句号传播/);
+});
+
+test('catalog attaches explicit condition logic and an always-unknown opaque fallback', () => {
+  const ribThreshold = catalogs.injury.clauses.find(clause => clause.id === '5.6.4.b');
+  const ambiguousQualifier = catalogs.injury.clauses.find(clause => clause.id === '5.2.2.a');
+
+  assert.equal(ribThreshold.conditionLogic.annotation, 'explicit');
+  assert.equal(ribThreshold.conditionLogic.logic.op, 'all');
+  assert.deepEqual(ribThreshold.conditionLogic.logic.children[1].predicate, {
+    field: 'fracture_site_count', operator: 'gte', value: 2, unit: '处',
+  });
+  assert.equal(ambiguousQualifier.conditionLogic.annotation, 'opaque');
+  assert.equal(ambiguousQualifier.conditionLogic.logic.op, 'condition');
+  assert.equal(catalogs.injury.clauses.find(clause => clause.id === '5.6.3.c').conditionLogic.annotation, 'explicit');
+});
+
+test('catalog logic loader rejects unknown IDs, invalid source spans and unmapped explicit leaves', async () => {
+  const { applyClauseLogicMetadata } = await import('../gemini/lib/catalog.js');
+  assert.equal(typeof applyClauseLogicMetadata, 'function');
+
+  const rawCatalogs = {
+    injury: { clauses: [{ id: '5.6.4.b', text: '肋骨骨折2处以上' }] },
+    disability: { clauses: [] },
+  };
+  const logic = entry => ({ version: 1, clauses: { injury: { '5.6.4.b': entry } } });
+  const valid = { annotation: 'explicit', logic: { op: 'condition', sourceText: '肋骨骨折2处以上',
+    conditionText: '肋骨骨折2处以上', predicate: { field: 'fracture_site_count', operator: 'gte', value: 2, unit: '处' } } };
+
+  assert.equal(applyClauseLogicMetadata(rawCatalogs, logic(valid)).injury.clauses[0].conditionLogic.annotation, 'explicit');
+  assert.throws(() => applyClauseLogicMetadata(rawCatalogs, { version: 1,
+    clauses: { injury: { 'missing.clause': valid } } }), /未知|条款|clause/i);
+  assert.throws(() => applyClauseLogicMetadata(rawCatalogs, logic({ ...valid, logic: { ...valid.logic, sourceText: '无关片段' } })), /原文|source|条款/i);
+  assert.throws(() => applyClauseLogicMetadata(rawCatalogs, logic({ ...valid, logic: { ...valid.logic, sourceText: '' } })), /原文|source|条款/i);
+  assert.throws(() => applyClauseLogicMetadata(rawCatalogs, logic({ ...valid, logic: { op: 'condition',
+    sourceText: '肋骨骨折2处以上', conditionText: '肋骨骨折2处以上' } })), /predicate|factMatch|映射|条件/i);
+  const anyWithoutLabel = { annotation: 'explicit', logic: { op: 'any', children: [
+    valid.logic,
+    { op: 'condition', sourceText: '骨折', conditionText: '骨折',
+      factMatch: { field: 'injury_type', values: ['fracture'] } },
+  ] } };
+  assert.throws(() => applyClauseLogicMetadata(rawCatalogs, logic(anyWithoutLabel)), /显示|文本|sourceText/i);
+});
+
+test('every catalog clause has a validated explicit tree or a full-text opaque fallback', () => {
+  let explicitCount = 0;
+  let opaqueCount = 0;
+  for (const catalog of Object.values(catalogs)) for (const clause of catalog.clauses) {
+    const annotation = clause.conditionLogic?.annotation;
+    assert.ok(annotation === 'explicit' || annotation === 'opaque', `${clause.id} lacks an annotation`);
+    if (annotation === 'opaque') {
+      opaqueCount += 1;
+      assert.equal(clause.conditionLogic.logic.sourceText, clause.text);
+      continue;
+    }
+    explicitCount += 1;
+    const inspect = node => {
+      if (node.op === 'condition' || node.sourceText) assert.ok(node.sourceText && clause.text.includes(node.sourceText));
+      if (node.op === 'all' || node.op === 'any') node.children.forEach(inspect);
+      else assert.equal(Boolean(node.factMatch) + Boolean(node.predicate), 1);
+    };
+    inspect(clause.conditionLogic.logic);
+  }
+  assert.equal(explicitCount, 4);
+  assert.equal(explicitCount + opaqueCount, 847);
+});
+
 test('assessment extracts facts first and gives the second stage only the normalized fact snapshot', async () => {
   const { provider, calls } = mockProvider(rawConflictFacts);
   await assess(conflictInput, { provider, config: { textModel: 'kimi-k2.6', visionModel: 'kimi-k2.6' }, requestId: 'two-stage-test' });
@@ -52,6 +125,9 @@ test('assessment extracts facts first and gives the second stage only the normal
   assert.ok(Array.isArray(assessmentInput.facts));
   assert.equal('description' in assessmentInput, false);
   assert.equal('recognizedText' in assessmentInput, false);
+  assert.match(calls[1].messages[0].content, /conditionLogic/);
+  assert.match(calls[1].messages[0].content, /"annotation":"opaque"/);
+  assert.match(calls[1].messages[0].content, /"op":"all"/);
 });
 
 test('independent K2.6 field aliases normalize to identical source-backed facts and conflict state', async () => {
@@ -148,6 +224,103 @@ test('conflict references to unknown fact IDs are rejected instead of silently d
   }, { description: '骨折' }), /冲突|事实|ID/);
 });
 
+test('a conflict whose raw fact IDs deduplicate to one fact remains reviewable but unlinked', () => {
+  const quote = 'CT报告记载骨折';
+  const snapshot = normalizeExtractedFacts({
+    facts: [
+      { id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'description', evidence: quote },
+      { id: 'F2', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'description', evidence: quote },
+    ], missingMaterials: [], conflicts: [{ factIds: ['F1', 'F2'], reason: '两个重复条目被标为冲突' }], requiresReview: false,
+  }, { description: `${quote}。` });
+
+  assert.equal(snapshot.facts.length, 1);
+  assert.equal(snapshot.conflicts.length, 1);
+  assert.deepEqual(snapshot.conflicts[0].factIds, []);
+  assert.equal(snapshot.requiresReview, true);
+});
+
+test('equivalent facts from text and image retain both source links without a cross-source merge', () => {
+  const quote = 'CT报告记载肺挫伤';
+  const raw = { facts: [
+    { id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'description', evidence: quote },
+    { id: 'F2', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'image', evidence: quote },
+  ], missingMaterials: [], conflicts: [], requiresReview: false };
+  const input = { description: `${quote}。`, recognizedText: quote };
+  const first = normalizeExtractedFacts(raw, input);
+  const second = normalizeExtractedFacts(raw, input);
+  const diagnosisFacts = first.facts.filter(fact => fact.field === 'diagnosis');
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(diagnosisFacts.map(fact => fact.source).sort(), ['description', 'image']);
+  assert.equal(diagnosisFacts.length, 2);
+});
+
+test('equivalent facts repeated across image pages retain each page source after deduplication and result normalization', () => {
+  const quote = '检查记录显示双侧对称';
+  const recognizedText = `【图片1】\n${quote}。\n\n【图片2】\n${quote}。`;
+  const raw = { facts: [
+    { id: 'F1', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
+    { id: 'F2', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false };
+  const snapshot = normalizeExtractedFacts(raw, { recognizedText });
+  const diagnosisFacts = snapshot.facts.filter(fact => fact.field === 'diagnosis');
+
+  assert.equal(diagnosisFacts.length, 1);
+  assert.deepEqual(diagnosisFacts[0].sourceRefs.map(reference => reference.sourceId), ['image-1', 'image-2']);
+  assert.ok(diagnosisFacts[0].sourceRefs.every(reference => reference.evidence === quote));
+
+  const result = normalizeResult({ ...providerFixture('injury'), status: 'insufficient', grade: null, references: [] },
+    { ...inputs.injury, description: '' }, { clauses: [], recognizedText, requestId: 'image-source-provenance',
+      model: 'test-model', extractedFacts: snapshot.facts, conflicts: snapshot.conflicts,
+      requiresReview: snapshot.requiresReview, factMissingMaterials: snapshot.missingMaterials });
+  assert.deepEqual(result.facts.find(fact => fact.field === 'diagnosis').sourceRefs, diagnosisFacts[0].sourceRefs);
+});
+
+test('a page source reference that does not contain its quoted evidence is rejected', () => {
+  const quote = '检查记录显示双侧对称';
+  const recognizedText = `【图片1】\n${quote}。`;
+  const fact = { id: 'F1', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image',
+    evidence: quote, eventId: 'E1', sourceRefs: [{ source: 'image', sourceId: 'image-2', evidence: quote }] };
+  const result = normalizeResult({ ...providerFixture('injury'), status: 'insufficient', grade: null, references: [] },
+    { ...inputs.injury, description: '' }, { clauses: [], recognizedText, requestId: 'invalid-image-source-reference',
+      model: 'test-model', extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.facts.length, 0);
+  assert.ok(result.warnings.some(warning => warning.includes('图片页')));
+});
+
+test('duplicate OCR page IDs remain unscoped instead of claiming a specific image', () => {
+  const quote = '检查记录显示双侧对称';
+  const recognizedText = `【图片1】\n${quote}。\n\n【图片1】\n${quote}。`;
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { recognizedText });
+  const fact = snapshot.facts.find(item => item.field === 'diagnosis');
+
+  assert.deepEqual(fact.sourceRefs.map(reference => reference.sourceId), [null]);
+});
+
+test('event IDs survive fact normalization and separate episode-level differences from conflicts', () => {
+  const description = '2021年事故疑似第六肋骨骨折。2025年事故复查排除第六肋骨骨折。';
+  const rawFacts = eventIds => ({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'uncertain', source: 'description',
+      evidence: '2021年事故疑似第六肋骨骨折', eventId: eventIds[0] },
+    { id: 'F2', field: 'injury_type', value: 'rib_fracture', certainty: 'excluded', source: 'description',
+      evidence: '2025年事故复查排除第六肋骨骨折', eventId: eventIds[1] },
+  ], missingMaterials: [], conflicts: [], requiresReview: false });
+
+  const separateEpisodes = normalizeExtractedFacts(rawFacts(['E1', 'E2']), { description });
+  assert.equal(separateEpisodes.facts.filter(fact => fact.field === 'injury_type').length, 2);
+  assert.deepEqual(new Set(separateEpisodes.facts.filter(fact => fact.field === 'injury_type').map(fact => fact.eventId)), new Set(['E1', 'E2']));
+  assert.equal(separateEpisodes.conflicts.length, 0);
+  assert.equal(separateEpisodes.requiresReview, true);
+
+  const sameEpisode = normalizeExtractedFacts(rawFacts(['E1', 'E1']), { description });
+  assert.ok(sameEpisode.conflicts.some(conflict => conflict.factIds.some(id =>
+    sameEpisode.facts.find(fact => fact.id === id)?.field === 'injury_type')));
+  assert.equal(sameEpisode.requiresReview, true);
+});
+
 test('string-form conflict notices remain visible even when they do not cite fact IDs', () => {
   const snapshot = normalizeExtractedFacts({
     facts: [{ id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'uncertain', source: 'description', evidence: '疑似骨折' }],
@@ -181,14 +354,16 @@ test('cached clause conditions rebind fact IDs to the current source wording', (
   const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
   assert.ok(siteCount);
   const raw = structuredClone(providerFixture('injury'));
-  raw.references[0].conditions[0].factIds = [siteCount.id];
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+  raw.references[0].conditions[0].factIds = [injury.id, siteCount.id];
   const result = normalizeResult(raw, input, {
     clauses: retrieveClauses('injury', input.description), requestId: 'rebind-source-test', model: 'kimi-k2.6',
-    extractedFacts: snapshot.facts, conflicts: [], requiresReview: false,
+    extractedFacts: snapshot.facts.map(fact => ({ ...fact, eventId: 'E1' })), conflicts: [], requiresReview: false,
   });
   assert.equal(result.status, 'preliminary');
-  assert.equal(result.references[0].conditions[0].evidence, siteCount.evidence);
-  assert.deepEqual(result.references[0].conditions[0].factIds, [siteCount.id]);
+  const countCondition = result.references[0].conditions.find(condition => condition.condition.includes('处数'));
+  assert.equal(countCondition.evidence, siteCount.evidence);
+  assert.deepEqual(countCondition.factIds, [siteCount.id]);
 });
 
 test('observed K2.6 rib aliases normalize to one fact set and do not infer fracture sites from rib ordinals', () => {
@@ -251,6 +426,15 @@ test('deterministic rib-count facts retain source evidence and an ID to their so
   assert.deepEqual(count.derivedFrom, [ordinals.id]);
 });
 
+test('an explicit fracture-site count keeps the number and unit in its evidence quote', () => {
+  const description = '左侧第3、4肋骨骨折，共2处骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const count = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
+  assert.equal(count.value, 2);
+  assert.match(count.evidence, /2处/);
+  assert.ok(description.includes(count.evidence));
+});
+
 test('observed K2.6 contradiction aliases preserve the same canonical facts and review conflict', () => {
   const description = '病历一记载疑似第六肋骨骨折；复查报告记载未见骨折。';
   const responses = [
@@ -307,29 +491,29 @@ test('observed Chinese injury-type values normalize to the canonical rib-fractur
 });
 
 test('official clause conditions override K2.6 invented laterality requirements consistently', () => {
-  const description = '第六肋骨骨折1处。';
+  const description = '左侧第3、4肋骨骨折，共2处骨折。';
   const input = { ...inputs.injury, description };
   const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
   const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
   const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
   const clauses = retrieveClauses('injury', description);
   const supportedRaw = structuredClone(providerFixture('injury'));
-  supportedRaw.grade = '轻微伤';
-  supportedRaw.summary = '右侧第六肋骨骨折，评估为轻微伤。';
-  supportedRaw.reasoning = '右侧第六肋骨骨折，符合本条。';
-  supportedRaw.references = [{ ...supportedRaw.references[0], clauseId: '5.6.5.a', evidence: description,
-    relation: 'supports', conditions: [{ condition: '存在肋骨骨折的事实', evidence: description, met: true, factIds: [injury.id] }] }];
+  supportedRaw.grade = '轻伤二级';
+  supportedRaw.summary = '肋骨骨折处数符合明示阈值，辅助评估为轻伤二级。';
+  supportedRaw.reasoning = '肋骨骨折处数符合本条。';
+  supportedRaw.references = [{ ...supportedRaw.references[0], clauseId: '5.6.4.b', evidence: description,
+    relation: 'supports', conditions: [{ condition: '肋骨骨折2处以上', evidence: description, met: true, factIds: [injury.id, siteCount.id] }] }];
   const incompleteRaw = structuredClone(supportedRaw);
   incompleteRaw.status = 'insufficient'; incompleteRaw.grade = null;
   incompleteRaw.references = [
-    { ...supportedRaw.references[0], clauseId: '5.6.4.b', evidence: description, relation: 'incomplete',
-      conditions: [{ condition: '肋骨骨折2处以上', evidence: description, met: false, factIds: [siteCount.id] }] },
+    { ...supportedRaw.references[0], clauseId: '5.6.3.c', evidence: description, relation: 'incomplete',
+      conditions: [{ condition: '肋骨骨折6处以上', evidence: description, met: false, factIds: [injury.id, siteCount.id] }] },
     { ...supportedRaw.references[0], clauseId: '5.6.5.a', evidence: description, relation: 'incomplete',
       conditions: [{ condition: '肋骨骨折（需明确侧别定位）', evidence: description, met: null, factIds: [injury.id] }] },
   ];
   incompleteRaw.missingMaterials = ['肋骨侧别', '补充影像资料'];
   const normalize = raw => normalizeResult(raw, input, {
-    clauses, requestId: 'official-condition-test', model: 'kimi-k2.6', extractedFacts: snapshot.facts,
+    clauses, requestId: 'official-condition-test', model: 'kimi-k2.6', extractedFacts: snapshot.facts.map(fact => ({ ...fact, eventId: 'E1' })),
     conflicts: snapshot.conflicts, requiresReview: snapshot.requiresReview,
     factMissingMaterials: snapshot.missingMaterials,
   });
@@ -337,8 +521,8 @@ test('official clause conditions override K2.6 invented laterality requirements 
   const second = normalize(incompleteRaw);
   assert.equal(first.status, 'preliminary');
   assert.equal(second.status, 'preliminary');
-  assert.equal(first.grade, '轻微伤');
-  assert.equal(second.grade, '轻微伤');
+  assert.equal(first.grade, '轻伤二级');
+  assert.equal(second.grade, '轻伤二级');
   assert.deepEqual(second.references.map(({ id, grade, relation }) => ({ id, grade, relation })),
     first.references.map(({ id, grade, relation }) => ({ id, grade, relation })));
   assert.doesNotMatch(first.summary + first.reasoning + second.summary + second.reasoning, /右侧/);
@@ -359,17 +543,18 @@ test('repeated rib analysis emits the same locally relevant clause set when K2.6
   const secondRaw = { ...providerFixture('injury'), status: 'insufficient', grade: null,
     references: [reference('5.6.3.c', 'incomplete', true), reference('5.6.4.b', 'incomplete', true), reference('5.6.5.a', 'differential', true)] };
   const normalize = raw => normalizeResult(raw, input, { clauses, requestId: 'stable-rib-citations', model: 'kimi-k2.6',
-    extractedFacts: snapshot.facts, conflicts: [], requiresReview: false, factMissingMaterials: snapshot.missingMaterials });
+    extractedFacts: snapshot.facts.map(fact => ({ ...fact, eventId: 'E1' })), conflicts: [], requiresReview: false, factMissingMaterials: snapshot.missingMaterials });
   const first = normalize(firstRaw);
   const second = normalize(secondRaw);
-  const project = result => result.references.map(({ id, relation, conditions }) => ({ id, relation, met: conditions[0].met }));
+  const project = result => result.references.map(({ id, relation, conditions }) => ({ id, relation,
+    conditionStates: conditions.map(condition => condition.met) }));
   assert.equal(first.status, 'insufficient');
   assert.equal(second.status, 'insufficient');
   assert.deepEqual(project(first), project(second));
   assert.deepEqual(project(first), [
-    { id: '5.6.3.c', relation: 'incomplete', met: null },
-    { id: '5.6.4.b', relation: 'incomplete', met: null },
-    { id: '5.6.5.a', relation: 'differential', met: true },
+    { id: '5.6.3.c', relation: 'incomplete', conditionStates: [true, null] },
+    { id: '5.6.4.b', relation: 'incomplete', conditionStates: [true, null] },
+    { id: '5.6.5.a', relation: 'incomplete', conditionStates: [null] },
   ]);
 });
 
@@ -391,9 +576,9 @@ test('source-backed single rib fracture gets the same local clause result when K
     references: result.references.map(({ id, grade, relation }) => ({ id, grade, relation })),
     missingMaterials: result.missingMaterials });
   assert.deepEqual(project(first), project(second));
-  assert.equal(first.status, 'preliminary');
-  assert.equal(first.grade, '轻微伤');
-  assert.deepEqual(first.references.map(({ id, relation }) => ({ id, relation })), [{ id: '5.6.5.a', relation: 'supports' }]);
+  assert.equal(first.status, 'insufficient');
+  assert.equal(first.grade, null);
+  assert.ok(first.references.every(reference => reference.relation !== 'supports'));
 });
 
 test('conflicting facts suppress variable model clause references', () => {
@@ -439,16 +624,18 @@ test('insufficient and review results keep fact-stage missing materials, not var
 });
 
 test('preliminary supported grades do not retain model-added nonblocking missing materials', () => {
-  const description = '第六肋骨骨折1处。';
+  const description = '左侧第3、4肋骨骨折，共2处骨折。';
   const input = { ...inputs.injury, description };
   const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: ['影像检查报告', '肋骨侧别信息'], conflicts: [], requiresReview: false }, { description });
   const clauses = retrieveClauses('injury', description);
   const injuryFact = snapshot.facts.find(fact => fact.field === 'injury_type');
-  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: '轻微伤',
-    references: [{ ...providerFixture('injury').references[0], clauseId: '5.6.5.a', evidence: description,
-      conditions: [{ condition: '肋骨骨折', evidence: description, factIds: [injuryFact.id], met: true }] }] };
+  const siteCount = snapshot.facts.find(fact => fact.field === 'fracture_site_count');
+  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: '轻伤二级',
+    references: [{ ...providerFixture('injury').references[0], clauseId: '5.6.4.b', evidence: description,
+      conditions: [{ condition: '肋骨骨折2处以上', evidence: description,
+        factIds: [injuryFact.id, siteCount.id], met: true }] }] };
   const result = normalizeResult(raw, input, { clauses, requestId: 'stable-supported-missing', model: 'kimi-k2.6',
-    extractedFacts: snapshot.facts, conflicts: [], requiresReview: false, factMissingMaterials: snapshot.missingMaterials });
+    extractedFacts: snapshot.facts.map(fact => ({ ...fact, eventId: 'E1' })), conflicts: [], requiresReview: false, factMissingMaterials: snapshot.missingMaterials });
   assert.equal(result.status, 'preliminary');
   assert.deepEqual(result.missingMaterials, []);
 });
@@ -651,6 +838,142 @@ test('generic negative fracture evidence is preserved consistently and conflicts
   assert.ok(normalized[0].facts.some(fact => fact.field === 'injury_type' && fact.value === 'fracture'
     && fact.certainty === 'conflicted' && fact.evidence === '复查报告记载未见骨折'));
   assert.equal(normalized[0].requiresReview, true);
+});
+
+test('explicit denial of a rib fracture stays excluded in deterministic extraction', () => {
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '患者否认第六肋骨骨折。',
+  });
+  const injuryFact = snapshot.facts.find(fact => fact.field === 'injury_type');
+
+  assert.equal(injuryFact?.certainty, 'excluded');
+  assert.equal(injuryFact?.evidence, '患者否认第六肋骨骨折');
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('a hypothetical future fracture remains unknown rather than a current report', () => {
+  const description = '若出现第六肋骨骨折，应进一步检查。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
+      evidence: '若出现第六肋骨骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+
+  assert.equal(injury?.certainty, 'unknown');
+  assert.equal(injury?.evidence, '若出现第六肋骨骨折');
+  assert.equal(snapshot.requiresReview, true);
+});
+
+test('the quantity word 若干 is not treated as a hypothetical cue', () => {
+  const description = '影像报告记载若干根肋骨骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
+      evidence: '若干根肋骨骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const injury = snapshot.facts.find(fact => fact.field === 'injury_type');
+
+  assert.equal(injury?.certainty, 'reported');
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('an other-person symptom is unknown unless the source identifies the patient as subject', () => {
+  const otherDescription = '患者父亲主诉腰痛。';
+  const otherSnapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'symptom', value: '腰痛', certainty: 'reported', source: 'description', evidence: '患者父亲主诉腰痛' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: otherDescription });
+  const patientDescription = '家属代诉患者腰痛。';
+  const patientSnapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'symptom', value: '腰痛', certainty: 'reported', source: 'description', evidence: '家属代诉患者腰痛' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: patientDescription });
+
+  assert.equal(otherSnapshot.facts.find(fact => fact.field === 'symptom')?.certainty, 'unknown');
+  assert.equal(otherSnapshot.requiresReview, true);
+  assert.equal(patientSnapshot.facts.find(fact => fact.field === 'symptom')?.certainty, 'reported');
+  assert.equal(patientSnapshot.requiresReview, false);
+});
+
+test('explicitly historical rib fracture is not emitted as a current grading fact', () => {
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '左侧第六肋骨骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '既往病史记载左侧第六肋骨骨折。',
+  });
+
+  assert.ok(snapshot.facts.some(fact => fact.field === 'prior_injury' && fact.value === 'rib_fracture'
+    && fact.certainty === 'reported' && fact.evidence === '既往病史记载左侧第六肋骨骨折'));
+  assert.equal(snapshot.facts.some(fact => ['injury_type', 'fractured_rib_count', 'fracture_site_count'].includes(fact.field)), false);
+  assert.equal(snapshot.requiresReview, false);
+});
+
+test('multiple values in a critical injury type are preserved and require review', () => {
+  const value = ['rib_fracture', 'fracture'];
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value, certainty: 'reported', source: 'description', evidence: '报告记载两种骨折类型' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: '报告记载两种骨折类型。' });
+  const fact = snapshot.facts.find(item => item.field === 'injury_type');
+
+  assert.deepEqual(fact?.value, value);
+  assert.deepEqual(snapshot.conflicts, []);
+  assert.equal(snapshot.requiresReview, true);
+});
+
+test('an immediately preceding historical heading marks the rib fact as prior history', () => {
+  const description = '既往史\n左侧第六肋骨骨折。\n现病史\n右侧第七肋骨骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const prior = snapshot.facts.find(fact => fact.field === 'prior_injury');
+  const current = snapshot.facts.find(fact => fact.field === 'injury_type' && fact.evidence.includes('右侧第七肋骨'));
+
+  assert.ok(prior);
+  assert.match(prior.evidence, /既往史[\s\S]*左侧第六肋骨骨折/);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'injury_type' && fact.evidence.includes('左侧第六肋骨')), false);
+  assert.ok(current);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'prior_injury' && fact.evidence.includes('右侧第七肋骨')), false);
+});
+
+test('a historical section heading scopes rib facts across intervening lines but stops at current history', () => {
+  const description = '既往史\n此前病历有记录。\n左侧第六肋骨骨折。\n现病史\n右侧第七肋骨骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '左侧第六肋骨骨折' },
+    { id: 'F2', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description', evidence: '右侧第七肋骨骨折' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const prior = snapshot.facts.find(fact => fact.field === 'prior_injury');
+  const current = snapshot.facts.find(fact => fact.field === 'injury_type' && fact.evidence.includes('右侧第七肋骨'));
+
+  assert.ok(prior);
+  assert.match(prior.evidence, /既往史[\s\S]*左侧第六肋骨骨折/);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'injury_type' && fact.evidence.includes('左侧第六肋骨')), false);
+  assert.ok(current);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'prior_injury' && fact.evidence.includes('右侧第七肋骨')), false);
+});
+
+test('comma-separated suspected and excluded statements keep separate assertion scope and evidence', () => {
+  const description = '报告甲疑似第六肋骨骨折，复查报告乙未见骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const injuryFacts = snapshot.facts.filter(fact => fact.field === 'injury_type');
+
+  assert.equal(injuryFacts.length, 2);
+  assert.deepEqual(injuryFacts.map(({ value, assertedCertainty, certainty, evidence }) => ({
+    value, assertedCertainty, certainty, evidence,
+  })).sort((a, b) => a.value.localeCompare(b.value)), [
+    { value: 'fracture', assertedCertainty: 'excluded', certainty: 'conflicted', evidence: '复查报告乙未见骨折' },
+    { value: 'rib_fracture', assertedCertainty: 'uncertain', certainty: 'conflicted', evidence: '报告甲疑似第六肋骨骨折' },
+  ].sort((a, b) => a.value.localeCompare(b.value)));
+  assert.deepEqual(snapshot.conflicts.map(conflict => conflict.factIds), [injuryFacts.map(fact => fact.id).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))]);
+  assert.equal(snapshot.requiresReview, true);
+});
+
+test('a later negative statement cannot change an earlier confirmed fracture and both stay reviewable', () => {
+  const description = '报告甲明确记载第六肋骨骨折，复查报告乙未见骨折。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = snapshot.facts.filter(fact => fact.field === 'injury_type');
+
+  assert.deepEqual(facts.map(({ value, certainty, evidence }) => ({ value, certainty, evidence }))
+    .sort((a, b) => a.value.localeCompare(b.value)), [
+    { value: 'fracture', certainty: 'excluded', evidence: '复查报告乙未见骨折' },
+    { value: 'rib_fracture', certainty: 'reported', evidence: '报告甲明确记载第六肋骨骨折' },
+  ].sort((a, b) => a.value.localeCompare(b.value)));
+  assert.equal(snapshot.requiresReview, true);
+  assert.equal(snapshot.conflicts.length, 0);
 });
 
 test('a structured excluded rib fact makes an identical other statement redundant', () => {
