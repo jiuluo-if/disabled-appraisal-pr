@@ -496,6 +496,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     const priorFact = facts.find(item => item.field === 'prior_injury' && item.source === source
       && normalizeInput(item.evidence).includes(providedEvidence));
     const ribRelatedRawFact = isRibAlias(sourceFact.field)
+      || field === 'anatomical_site' && /肋骨|rib/i.test(`${value} ${fullEvidence}`)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
     const eventId = ribRelatedRawFact && inferredEventIds[source]
       ? inferredEventIds[source] : sourceFact.eventId || null;
