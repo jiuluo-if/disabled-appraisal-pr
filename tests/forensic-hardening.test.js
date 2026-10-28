@@ -194,6 +194,35 @@ test('quoted standard text cannot stand in for a patient finding', () => {
   assert.equal(repeated.references.find(reference => reference.id === clause.id)?.relation, 'supports');
 });
 
+test('an isolated prior appraisal conclusion cannot stand in for source findings', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.9.1.a');
+  const condition = clause.conditionLogic.logic.factMatch.values[0];
+  const assess = (description, requestId) => {
+    const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: condition, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: condition };
+    return normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [],
+      references: [{ clauseId: clause.id, relation: 'supports', evidence: condition, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: condition, factIds: ['F1'], met: true }] }] },
+    { ...inputs.injury, description }, { clauses: [clause], requestId, model: 'test-model', extractedFacts: [fact],
+      conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  };
+
+  const priorConclusion = assess(`合成资料，非真实病例。原鉴定意见：${condition}，原结论为重伤一级。`, 'isolated-prior-appraisal-conclusion');
+  assert.equal(priorConclusion.grade, null);
+  assert.notEqual(priorConclusion.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.match([...priorConclusion.warnings, ...priorConclusion.nextSteps].join(' '), /鉴定结论|鉴定意见/u);
+  assert.equal(assess(`合成资料，非真实病例。鉴定意见记载：${condition}。`,
+    'appraisal-conclusion-is-not-patient-finding').grade, null);
+
+  const sourceExam = assess(`合成资料，非真实病例。本次影像与体格检查记录：${condition}。`, 'current-source-findings-remain-supported');
+  assert.equal(sourceExam.grade, clause.grade);
+  assert.equal(sourceExam.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  const priorAndExam = assess(`合成资料，非真实病例。原鉴定意见：${condition}。本次影像与体格检查记录：${condition}。`,
+    'independent-source-finding-after-prior-appraisal');
+  assert.equal(priorAndExam.grade, clause.grade);
+  assert.equal(priorAndExam.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '检查见颞叶软化灶，诊断继发性癫痫。',
