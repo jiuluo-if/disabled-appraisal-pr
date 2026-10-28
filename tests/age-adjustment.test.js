@@ -699,3 +699,21 @@ test('the high-grade cumulative limb wound-length threshold uses injury standard
   assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
   assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
 });
+
+test('facial wound-length thresholds use injury standard 6.18', () => {
+  const assess = (id, age, wound, site = '面部') => {
+    const description = `本次事故后受伤时年龄${age}周岁，${site}${wound}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.injury.clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.2.3.a', 6, '皮肤创口长3厘米。'), true);
+  assert.notEqual(assess('5.2.3.a', 6, '皮肤创口长2.99厘米。'), true);
+  assert.equal(assess('5.2.3.a', 7, '多处皮肤创口累计长度6厘米。'), true);
+  assert.equal(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。'), true);
+  assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.24厘米。'), true);
+  assert.equal(assess('5.2.4.a', 7, '多处皮肤创口累计长度3.6厘米。'), true);
+  assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。', '左上臂'), true);
+});

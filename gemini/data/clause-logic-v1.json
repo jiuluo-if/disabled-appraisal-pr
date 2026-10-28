@@ -8748,6 +8748,7 @@
       },
       "5.2.3.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "面部单个创口或者瘢痕长度6.0cm以上；多个创口或者瘢痕长度累计10.0cm以上",
@@ -8755,36 +8756,29 @@
           "children": [
             {
               "op": "condition",
-              "sourceText": "面部单个创口",
-              "conditionText": "面部单个创口长度6.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部单个创口长度6.0cm以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "瘢痕长度6.0cm以上",
-              "conditionText": "面部单个瘢痕长度6.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部单个瘢痕长度6.0cm以上"
-                ]
-              }
+              "sourceText": "面部单个创口或者瘢痕长度6.0cm以上",
+              "conditionText": "面部单个创口或者瘢痕长度6.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 6,
+                "unit": "cm",
+                "evidenceGroups": [["面部", "脸部", "额部", "前额", "额头", "眉弓", "眉部", "眼内眦", "眼外侧", "眼外眦", "外眦", "眼睑", "上睑", "下睑", "面颊", "颧部", "鼻部", "鼻背", "鼻梁", "鼻翼", "鼻唇沟", "口唇", "唇部", "上唇", "下唇", "下颌"], ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "多个创口或者瘢痕长度累计10.0cm以上",
               "conditionText": "面部多个创口或者瘢痕长度累计10.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部多个创口或者瘢痕长度累计10.0cm以上"
-                ]
-              }
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm",
+                "evidenceGroups": [["面部", "脸部", "额部", "前额", "额头", "眉弓", "眉部", "眼睑", "上睑", "下睑", "眼内眦", "内眦", "面颊", "颧部", "鼻部", "鼻背", "鼻梁", "鼻翼", "鼻唇沟", "口唇", "上唇", "下唇", "唇部", "下颌"], ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"], ["总长", "总长度", "累计长", "累计长度", "长度合计", "长度累计"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
@@ -8872,6 +8866,7 @@
       },
       "5.2.4.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "面部单个创口或者瘢痕长度4.5cm以上；多个创口或者瘢痕长度累计6.0cm以上",
@@ -8926,7 +8921,8 @@
                     "创痕"
                   ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -8963,7 +8959,8 @@
                   ["面部", "脸部", "额部", "前额", "额头", "眉弓", "眉", "眉部", "眼睑", "上睑", "下睑", "眼内眦", "内眦", "面颊", "颧部", "鼻部", "鼻背", "鼻梁", "鼻翼", "鼻唇沟", "口唇", "上唇", "下唇", "唇部", "下颌"],
                   ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "创痕"]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
