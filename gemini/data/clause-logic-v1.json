@@ -1895,11 +1895,12 @@
           "sourceText": "挫伤面积累计达体表面积30％",
           "conditionText": "挫伤面积累计达体表面积30％",
           "ageAdjustment": "injury_standard_6_18",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "挫伤面积累计达体表面积30％"
-            ]
+          "predicate": {
+            "field": "contusion_tbsa_percent",
+            "operator": "gte",
+            "value": 30,
+            "unit": "%",
+            "evidenceGroups": [["挫伤"], ["体表面积", "TBSA"]]
           }
         }
       },
@@ -1911,11 +1912,12 @@
           "sourceText": "挫伤面积累计达体表面积10％",
           "conditionText": "挫伤面积累计达体表面积10％",
           "ageAdjustment": "injury_standard_6_18",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "挫伤面积累计达体表面积10％"
-            ]
+          "predicate": {
+            "field": "contusion_tbsa_percent",
+            "operator": "gte",
+            "value": 10,
+            "unit": "%",
+            "evidenceGroups": [["挫伤"], ["体表面积", "TBSA"]]
           }
         }
       },
@@ -1955,11 +1957,12 @@
           "sourceText": "挫伤面积达体表面积6％",
           "conditionText": "挫伤面积达体表面积6％",
           "ageAdjustment": "injury_standard_6_18",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "挫伤面积达体表面积6％"
-            ]
+          "predicate": {
+            "field": "contusion_tbsa_percent",
+            "operator": "gte",
+            "value": 6,
+            "unit": "%",
+            "evidenceGroups": [["挫伤"], ["体表面积", "TBSA"]]
           }
         }
       },

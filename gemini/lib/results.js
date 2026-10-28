@@ -190,6 +190,18 @@ function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     : predicate.unit === 'cm2' ? '(?:cm2|平方厘米)'
     : predicate.unit ? predicate.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
   const evidence = normalize(String(fact.evidence || ''));
+  if (predicate.field === 'contusion_tbsa_percent') {
+    const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*(?:%|％)`, 'gu'))];
+    const beforeMeasurement = measurements.length === 1
+      ? evidence.slice(Math.max(0, measurements[0].index - 30), measurements[0].index) : '';
+    if (measurements.length !== 1 || /擦伤|烧伤|烫伤|瘢痕|疤痕|未达|低于|小于|不足|不超过|少于|超过|大于|至少|以上|以下|约|大约|左右|接近|估计/u.test(evidence)
+      || /(?:\d+(?:\.\d+)?)\s*(?:-|–|—|至|到)\s*$/u.test(beforeMeasurement)
+      || !/挫伤/u.test(evidence) || !/(?:体表面积|TBSA)/iu.test(evidence)
+      || !/挫伤[^，,；;]{0,24}面积[^，,；;]{0,24}(?:体表面积|TBSA)/iu.test(evidence)) return null;
+    const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 && sourceValue <= 100
+      ? sourceValue : null;
+  }
   if (predicate.field === 'fracture_site_count' && fact.certainty === 'derived'
     && fact.source === 'description' && fact.verification === 'quoted'
     && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length > 0) {
@@ -879,29 +891,38 @@ function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
 
-function verifiedAdultAgeAtPoint(facts, eventId, field, agePattern) {
-  if (!eventId) return false;
+function verifiedAgeAtPoint(facts, eventId, field, agePattern) {
+  if (!eventId) return null;
   const ageFacts = facts.filter(fact => fact.field === field && fact.eventId === eventId
     && fact.source === 'description' && fact.verification === 'quoted');
-  if (!ageFacts.length) return false;
+  if (!ageFacts.length) return null;
   const values = new Set();
   for (const fact of ageFacts) {
     if (!reliableCertainties.has(fact.certainty) || !Number.isInteger(fact.value) || fact.value < 0 || fact.value > 130) {
-      return false;
+      return null;
     }
     if (/(?:患者的?父亲|患者的?母亲|其父|其母|家属|丈夫|妻子|他人|其他人|另一个人|同事)/u.test(fact.evidence || '')) {
-      return false;
+      return null;
     }
     const match = agePattern.exec(fact.evidence || '');
-    if (!match || Number(match[1]) !== fact.value) return false;
+    if (!match || Number(match[1]) !== fact.value) return null;
     values.add(fact.value);
   }
-  return values.size === 1 && [...values][0] >= 15;
+  return values.size === 1 ? [...values][0] : null;
+}
+
+function ageAtInjury(facts, eventId) {
+  return verifiedAgeAtPoint(facts, eventId, 'age_at_injury_years',
+    /(?:受伤|事故|损伤)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u);
+}
+
+function verifiedAdultAgeAtPoint(facts, eventId, field, pattern) {
+  const age = verifiedAgeAtPoint(facts, eventId, field, pattern);
+  return age !== null && age >= 15;
 }
 
 function verifiedAdultAgeAtInjury(facts, eventId) {
-  return verifiedAdultAgeAtPoint(facts, eventId, 'age_at_injury_years',
-    /(?:受伤|事故|损伤)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u);
+  return ageAtInjury(facts, eventId) >= 15;
 }
 
 function verifiedAdultAgeAtAssessment(facts, eventId) {
@@ -917,15 +938,37 @@ function verifiedAdultAgeForAdjustment(facts, eventId, ageAdjustment) {
   return false;
 }
 
+function adjustedAgePredicate(node, facts, eventId) {
+  const predicate = node.predicate;
+  if (node.ageAdjustment !== 'injury_standard_6_18' || predicate?.field !== 'contusion_tbsa_percent'
+    || predicate.operator !== 'gte') return null;
+  const age = ageAtInjury(facts, eventId);
+  const measurementFacts = facts.filter(fact => fact.field === predicate.field && fact.eventId === eventId
+    && Number.isFinite(predicateEvidenceValue(predicate, fact, facts)));
+  if (age === null) {
+    const minimumThreshold = predicate.value * 0.5;
+    const completeAggregate = measurementFacts.length === 1
+      && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
+    return completeAggregate && predicateEvidenceValue(predicate, measurementFacts[0], facts) < minimumThreshold
+      ? { ...predicate, value: minimumThreshold } : null;
+  }
+  const factor = age <= 6 ? 0.5 : age <= 10 ? 0.6 : age <= 14 ? 0.8 : 1;
+  return { ...predicate, value: Math.round(predicate.value * factor * 1_000_000) / 1_000_000 };
+}
+
 function ageAdjustmentFollowUp(logic, facts) {
   for (const { node } of collectLogicNodes(logic).filter(({ node }) =>
     ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment))) {
     const observed = evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
-    if (observed.met !== true) continue;
-    const eventIds = new Set(observed.factIds.map(id => facts.find(fact => fact.id === id)?.eventId).filter(Boolean));
-    const hasValidAdultAge = eventIds.size === 1
-      && verifiedAdultAgeForAdjustment(facts, [...eventIds][0], node.ageAdjustment);
-    if (!hasValidAdultAge) {
+    let needsAgeReview = observed.met === true;
+    if (node.ageAdjustment === 'injury_standard_6_18' && node.predicate?.field === 'contusion_tbsa_percent') {
+      const minimumThreshold = node.predicate.value * 0.5;
+      const measurements = facts.filter(fact => fact.field === node.predicate.field && fact.source === 'description'
+        && fact.verification === 'quoted' && Number.isFinite(predicateEvidenceValue(node.predicate, fact, facts))
+        && predicateEvidenceValue(node.predicate, fact, facts) >= minimumThreshold);
+      needsAgeReview = measurements.some(fact => ageAtInjury(facts, fact.eventId) === null);
+    }
+    if (needsAgeReview) {
       return node.ageAdjustment === 'injury_standard_6_18'
         ? '补充受伤时年龄资料，并按标准6.18核对体表损伤阈值（0–6岁按50%、7–10岁按60%、11–14岁按80%计算）；当前不能按成人阈值自动判断。'
         : '补充受伤时及评残时年龄资料，并按伤残分级标准6.11核对面部瘢痕长度或面积阈值（0–6周岁按50%、7–14周岁按80%计算）；标准未明确年龄时点时需人工核实，当前不能按成人阈值自动判断。';
@@ -935,20 +978,25 @@ function ageAdjustmentFollowUp(logic, facts) {
 }
 
 function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled = false) {
-  if (ageAdjustmentEnabled && ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment)
-    && !verifiedAdultAgeForAdjustment(facts, eventId, node.ageAdjustment)) {
-    return { met: null, evidence: '', factIds: [] };
+  let predicate = node.predicate;
+  if (ageAdjustmentEnabled && ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment)) {
+    if (node.ageAdjustment === 'injury_standard_6_18' && predicate?.field === 'contusion_tbsa_percent') {
+      predicate = adjustedAgePredicate(node, facts, eventId);
+      if (!predicate) return { met: null, evidence: '', factIds: [] };
+    } else if (!verifiedAdultAgeForAdjustment(facts, eventId, node.ageAdjustment)) {
+      return { met: null, evidence: '', factIds: [] };
+    }
   }
-  const acceptedFields = conditionFactFields(node.factMatch, node.predicate);
+  const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const candidates = facts.filter(fact => acceptedFields.has(fact.field)
     && fact.source === 'description' && fact.verification === 'quoted');
   const relevant = candidates.filter(fact => {
     if (isIntracranialCondition(node) && isSpinalEpiduralHematomaFact(fact)) return false;
-    if (node.predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(node.predicate.field)
-      && fact.field === 'wound_length_cm' && !woundLengthEvidenceSupportsPredicate(node.predicate, fact, facts)) return false;
-    if (node.predicate?.field === 'wound_length_cm' && node.predicate.evidenceGroups
+    if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
+      && fact.field === 'wound_length_cm' && !woundLengthEvidenceSupportsPredicate(predicate, fact, facts)) return false;
+    if (predicate?.field === 'wound_length_cm' && predicate.evidenceGroups
       && isWholeMeasurementWithRegionSegments(fact, facts)) return false;
-    if (node.predicate?.field === 'wound_length_cm' && node.predicate.evidenceGroups
+    if (predicate?.field === 'wound_length_cm' && predicate.evidenceGroups
       && isUnsegmentedFaceScalpMeasurement(fact)) return false;
     if (node.factMatch) {
       const factValues = Array.isArray(fact.value) ? fact.value : [fact.value];
@@ -983,8 +1031,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
         && (exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence))
         || reducedStrengthSign && !historicalEvidence && !evidenceAliasHistorical;
     }
-    const evidenceGroups = node.predicate.evidenceGroups;
-    return predicateEvidenceValue(node.predicate, fact, facts) !== null
+    const evidenceGroups = predicate.evidenceGroups;
+    return predicateEvidenceValue(predicate, fact, facts) !== null
       && (!evidenceGroups || evidenceGroups.every(group => group.some(alias => includesEvidence(fact.evidence, alias)
         || fact.field === 'wound_length_cm' && [fact.regionEvidence?.site, fact.regionEvidence?.injuryType]
           .some(value => includesEvidence(value || '', alias)))));
@@ -998,10 +1046,10 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   if (positive.length && conflictingExclusions.length || !positive.length && uncertain) {
     return { met: null, evidence: '', factIds: [] };
   }
-  if (node.predicate && positive.length) {
-    const states = positive.map(fact => comparePredicate(node.predicate, predicateEvidenceValue(node.predicate, fact, facts)));
+  if (predicate && positive.length) {
+    const states = positive.map(fact => comparePredicate(predicate, predicateEvidenceValue(predicate, fact, facts)));
     if (states.some(state => state === null)) return { met: null, evidence: '', factIds: [] };
-    if (node.predicate.field === 'gcs_score') {
+    if (predicate.field === 'gcs_score') {
       const statesByEvidence = new Map();
       for (const [index, fact] of positive.entries()) {
         const evidence = normalize(String(fact.evidence || ''));
@@ -1016,13 +1064,16 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
           factIds: qualifyingFacts.map(fact => fact.id) };
       }
     }
-    if (node.predicate.field === 'ear_scalp_wound_ratio' && states.every(state => state === false)) {
+    if (predicate.field === 'ear_scalp_wound_ratio' && states.every(state => state === false)) {
       return { met: null, evidence: '', factIds: [] };
     }
-    if (['wound_length_cm', 'aggregate_wound_length_cm', 'dental_loss_count'].includes(node.predicate.field)
-      && node.predicate.operator === 'gte') {
+    if (['wound_length_cm', 'aggregate_wound_length_cm', 'dental_loss_count'].includes(predicate.field)
+      && predicate.operator === 'gte') {
       return { met: states.some(state => state === true), evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
         factIds: positive.map(fact => fact.id) };
+    }
+    if (predicate.field === 'contusion_tbsa_percent' && positive.length > 1 && states.every(state => state === false)) {
+      return { met: null, evidence: '', factIds: [] };
     }
     if (new Set(states).size > 1) return { met: null, evidence: '', factIds: [] };
     return { met: states[0], evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
