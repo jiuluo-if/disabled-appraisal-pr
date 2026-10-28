@@ -991,7 +991,7 @@ function evidenceOccursOnlyInMarkedContext(evidence, sourceText, contextMarker) 
   return occurrenceCount > 0 && allOccurrencesAreCitations;
 }
 
-const STANDARD_QUOTATION_MARKER = /(?:标准原文|标准条文|条文原文|条款原文|引用(?:了)?(?:标准|条文|条款)|摘录(?:了)?(?:标准|条文|条款)|照录(?:标准|条文|条款))/u;
+const STANDARD_QUOTATION_MARKER = /(?:标准原文|标准条文|条文原文|条款原文|(?:引用|摘录|照录)(?:了)?(?:标准|条文|条款)|(?:引用|摘录|照录)(?:了)?《[^》]{1,64}(?:标准|分级)[^》]*》|《[^》]{1,64}(?:标准|分级)[^》]*》第[^。！？；;]{0,16}(?:条|款|项|附录|表)[:：]?)/u;
 const PRIOR_APPRAISAL_CONCLUSION_MARKER = /(?:(?:原|既往|既有|此前|之前|上次|前次)(?:的)?(?:鉴定|评定)(?:意见|结论|结果)|(?:伤情|伤残)鉴定结论|鉴定结论|鉴定意见(?:记载|认为|认定|结论|为|[:：]))/u;
 
 function aggregateEvidenceIncludesParent(aggregate, parent) {

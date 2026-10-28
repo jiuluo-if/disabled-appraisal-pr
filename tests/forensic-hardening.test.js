@@ -181,6 +181,10 @@ test('quoted standard text cannot stand in for a patient finding', () => {
   assert.match([...rejected.warnings, ...rejected.nextSteps].join(' '), /标准.{0,12}(?:引用|原文)|条文.{0,12}(?:引用|原文)/u);
   assert.equal(evaluate('合成资料，非真实病例。标准原文\n' + criterion,
     'standard-heading-before-quotation').grade, null);
+  assert.equal(evaluate('合成资料，非真实病例。引用《人体损伤致残程度分级》第5.4.6.3条：' + criterion + '。',
+    'quoted-named-standard-is-not-patient-fact').grade, null);
+  assert.equal(evaluate('合成资料，非真实病例。《人体损伤致残程度分级》第5.4.6.3条：' + criterion + '。',
+    'standard-citation-without-quote-verb-is-not-patient-fact').grade, null);
 
   const patientFinding = '合成资料，非真实病例。手功能评估记录：' + criterion + '。';
   const supported = evaluate(patientFinding, 'quoted-patient-finding-remains-supported');
