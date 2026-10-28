@@ -6469,11 +6469,12 @@
               "sourceText": "深IIo以上烧烫伤面积达体表面积70％",
               "conditionText": "深IIo以上烧烫伤面积达体表面积70％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "深IIo以上烧烫伤面积达体表面积70％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_deep_ii_plus_percent",
+                "operator": "gte",
+                "value": 70,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             },
             {
@@ -6481,11 +6482,12 @@
               "sourceText": "IIIo面积达30％",
               "conditionText": "IIIo烧烫伤面积达体表面积30％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "IIIo面积达30％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_iii_percent",
+                "operator": "gte",
+                "value": 30,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             }
           ]
@@ -6504,11 +6506,12 @@
               "sourceText": "IIo以上烧烫伤面积达体表面积20％",
               "conditionText": "IIo以上烧烫伤面积达体表面积20％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "IIo以上烧烫伤面积达体表面积20％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_ii_plus_percent",
+                "operator": "gte",
+                "value": 20,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             },
             {
@@ -6516,11 +6519,12 @@
               "sourceText": "IIIo面积达5％",
               "conditionText": "IIIo烧烫伤面积达体表面积5％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "IIIo面积达5％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_iii_percent",
+                "operator": "gte",
+                "value": 5,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             }
           ]
@@ -6539,11 +6543,12 @@
               "sourceText": "IIo以上烧烫伤面积达体表面积5％",
               "conditionText": "IIo以上烧烫伤面积达体表面积5％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "IIo以上烧烫伤面积达体表面积5％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_ii_plus_percent",
+                "operator": "gte",
+                "value": 5,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             },
             {
@@ -6551,11 +6556,12 @@
               "sourceText": "IIIo面积达0.5％",
               "conditionText": "IIIo烧烫伤面积达体表面积0.5％",
               "ageAdjustment": "injury_standard_6_18",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "IIIo面积达0.5％"
-                ]
+              "predicate": {
+                "field": "burn_tbsa_iii_percent",
+                "operator": "gte",
+                "value": 0.5,
+                "unit": "%",
+                "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
               }
             }
           ]
@@ -13732,23 +13738,25 @@
                   "sourceText": "IIo以上烧烫伤面积达体表面积30％",
                   "conditionText": "IIo以上烧烫伤面积达体表面积30％",
                   "ageAdjustment": "injury_standard_6_18",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "IIo以上烧烫伤面积达体表面积30％"
-                    ]
+                  "predicate": {
+                    "field": "burn_tbsa_ii_plus_percent",
+                    "operator": "gte",
+                    "value": 30,
+                    "unit": "%",
+                    "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
                   }
                 },
                 {
                   "op": "condition",
                   "sourceText": "IIIo面积达10％",
-                  "conditionText": "IIIo面积达10％",
+                  "conditionText": "IIIo烧烫伤面积达体表面积10％",
                   "ageAdjustment": "injury_standard_6_18",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "IIIo面积达10％"
-                    ]
+                  "predicate": {
+                    "field": "burn_tbsa_iii_percent",
+                    "operator": "gte",
+                    "value": 10,
+                    "unit": "%",
+                    "evidenceGroups": [["烧伤", "烧烫伤", "烫伤"], ["体表面积", "TBSA"]]
                   }
                 }
               ]

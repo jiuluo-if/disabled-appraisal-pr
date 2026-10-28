@@ -76,7 +76,8 @@ function validateLogicNode(node, clauseText, annotation) {
     node.ageAdjustment === INJURY_AGE_ADJUSTMENT ? 'injury' : 'disability', clauseText)
     || !/%|％|cm/iu.test(`${node.sourceText} ${node.conditionText}`)
       && node.sourceText !== '面积低于上述程度'
-    || !['clinical_finding', 'contusion_tbsa_percent'].includes(node.factMatch?.field || node.predicate?.field)
+    || !['clinical_finding', 'contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
+      'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent'].includes(node.factMatch?.field || node.predicate?.field)
     || annotation !== 'explicit')) {
     throw new TypeError('年龄调整标记只能用于显式量化伤情或面部瘢痕条款');
   }

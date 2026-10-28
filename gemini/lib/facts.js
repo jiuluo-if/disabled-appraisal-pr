@@ -3559,6 +3559,9 @@ function factFinding(field, value, certainty) {
     injury_type: '损伤类型', laterality: '侧别', fractured_rib_numbers: '骨折肋骨序号',
     fractured_rib_count: '骨折肋骨根数', fracture_site_count: '骨折处数', symptom: '症状',
     contusion_tbsa_percent: '挫伤占体表面积比例（百分比）',
+    burn_tbsa_ii_plus_percent: 'II度以上烧烫伤体表面积比例（百分比）',
+    burn_tbsa_deep_ii_plus_percent: '深II度以上烧烫伤体表面积比例（百分比）',
+    burn_tbsa_iii_percent: 'III度烧烫伤体表面积比例（百分比）',
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
@@ -3846,9 +3849,7 @@ function normalizeBodySurfaceContusionFacts(inputText) {
     const fullContusionIndex = Math.max(0, measurement.index - 50) + contusion;
     const beforeMeasurement = clause.slice(Math.max(0, measurement.index - 30), measurement.index);
     if (/(?:\d+(?:\.\d+)?)\s*(?:-|–|—|至|到)\s*$/u.test(beforeMeasurement)) continue;
-    const contextStart = Math.max(clause.lastIndexOf('，', fullContusionIndex - 1), clause.lastIndexOf(',', fullContusionIndex - 1),
-      clause.lastIndexOf('、', fullContusionIndex - 1), clause.lastIndexOf('；', fullContusionIndex - 1),
-      clause.lastIndexOf(';', fullContusionIndex - 1)) + 1;
+    const contextStart = Math.max(0, fullContusionIndex - 24);
     const local = clause.slice(fullContusionIndex, measurement.index + measurement[0].length);
     const certaintyContext = clause.slice(contextStart, measurement.index + measurement[0].length);
     if (!/挫伤[^，,；;]{0,24}面积/u.test(local)
@@ -3858,6 +3859,40 @@ function normalizeBodySurfaceContusionFacts(inputText) {
     const value = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
     if (!Number.isFinite(value) || value < 0 || value > 100) continue;
     facts.push({ id: `BSC${sentence.index + measurement.index}`, field: 'contusion_tbsa_percent', value,
+      certainty, source_type: 'user_text', source_excerpt: clause.slice(-MAX_FACT_EVIDENCE_CHARS) });
+  }
+  return facts;
+}
+
+function normalizeBurnTbsaFacts(inputText) {
+  const text = normalizeInput(inputText || '');
+  const facts = [];
+  for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
+    const clause = sentence[0];
+    const measurements = [...clause.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*[%％]/gu)];
+    const degrees = [...clause.matchAll(/(深\s*)?(III|Ⅲ|三|II|Ⅱ|二)\s*(?:度|o|°)(?:以上|及以上)?/giu)];
+    if (measurements.length !== 1 || degrees.length !== 1 || !/烧(?:烫)?伤|烫伤/u.test(clause)
+      || !/(?:体表面积|TBSA)/iu.test(clause) || !/面积/u.test(clause)) continue;
+    const measurement = measurements[0];
+    const degree = degrees[0];
+    const degreeText = normalizeInput(degree[2]).toUpperCase();
+    const isThirdDegree = degreeText === 'III' || degreeText === '三';
+    const isSecondDegree = degreeText === 'II' || degreeText === '二';
+    const surfaceCue = Math.max(clause.lastIndexOf('体表面积', measurement.index), clause.lastIndexOf('TBSA', measurement.index));
+    if ((!isThirdDegree && !isSecondDegree) || surfaceCue < 0 || degree.index > surfaceCue
+      || measurement.index - surfaceCue > 24) continue;
+    const nearMeasurement = clause.slice(Math.max(0, measurement.index - 28), measurement.index);
+    if (/(?:约|大约|左右|接近|估计|未达|低于|小于|不足|不超过|少于|超过|大于|至少)/u.test(nearMeasurement)
+      || /(?:\d+(?:\.\d+)?)\s*(?:-|–|—|至|到)\s*$/u.test(nearMeasurement)) continue;
+    const contextStart = Math.max(0, degree.index - 24);
+    const certainty = certaintyFor(clause.slice(contextStart, measurement.index + measurement[0].length), 0,
+      measurement.index + measurement[0].length - contextStart);
+    const value = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+    if (!Number.isFinite(value) || value < 0 || value > 100) continue;
+    const fields = isThirdDegree
+      ? ['burn_tbsa_iii_percent']
+      : degree[1] ? ['burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_ii_plus_percent'] : ['burn_tbsa_ii_plus_percent'];
+    for (const field of fields) facts.push({ id: `BURN${sentence.index + measurement.index}_${field}`, field, value,
       certainty, source_type: 'user_text', source_excerpt: clause.slice(-MAX_FACT_EVIDENCE_CHARS) });
   }
   return facts;
@@ -4002,6 +4037,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeVertebralFractureDiagnosisFacts(sourceText),
       ...normalizeNasalSeptumCombinationFacts(sourceText),
       ...normalizeBodySurfaceContusionFacts(sourceText),
+      ...normalizeBurnTbsaFacts(sourceText),
       ...normalizeCheekPenetratingWoundFacts(sourceText),
       ...normalizeSharedSuffixBoneFractureFacts(sourceText),
       ...normalizeBrainCompressionEvidenceFacts(sourceText),
@@ -4030,7 +4066,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeFacialSkinAbnormalityAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
         'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(fact.field)
-        && factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
+        || fact.field.startsWith('burn_tbsa_')) {
+        if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
+      }
       const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
         || fact.id?.startsWith('BF')
         || fact.field === 'distinct_orbital_wall_fracture_count'
@@ -4060,8 +4098,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       });
     }
   }
-  const sameClauseContusionEventId = fact => {
-    if (fact.field !== 'contusion_tbsa_percent' || fact.source !== 'description' || fact.eventId) return null;
+  const sameClauseBodySurfaceEventId = fact => {
+    if (fact.field !== 'contusion_tbsa_percent' && !fact.field.startsWith('burn_tbsa_')
+      || fact.source !== 'description' || fact.eventId) return null;
     const factClause = sourceClause(sourceTexts.description, fact.evidence) || fact.evidence;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
@@ -4107,9 +4146,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     const factSourceRefs = fact.field === 'lip_through_wound_length_cm'
       ? mergeSourceRefs([], inheritedSourceRefs)
       : mergeSourceRefs(sourceRefsForFact(fact.source, evidence, sourceTexts[fact.source]), inheritedSourceRefs);
-    const contusionEventId = sameClauseContusionEventId(fact);
+    const bodySurfaceEventId = sameClauseBodySurfaceEventId(fact);
     addFact({ ...fact, ...(ribFields.has(fact.field) && inferredEventIds[fact.source]
-      ? { eventId: inferredEventIds[fact.source] } : {}), ...(contusionEventId ? { eventId: contusionEventId } : {}), evidence,
+      ? { eventId: inferredEventIds[fact.source] } : {}), ...(bodySurfaceEventId ? { eventId: bodySurfaceEventId } : {}), evidence,
     sourceRefs: factSourceRefs,
       finding: factFinding(fact.field, fact.value, fact.certainty) });
   }
@@ -4128,7 +4167,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     let value = stableJson(sourceFact.value);
     if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
       'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(field)
-      && factIsOutsideAssessmentScope(sourceTexts[source], providedEvidence, String(value ?? ''))) continue;
+      || field.startsWith('burn_tbsa_')) {
+      if (factIsOutsideAssessmentScope(sourceTexts[source], providedEvidence, String(value ?? ''))) continue;
+    }
     if (['injury_date', 'prior_injury', 'other'].includes(field) && isNonInjuryDateClaim(fullEvidence, value)) continue;
     const matchingInjuryDate = deterministicFacts.find(fact => fact.source === source && fact.field === 'injury_date'
       && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));

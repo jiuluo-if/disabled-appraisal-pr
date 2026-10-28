@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { catalogs } from '../gemini/lib/catalog.js';
+import { catalogs, retrieveClauses } from '../gemini/lib/catalog.js';
 import { evaluateConditionLogic, normalizeResult } from '../gemini/lib/results.js';
 import { normalizeExtractedFacts } from '../gemini/lib/facts.js';
 import { inputs, providerFixture } from './fixtures.js';
@@ -174,4 +174,53 @@ test('TBSA contusion parsing preserves uncertainty and rejects neighboring injur
   const clause = catalogs.injury.clauses.find(item => item.id === '5.11.3.a');
   const rangeFact = { ...areaFact, value: 5, evidence: '本次事故后挫伤面积占体表面积4至5%' };
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [rangeFact, ageFact(15)]).met, null);
+});
+
+test('burn depth and TBSA percentages normalize as one source-bound fact and scale at injury-age boundaries', () => {
+  const description = '本次事故后受伤时年龄10周岁，Ⅱ度以上烧烫伤面积占体表面积12%。';
+  const normalized = normalizeExtractedFacts({ facts: [{ id: 'A1', eventId: 'E1', field: 'age_at_injury_years',
+    value: 10, certainty: 'reported', source: 'description', evidence: '受伤时年龄10周岁' }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = normalized.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const burn = facts.find(fact => fact.field === 'burn_tbsa_ii_plus_percent');
+  assert.equal(burn?.value, 12);
+  assert.equal(burn?.eventId, 'E1');
+  const severe = catalogs.injury.clauses.find(item => item.id === '5.12.3.a');
+  assert.equal(evaluateConditionLogic(severe.conditionLogic, facts).met, true);
+  assert.ok(retrieveClauses('injury', description, 1, facts).some(item => item.id === severe.id));
+
+  const deep = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '深II度烧伤面积占体表面积35%。' }).facts;
+  assert.ok(deep.some(fact => fact.field === 'burn_tbsa_deep_ii_plus_percent' && fact.value === 35));
+  const third = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: 'Ⅲ度烧伤面积占体表面积10%。' }).facts;
+  assert.ok(third.some(fact => fact.field === 'burn_tbsa_iii_percent' && fact.value === 10));
+  assert.equal(third.some(fact => fact.field === 'burn_tbsa_deep_ii_plus_percent'), false);
+
+  const assessBurn = (id, age, degreePhrase, percent) => {
+    const inputText = `2025年3月1日交通事故发生后，受伤时年龄${age}周岁，${degreePhrase}面积占体表面积${percent}%。`;
+    const result = normalizeExtractedFacts({ facts: [{ id: 'A1', eventId: 'E1', field: 'age_at_injury_years',
+      value: age, certainty: 'reported', source: 'description', evidence: `受伤时年龄${age}周岁` }],
+    missingMaterials: [], conflicts: [], requiresReview: false }, { description: inputText });
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic,
+      result.facts.map(fact => ({ ...fact, verification: 'quoted' }))).met;
+  };
+  assert.equal(assessBurn('5.12.1.a', 6, '深II度以上烧烫伤', 35), true);
+  assert.equal(assessBurn('5.12.1.a', 7, '深II度以上烧烫伤', 35), null);
+  assert.equal(assessBurn('5.12.3.a', 11, 'II度以上烧烫伤', 12), null);
+  assert.equal(assessBurn('5.12.3.a', 14, 'II度以上烧烫伤', 16), true);
+  assert.equal(assessBurn('5.12.3.a', 15, 'II度以上烧烫伤', 16), null);
+  assert.equal(assessBurn('5.12.4.a', 14, 'III度烧伤', 0.4), true);
+  assert.equal(assessBurn('5.12.4.a', 15, 'III度烧伤', 0.4), null);
+});
+
+test('burn parser requires explicit depth and denominator and rejects uncertain or ranged measurements', () => {
+  const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description }).facts;
+  assert.equal(extract('烧伤面积占体表面积10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
+  assert.equal(extract('III度烧伤面积10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
+  const uncertain = extract('考虑III度烧伤面积占体表面积10%。').filter(fact => fact.field.startsWith('burn_tbsa_'));
+  assert.ok(uncertain.length > 0);
+  assert.ok(uncertain.every(fact => fact.certainty === 'uncertain'));
+  assert.equal(extract('III度烧伤面积占体表面积8至10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
 });
