@@ -880,6 +880,24 @@ test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.
   assert.ok(result.references.some(reference => reference.id === clause.id && reference.relation === 'supports'));
 });
 
+test('vulvar wound evidence alone cannot waive the length threshold in 5.8.4.f', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.8.4.f');
+  const evidence = '病例记录女性外阴皮肤创口。';
+  const fact = { id: 'V1', eventId: 'E1', field: 'clinical_finding', value: '女性外阴皮肤创口',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence };
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [fact]).met, true);
+
+  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, relation: 'supports', evidence, reasoning: '',
+    conditions: [{ condition: clause.text, evidence, factIds: ['V1'], met: true }],
+  }] };
+  const result = normalizeResult(raw, { ...inputs.injury, description: evidence }, { clauses: [clause],
+    requestId: 'vulvar-wound-length-required', model: 'test-model', extractedFacts: [fact], conflicts: [],
+    requiresReview: false, factMissingMaterials: [] });
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];

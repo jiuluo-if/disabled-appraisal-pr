@@ -117,7 +117,7 @@ const DISABILITY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['facial_scar_width_cm'
   'aggregate_facial_scar_length_cm', 'facial_center_scar_length_cm']);
 const WOUND_SURFACE_SITE_ALIASES = new Set(['面部','脸部','额部','前额','额头','眉弓','眉部','面颊','颧部','鼻部','鼻背','鼻梁','鼻翼',
   '鼻唇沟','口唇','上唇','下唇','下颌','头部','头皮','额顶部','头顶部','颞顶部','顶枕部','后枕部','颞枕部','枕部','颞部',
-  '耳廓','耳部','颈前部','颈前','颈部','颈','肢体','上肢','下肢','上臂','前臂','肘部','腕部','肩部','手部','手掌',
+  '耳廓','耳部','颈前部','颈前','颈部','颈','外阴','阴茎','阴囊','肢体','上肢','下肢','上臂','前臂','肘部','腕部','肩部','手部','手掌',
   '手背','手指','掌部','手','髋部','大腿','股部','膝部','小腿','踝部','足部','足背','趾部','胸部','腹部','背部','腰部']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
@@ -571,7 +571,7 @@ function woundLengthEvidenceSupportsPredicate(predicate, fact, facts = []) {
     const exactLength = quotedPredicateEvidenceValue({ field: 'wound_length_cm', unit: predicate.unit || 'cm' },
       { ...fact, evidence }, facts);
     if (exactLength !== fact.value) return false;
-    const siteCue = /头顶部|额顶部|颞顶部|顶枕部|后枕部|颞枕部|头皮|头部|枕部|颞部|面部|脸部|额部|前额|额头|眉弓|眉部|眼内眦|眼外侧|眼外眦|外眦|眼上方|眼下方|下睑|上睑|眼睑|面颊|颧部|鼻唇沟|鼻背|鼻梁|鼻部|鼻翼|口角|唇上方|唇下方|上唇|下唇|口唇|唇部|下颌|耳廓|颈前正中|颈前部|颈前|颈部|颈|胸部|胸|腹部|腹|背部|背|腰部|腰|左肩|右肩|肩部|肩|上肢|上臂|前臂|肘部|腕部|下肢|髋部|大腿|股部|膝部|小腿|踝部|足部|趾部|手部|手掌|手背|手指|掌部|手|足|踝|肋骨|骨盆/gu;
+    const siteCue = /头顶部|额顶部|颞顶部|顶枕部|后枕部|颞枕部|头皮|头部|枕部|颞部|面部|脸部|额部|前额|额头|眉弓|眉部|眼内眦|眼外侧|眼外眦|外眦|眼上方|眼下方|下睑|上睑|眼睑|面颊|颧部|鼻唇沟|鼻背|鼻梁|鼻部|鼻翼|口角|唇上方|唇下方|上唇|下唇|口唇|唇部|下颌|耳廓|颈前正中|颈前部|颈前|颈部|颈|外阴|阴茎|阴囊|胸部|胸|腹部|腹|背部|背|腰部|腰|左肩|右肩|肩部|肩|上肢|上臂|前臂|肘部|腕部|下肢|髋部|大腿|股部|膝部|小腿|踝部|足部|趾部|手部|手掌|手背|手指|掌部|手|足|踝|肋骨|骨盆/gu;
     const contextForMeasurement = (start, measurementEnd) => {
       const prefix = evidence.slice(0, start);
       const sentenceStart = Math.max(prefix.lastIndexOf('。'), prefix.lastIndexOf('；'), prefix.lastIndexOf(';'),

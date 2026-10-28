@@ -716,6 +716,116 @@ test('facial wound-length thresholds use injury standard 6.18', () => {
   assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.24厘米。'), true);
   assert.equal(assess('5.2.4.a', 7, '多处皮肤创口累计长度3.6厘米。'), true);
   assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。', '左上臂'), true);
+
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.2.a');
+  const centerCue = '面部条状瘢痕（50%以上位于中心区）';
+  const assessScar = (age, finding, includeAge = true) => {
+    const description = `本次事故后${includeAge ? `受伤时年龄${age}周岁，` : ''}${finding}`;
+    const facts = includeAge ? [ageFact(age)] : [];
+    if (description.includes(centerCue)) facts.push({ id: 'F-center', eventId: 'E1', field: 'clinical_finding',
+      value: centerCue, certainty: 'reported', source: 'description', evidence: centerCue });
+    const normalized = normalizeExtractedFacts({ facts, missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(clause.conditionLogic, normalized).met;
+  };
+  const single = (length, central = true) => `${central ? `${centerCue}` : '面部条状瘢痕'}长${length}cm。`;
+  const cumulative = length => `${centerCue}两处分别长${length / 2}cm、${length / 2}cm。`;
+
+  assert.equal(assessScar(6, single(5)), true);
+  assert.notEqual(assessScar(6, single(4.99)), true);
+  assert.equal(assessScar(7, single(6)), true);
+  assert.notEqual(assessScar(7, single(5.99)), true);
+  assert.equal(assessScar(11, single(8)), true);
+  assert.notEqual(assessScar(11, single(7.99)), true);
+  assert.equal(assessScar(15, single(10)), true);
+  assert.notEqual(assessScar(15, single(9.99)), true);
+  assert.notEqual(assessScar(6, single(10, false)), true);
+  assert.notEqual(assessScar(6, single(5), false), true);
+
+  const noAgeDescription = `本次事故后${single(5)}`;
+  const noAgeFacts = normalizeExtractedFacts({ facts: [{ id: 'F-center', eventId: 'E1', field: 'clinical_finding',
+    value: centerCue, certainty: 'reported', source: 'description', evidence: centerCue }], missingMaterials: [],
+    conflicts: [], requiresReview: false }, { description: noAgeDescription }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  const modelRaw = { ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, evidence: noAgeDescription, reasoning: '模型按面部瘢痕阈值判断。', relation: 'supports',
+    conditions: [{ condition: clause.text, evidence: noAgeDescription,
+      factIds: noAgeFacts.map(fact => fact.id), met: true }],
+  }] };
+  const noAgeResult = normalizeResult(modelRaw, { ...inputs.injury, description: noAgeDescription }, {
+    clauses: [clause], requestId: 'facial-linear-scar-no-age', model: 'test-model', extractedFacts: noAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.notEqual(noAgeResult.grade, clause.grade);
+  assert.notEqual(noAgeResult.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.ok(noAgeResult.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+
+  assert.equal(assessScar(6, cumulative(7.5)), true);
+  assert.notEqual(assessScar(6, cumulative(7.49)), true);
+  assert.equal(assessScar(7, cumulative(9)), true);
+  assert.notEqual(assessScar(7, cumulative(8.99)), true);
+  assert.equal(assessScar(11, cumulative(12)), true);
+  assert.notEqual(assessScar(11, cumulative(11.99)), true);
+  assert.equal(assessScar(15, cumulative(15)), true);
+  assert.notEqual(assessScar(15, cumulative(14.99)), true);
+});
+
+test('external-genital skin wound and scar lengths use injury standard 6.18', () => {
+  const assess = (id, age, evidence, includeAge = true) => {
+    const description = `${includeAge ? `本次事故后受伤时年龄${age}周岁，` : '本次事故后'}${evidence}`;
+    const sourceFacts = includeAge ? [ageFact(age)] : [];
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.8.4.f', 6, '女性外阴皮肤创口长2cm。'), true);
+  assert.notEqual(assess('5.8.4.f', 6, '女性外阴皮肤创口长1.99cm。'), true);
+  assert.equal(assess('5.8.4.f', 7, '女性外阴皮肤创口长2.4cm。'), true);
+  assert.equal(assess('5.8.4.f', 15, '女性外阴皮肤创口长4cm。'), true);
+  assert.notEqual(assess('5.8.4.f', 6, '女性外阴皮肤创口长2cm。', false), true);
+  assert.equal(assess('5.8.4.f', 6, '女性外阴两处皮肤创口累计长度2cm。'), true);
+  assert.notEqual(assess('5.8.4.f', 6, '女性外阴两处皮肤创口累计长度1.99cm。'), true);
+  assert.equal(assess('5.8.4.f', 6, '女性外阴两条皮肤瘢痕累计长度2cm。'), true);
+  assert.notEqual(assess('5.8.4.f', 6, '女性外阴两条皮肤瘢痕累计长度1.99cm。'), true);
+
+  assert.equal(assess('5.8.4.h', 6, '阴茎皮肤创口长1cm。'), true);
+  assert.notEqual(assess('5.8.4.h', 6, '阴茎皮肤创口长0.99cm。'), true);
+  assert.equal(assess('5.8.4.h', 7, '阴茎皮肤瘢痕长1.2cm。'), true);
+  assert.equal(assess('5.8.4.h', 15, '阴茎皮肤瘢痕长2cm。'), true);
+  assert.notEqual(assess('5.8.4.h', 6, '阴茎两处皮肤创口累计长度1cm。'), true);
+  const avulsionClause = catalogs.injury.clauses.find(item => item.id === '5.8.4.h');
+  assert.equal(evaluateConditionLogic(avulsionClause.conditionLogic, [{ id: 'P1', eventId: 'E1',
+    field: 'clinical_finding', value: '阴茎撕脱伤', certainty: 'reported', source: 'description',
+    verification: 'quoted', evidence: '阴茎撕脱伤' }]).met, true);
+
+  assert.equal(assess('5.8.4.i', 6, '阴囊皮肤创口长2cm。'), true);
+  assert.notEqual(assess('5.8.4.i', 6, '阴囊皮肤创口长1.99cm。'), true);
+  assert.equal(assess('5.8.4.i', 7, '阴囊皮肤瘢痕长2.4cm。'), true);
+  assert.equal(assess('5.8.4.i', 15, '阴囊皮肤瘢痕长4cm。'), true);
+  assert.equal(assess('5.8.4.i', 6, '阴囊两处皮肤创口累计长度2cm。'), true);
+  assert.equal(assess('5.8.4.i', 6, '阴囊两条皮肤瘢痕累计长度2cm。'), true);
+  const penetratingClause = catalogs.injury.clauses.find(item => item.id === '5.8.4.i');
+  assert.equal(evaluateConditionLogic(penetratingClause.conditionLogic, [{ id: 'S1', eventId: 'E1',
+    field: 'clinical_finding', value: '阴囊壁贯通创', certainty: 'reported', source: 'description',
+    verification: 'quoted', evidence: '阴囊壁贯通创' }]).met, true);
+});
+
+test('explicit cumulative scar length stays aggregate and cannot prove a single wound length', () => {
+  const description = '本次事故后受伤时年龄6周岁，女性外阴两条皮肤瘢痕累计长度2cm。';
+  const facts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const measurements = facts.filter(fact => ['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field));
+  assert.deepEqual(measurements.map(fact => fact.field), ['aggregate_wound_length_cm']);
+  assert.equal(measurements[0].value, 2);
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.8.4.f').conditionLogic,
+    facts).met, true);
+
+  const incomplete = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [],
+    requiresReview: false }, { description: description.replace('2cm', '1.99cm') }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.8.4.f').conditionLogic,
+    incomplete).met, true);
 });
 
 test('neck wound and scratch length thresholds use injury standard 6.18', () => {

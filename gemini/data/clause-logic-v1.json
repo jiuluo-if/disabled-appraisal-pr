@@ -6097,6 +6097,7 @@
       },
       "5.8.4.f": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "女性外阴皮肤创口或者瘢痕长度累计4.0cm以上",
@@ -6104,25 +6105,30 @@
           "children": [
             {
               "op": "condition",
-              "sourceText": "女性外阴皮肤创口",
-              "conditionText": "女性外阴皮肤创口",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "女性外阴皮肤创口"
-                ]
-              }
+              "sourceText": "女性外阴皮肤创口或者瘢痕长度累计4.0cm以上",
+              "conditionText": "女性外阴皮肤创口单处长度4.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 4,
+                "unit": "cm",
+                "evidenceGroups": [["外阴", "女性外阴"], ["创口", "伤口", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
-              "sourceText": "瘢痕长度累计4.0cm以上",
-              "conditionText": "女性外阴瘢痕长度累计4.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "女性外阴瘢痕长度累计4.0cm以上"
-                ]
-              }
+              "sourceText": "女性外阴皮肤创口或者瘢痕长度累计4.0cm以上",
+              "conditionText": "女性外阴多处创口或瘢痕累计长度4.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 4,
+                "unit": "cm",
+                "evidenceGroups": [["外阴", "女性外阴"], ["创口", "伤口", "裂伤", "瘢痕", "疤痕"],
+                  ["多处", "两处", "多个", "两条", "多条", "分别", "各"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
@@ -8707,8 +8713,11 @@
       },
       "5.2.2.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "all",
+          "sourceText": "面部条状瘢痕（50%以上位于中心区），单条长度10.0cm以上，或者两条以上长度累计15.0cm以上",
+          "conditionText": "面部条状瘢痕（50%以上位于中心区），单条长度10.0cm以上，或者两条以上长度累计15.0cm以上",
           "children": [
             {
               "op": "condition",
@@ -8730,23 +8739,35 @@
                   "op": "condition",
                   "sourceText": "单条长度10.0cm以上",
                   "conditionText": "面部条状瘢痕单条长度10.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部条状瘢痕单条长度10.0cm以上"
+                  "predicate": {
+                    "field": "wound_length_cm",
+                    "operator": "gte",
+                    "value": 10,
+                    "unit": "cm",
+                    "evidenceGroups": [
+                      ["面部", "脸部", "额部", "前额", "额头", "眉弓", "眉部", "面颊", "颊部", "颧部", "鼻部", "眼睑", "口唇", "下颌"],
+                      ["条状瘢痕", "线状瘢痕"]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 },
                 {
                   "op": "condition",
                   "sourceText": "两条以上长度累计15.0cm以上",
                   "conditionText": "面部条状瘢痕两条以上长度累计15.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部条状瘢痕两条以上长度累计15.0cm以上"
+                  "predicate": {
+                    "field": "aggregate_wound_length_cm",
+                    "operator": "gte",
+                    "value": 15,
+                    "unit": "cm",
+                    "evidenceGroups": [
+                      ["面部", "脸部", "额部", "前额", "额头", "眉弓", "眉部", "面颊", "颊部", "颧部", "鼻部", "眼睑", "口唇", "下颌"],
+                      ["条状瘢痕", "线状瘢痕"],
+                      ["两条以上", "多条", "两条", "两处", "多处", "多个", "多道"],
+                      ["分别", "各", "累计", "总长", "总长度", "长度合计", "长度累计"]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 }
               ]
             }
@@ -11806,6 +11827,7 @@
       },
       "5.8.4.h": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "阴茎撕脱伤；阴茎皮肤创口或者瘢痕长度2.0cm以上；阴茎海绵体出血并形成硬结",
@@ -11824,25 +11846,16 @@
             },
             {
               "op": "condition",
-              "sourceText": "阴茎皮肤创口",
-              "conditionText": "阴茎皮肤创口长度2.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "阴茎皮肤创口长度2.0cm以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "瘢痕长度2.0cm以上",
-              "conditionText": "阴茎皮肤瘢痕长度2.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "阴茎皮肤瘢痕长度2.0cm以上"
-                ]
-              }
+              "sourceText": "阴茎皮肤创口或者瘢痕长度2.0cm以上",
+              "conditionText": "阴茎皮肤创口或瘢痕单处长度2.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 2,
+                "unit": "cm",
+                "evidenceGroups": [["阴茎"], ["皮肤创口", "创口", "伤口", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -11860,6 +11873,7 @@
       },
       "5.8.4.i": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "阴囊壁贯通创；阴囊皮肤创口或者瘢痕长度累计4.0cm以上；阴囊内积血，2周内未完全吸收",
@@ -11877,26 +11891,38 @@
               }
             },
             {
-              "op": "condition",
-              "sourceText": "阴囊皮肤创口",
-              "conditionText": "阴囊皮肤创口长度累计4.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "阴囊皮肤创口长度累计4.0cm以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "瘢痕长度累计4.0cm以上",
-              "conditionText": "阴囊皮肤瘢痕长度累计4.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "阴囊皮肤瘢痕长度累计4.0cm以上"
-                ]
-              }
+              "op": "any",
+              "sourceText": "阴囊皮肤创口或者瘢痕长度累计4.0cm以上",
+              "conditionText": "阴囊皮肤创口或瘢痕长度累计4.0cm以上",
+              "children": [
+                {
+                  "op": "condition",
+                  "sourceText": "阴囊皮肤创口或者瘢痕长度累计4.0cm以上",
+                  "conditionText": "阴囊皮肤创口或瘢痕单处长度4.0cm以上",
+                  "predicate": {
+                    "field": "wound_length_cm",
+                    "operator": "gte",
+                    "value": 4,
+                    "unit": "cm",
+                    "evidenceGroups": [["阴囊"], ["皮肤创口", "创口", "伤口", "裂伤", "瘢痕", "疤痕"]]
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
+                },
+                {
+                  "op": "condition",
+                  "sourceText": "阴囊皮肤创口或者瘢痕长度累计4.0cm以上",
+                  "conditionText": "阴囊皮肤创口或瘢痕累计长度4.0cm以上",
+                  "predicate": {
+                    "field": "aggregate_wound_length_cm",
+                    "operator": "gte",
+                    "value": 4,
+                    "unit": "cm",
+                    "evidenceGroups": [["阴囊"], ["皮肤创口", "创口", "伤口", "裂伤", "瘢痕", "疤痕"],
+                      ["多处", "两处", "多个", "两条", "多条", "分别", "各"]]
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
+                }
+              ]
             },
             {
               "op": "condition",

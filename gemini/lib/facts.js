@@ -1500,7 +1500,7 @@ function isSkinScratchLengthAtOffset(text, measurementOffset) {
 
 function woundMeasurementSiteAt(text, position) {
   const prefix = text.slice(Math.max(0, position - 36), position);
-  const pattern = /(?:双侧|两侧|左侧|右侧|左|右)?(上下唇|上唇|下唇|口唇|唇部|耳廓内|耳廓外|耳廓|耳背|耳屏|耳垂|耳前|耳后|鼻背|鼻梁|鼻翼|鼻部|鼻|面部|脸部|额部|颧部|眼睑|眼眶|眼|颈部|颈|头皮|会阴|腹部|胸部|背部)/gu;
+  const pattern = /(?:双侧|两侧|左侧|右侧|左|右)?(上下唇|上唇|下唇|口唇|唇部|耳廓内|耳廓外|耳廓|耳背|耳屏|耳垂|耳前|耳后|鼻背|鼻梁|鼻翼|鼻部|鼻|面部|脸部|额部|颧部|眼睑|眼眶|眼|颈部|颈|外阴|阴茎|阴囊|头皮|会阴|腹部|胸部|背部)/gu;
   const matches = [...prefix.matchAll(pattern)];
   return matches.at(-1)?.[1] || null;
 }
@@ -1516,7 +1516,7 @@ function isAggregateWoundLengthSummary(text, position) {
   const boundary = Math.max(text.lastIndexOf('。', position - 1), text.lastIndexOf('；', position - 1),
     text.lastIndexOf(';', position - 1), text.lastIndexOf('\n', position - 1));
   const prefix = text.slice(Math.max(boundary + 1, position - 96), position);
-  return /(?:多处|多个|(?:两|二|三|四|五|六|七|八|九|十|百|[2-9]\d*|1\d{1,})\s*(?:处|道))/u.test(prefix)
+  return /(?:多处|多个|多条|(?:两|二|三|四|五|六|七|八|九|十|百|[2-9]\d*|1\d{1,})\s*(?:处|道|条))/u.test(prefix)
     && /(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(prefix)
     && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)\s*(?:约|为|达)?\s*$/u.test(prefix);
 }
@@ -2485,9 +2485,9 @@ function normalizeAggregateWoundLengthFacts(inputText) {
   const text = normalizeInput(inputText);
   const findings = [];
   const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
-  const woundCount = '(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\\s*(?:处|道))';
-  const bodySurfaceSite = '(?<site>(?:左侧|右侧|左|右|双侧|两侧)?(?:面部|脸部|额部|前额|额头|眉弓|眉部|面颊|颧部|鼻部|鼻背|鼻梁|鼻翼|鼻唇沟|口唇|上唇|下唇|下颌|头部|头皮|额顶部|头顶部|颞顶部|顶枕部|后枕部|颞枕部|枕部|颞部|耳廓|耳部|颈前部|颈前|颈部|颈|肢体|上肢|下肢|上臂|前臂|肘部|腕部|肩部|手部|手掌|手背|手指|掌部|髋部|大腿|股部|膝部|小腿|踝部|足部|足背|趾部|胸部|腹部|背部|腰部))';
-  const pattern = new RegExp(`(?:全身)?(?:${bodySurfaceSite}[^。；;\\n]{0,24})?(?<count>${woundCount})[^。；;\\n]{0,24}(?:皮肤)?(?:创口|裂伤|伤口)[^。；;\\n]{0,24}(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)(?:约为|为|约|达)?\\s*(?<amount>${amount})\\s*(?:cm|厘米)`, 'gu');
+  const woundCount = '(?:多处|多个|多条|[零〇一二两三四五六七八九十百0-9]+\\s*(?:处|道|条))';
+  const bodySurfaceSite = '(?<site>(?:左侧|右侧|左|右|双侧|两侧)?(?:面部|脸部|额部|前额|额头|眉弓|眉部|面颊|颧部|鼻部|鼻背|鼻梁|鼻翼|鼻唇沟|口唇|上唇|下唇|下颌|头部|头皮|额顶部|头顶部|颞顶部|顶枕部|后枕部|颞枕部|枕部|颞部|耳廓|耳部|颈前部|颈前|颈部|颈|外阴|阴茎|阴囊|肢体|上肢|下肢|上臂|前臂|肘部|腕部|肩部|手部|手掌|手背|手指|掌部|髋部|大腿|股部|膝部|小腿|踝部|足部|足背|趾部|胸部|腹部|背部|腰部))';
+  const pattern = new RegExp(`(?:全身)?(?:${bodySurfaceSite}[^。；;\\n]{0,24})?(?<count>${woundCount})[^。；;\\n]{0,24}(?:皮肤)?(?:创口|裂伤|伤口|瘢痕|疤痕)[^。；;\\n]{0,24}(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)(?:约为|为|约|达)?\\s*(?<amount>${amount})\\s*(?:cm|厘米)`, 'gu');
   for (const clauseMatch of text.matchAll(/[^。；;\\n]+/gu)) {
     const clause = clauseMatch[0];
     pattern.lastIndex = 0;
