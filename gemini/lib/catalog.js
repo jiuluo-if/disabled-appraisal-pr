@@ -38,7 +38,8 @@ function validAgeAdjustment(ageAdjustment, type, clauseText) {
       || /(?:瘢痕|疤痕|色素异常)[^；。]*面积[^；。]*cm2/iu.test(clauseText)
       || /头皮[^；。]*(?:创口|瘢痕|缺损|撕脱|擦伤)[^；。]*(?:cm|cm2)/iu.test(clauseText)
       || /(?:皮肤缺损[^；。]*|(?:撕脱伤|擦伤|挫伤)面积[^；。]*)cm2/iu.test(clauseText)
-      || /(?:擦伤|挫伤)[^；。]*面积[^；。]*cm2/iu.test(clauseText));
+      || /(?:擦伤|挫伤)[^；。]*面积[^；。]*cm2/iu.test(clauseText)
+      || /(?:创口|伤口|裂口|裂创|裂伤|瘢痕|疤痕)[^；。]{0,20}(?:长度|长)[^；。]*cm/iu.test(clauseText));
   if (ageAdjustment === DISABILITY_AGE_ADJUSTMENT) return type === 'disability'
     && /面部/u.test(clauseText) && /瘢痕|疤痕|色素/u.test(clauseText) && /(?:cm|％|%)/iu.test(clauseText);
   return false;
@@ -87,7 +88,7 @@ function validateLogicNode(node, clauseText, annotation) {
       'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2',
       'facial_skin_abnormality_area_cm2', 'aggregate_wound_length_cm', 'scalp_defect_area_cm2',
       'scalp_avulsion_area_cm2', 'skin_avulsion_area_cm2', 'skin_defect_area_cm2',
-      'skin_abrasion_area_cm2', 'skin_contusion_area_cm2', 'scalp_abrasion_area_cm2']
+      'skin_abrasion_area_cm2', 'skin_contusion_area_cm2', 'scalp_abrasion_area_cm2', 'wound_length_cm']
       .includes(node.factMatch?.field || node.predicate?.field)
     || annotation !== 'explicit')) {
     throw new TypeError('年龄调整标记只能用于显式量化伤情或面部瘢痕条款');

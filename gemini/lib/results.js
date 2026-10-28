@@ -111,7 +111,7 @@ const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 
   'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2',
   'aggregate_wound_length_cm', 'scalp_defect_area_cm2', 'scalp_avulsion_area_cm2',
   'skin_avulsion_area_cm2', 'skin_defect_area_cm2', 'skin_abrasion_area_cm2', 'skin_contusion_area_cm2',
-  'scalp_abrasion_area_cm2']);
+  'scalp_abrasion_area_cm2', 'wound_length_cm']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
@@ -321,7 +321,7 @@ function predicateEvidenceValue(predicate, fact, facts = []) {
   if (predicate.field === 'aggregate_wound_length_cm' && fact.field === 'wound_length_cm') return quotedValue;
   if (predicate.field === 'aggregate_wound_length_cm' && fact.certainty === 'reported'
     && fact.source === 'description' && /(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\\s*(?:处|道))/u.test(fact.evidence)
-    && /(?:创口|创痕|裂伤|伤口)/u.test(fact.evidence)
+    && /(?:创口|创痕|裂伤|伤口|瘢痕|疤痕)/u.test(fact.evidence)
     && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)/u.test(fact.evidence)) {
     return quotedValue;
   }
@@ -1023,10 +1023,16 @@ function adjustedAgePredicate(node, facts, eventId) {
     const completeSkinAreaAggregate = (predicate.field.startsWith('skin_')
       || predicate.field === 'scalp_abrasion_area_cm2') && measurementFacts.length === 1
       && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
+    const completeSurfaceWoundLengthAggregate = predicate.field === 'aggregate_wound_length_cm'
+      && measurementFacts.length === 1 && measurementFacts[0].certainty === 'reported'
+      && /(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\s*(?:处|道))/u.test(measurementFacts[0].evidence)
+      && /(?:创口|创痕|裂伤|伤口|瘢痕|疤痕)/u.test(measurementFacts[0].evidence)
+      && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)/u.test(measurementFacts[0].evidence);
     const localSkinMeasurementsBelowEveryAgeThreshold = (predicate.field.startsWith('burn_area_')
       || predicate.field === 'facial_skin_abnormality_area_cm2')
       && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
     return (completeAggregate || completeScalpLengthAggregate || completeScalpAreaAggregate || completeSkinAreaAggregate
+      || completeSurfaceWoundLengthAggregate
       || localSkinMeasurementsBelowEveryAgeThreshold)
       && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;

@@ -1437,6 +1437,15 @@ function isWoundDepthMeasurement(text, position) {
   return /(?:深|深度)\s*(?:约|为|达)?\s*$/u.test(prefix);
 }
 
+function isAggregateWoundLengthSummary(text, position) {
+  const boundary = Math.max(text.lastIndexOf('。', position - 1), text.lastIndexOf('；', position - 1),
+    text.lastIndexOf(';', position - 1), text.lastIndexOf('\n', position - 1));
+  const prefix = text.slice(Math.max(boundary + 1, position - 96), position);
+  return /(?:多处|多个|(?:两|二|三|四|五|六|七|八|九|十|百|[2-9]\d*|1\d{1,})\s*(?:处|道))/u.test(prefix)
+    && /(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(prefix)
+    && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)\s*(?:约|为|达)?\s*$/u.test(prefix);
+}
+
 function normalizeWoundLengthFacts(inputText) {
   const text = normalizeInput(inputText);
   const findings = normalizeSharedHeadingWoundLengthFacts(text);
@@ -1854,6 +1863,7 @@ function normalizeWoundLengthFacts(inputText) {
   }
   return [...new Map(findings.map(fact => [fact.parserKey, fact])).values()]
     .filter(fact => !isWoundDepthMeasurement(text, Number(fact.id.slice(2)))
+      && !isAggregateWoundLengthSummary(text, Number(fact.id.slice(2)))
       && !isSkinScratchLengthAtOffset(text, Number(fact.id.slice(2)))
       && !isOperativeIncisionLengthAtOffset(text, Number(fact.id.slice(2))));
 }
@@ -4228,12 +4238,15 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (fact.field !== 'contusion_tbsa_percent' && !fact.field.startsWith('burn_tbsa_')
       && !fact.field.startsWith('burn_area_') && !fact.field.startsWith('scalp_')
       && !fact.field.startsWith('skin_')
+      && !['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field)
       || fact.source !== 'description' || fact.eventId) return null;
     const contextFor = text => fact.field.startsWith('burn_area_') || fact.field.startsWith('scalp_')
       || fact.field.startsWith('skin_')
+      || ['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field)
       ? sourceSentence(sourceTexts.description, text) : sourceClause(sourceTexts.description, text);
     const factClause = contextFor(fact.evidence) || fact.evidence;
-    if (fact.field.startsWith('skin_') && !hasSingleExplicitInjuryEvent(factClause)) return null;
+    if ((fact.field.startsWith('skin_') || ['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field))
+      && !hasSingleExplicitInjuryEvent(factClause)) return null;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
       && (contextFor(modelFact.evidence) || normalizeInput(modelFact.evidence)) === factClause)

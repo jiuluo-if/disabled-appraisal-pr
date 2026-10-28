@@ -549,3 +549,90 @@ test('localized face, neck and hand skin-area thresholds use the injury 6.18 age
   assert.notEqual(assess('5.5.5.b', 6, '面部皮肤擦伤面积累计2平方厘米。'), true);
   assert.notEqual(assess('5.2.5.c', 6, '面部皮肤擦伤面积累计0.99平方厘米。'), true);
 });
+
+test('general body-surface wound-length thresholds use injury standard 6.18', () => {
+  const assess = (id, age, length) => {
+    const description = `本次事故后受伤时年龄${age}周岁，左上肢皮肤创口长${length}厘米。`;
+    const extracted = normalizeExtractedFacts({ facts: [
+      ageFact(age, `受伤时年龄${age}周岁`, 'E1', 'F1'),
+      { id: 'F2', eventId: 'E1', field: 'wound_length_cm', value: length, certainty: 'reported',
+        source: 'description', evidence: `左上肢皮肤创口长${length}厘米` },
+    ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+    const facts = extracted.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.injury.clauses.find(item => item.id === id);
+    assert.ok(facts.some(fact => fact.field === 'wound_length_cm' && fact.value === length));
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.11.1.b', 6, 100), true);
+  assert.equal(assess('5.11.1.b', 7, 120), true);
+  assert.equal(assess('5.11.1.b', 10, 120), true);
+  assert.equal(assess('5.11.1.b', 11, 160), true);
+  assert.equal(assess('5.11.1.b', 14, 160), true);
+  assert.equal(assess('5.11.1.b', 15, 200), true);
+  assert.notEqual(assess('5.11.1.b', 6, 99.99), true);
+  assert.equal(assess('5.11.2.b', 6, 20), true);
+  assert.equal(assess('5.11.2.b', 7, 24), true);
+  assert.equal(assess('5.11.2.b', 10, 24), true);
+  assert.equal(assess('5.11.2.b', 11, 32), true);
+  assert.equal(assess('5.11.2.b', 14, 32), true);
+  assert.equal(assess('5.11.2.b', 15, 40), true);
+  assert.notEqual(assess('5.11.2.b', 6, 19.99), true);
+
+  assert.equal(assess('5.11.3.b', 6, 5), true);
+  assert.equal(assess('5.11.3.b', 7, 6), true);
+  assert.equal(assess('5.11.3.b', 11, 8), true);
+  assert.equal(assess('5.11.3.b', 15, 10), true);
+  assert.notEqual(assess('5.11.3.b', 6, 4.99), true);
+  assert.equal(assess('5.11.4.b', 6, 0.5), true);
+  assert.equal(assess('5.11.4.b', 7, 0.6), true);
+  assert.equal(assess('5.11.4.b', 11, 0.8), true);
+  assert.equal(assess('5.11.4.b', 15, 1), true);
+  assert.notEqual(assess('5.11.4.b', 6, 0.49), true);
+
+  const assessAggregate = (id, age, length) => {
+    const description = `本次事故后受伤时年龄${age}周岁，多处创口累计长度${length}厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const measured = facts.find(fact => fact.field === 'aggregate_wound_length_cm');
+    assert.equal(facts.some(fact => fact.field === 'wound_length_cm'
+      && /(?:多处|多个)/u.test(fact.evidence) && /(?:累计长|总长|长度合计)/u.test(fact.evidence)), false);
+    assert.equal(measured?.eventId, facts.find(fact => fact.field === 'age_at_injury_years')?.eventId);
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+  const oneWoundFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: '本次事故后受伤时年龄6周岁，一处创口累计长度4.99厘米。' }).facts;
+  assert.ok(oneWoundFacts.some(fact => fact.field === 'wound_length_cm' && fact.value === 4.99));
+  assert.equal(assessAggregate('5.11.1.b', 6, 100), true);
+  assert.equal(assessAggregate('5.11.3.b', 7, 9), true);
+  assert.equal(assessAggregate('5.11.4.b', 6, 0.75), true);
+  assert.notEqual(assessAggregate('5.11.3.b', 7, 8.99), true);
+
+  const stabFacts = [{ id: 'F-stab', eventId: 'E1', field: 'clinical_finding', value: '刺创深达肌层',
+    certainty: 'reported', source: 'description', evidence: '本次事故后左上肢刺创深达肌层', verification: 'quoted' }];
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.4.b').conditionLogic,
+    stabFacts).met, true);
+
+  const noAgeDescription = '本次事故后左上肢皮肤创口长30厘米。';
+  const noAgeFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: noAgeDescription }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.11.2.b');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, noAgeFacts).met, null);
+  const wound = noAgeFacts.find(fact => fact.field === 'wound_length_cm');
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: '轻伤一级', facts: [], references: [{
+    clauseId: clause.id, evidence: wound.evidence, reasoning: '模型认为累计长度达到阈值。', relation: 'supports',
+    conditions: [{ condition: clause.text, evidence: wound.evidence, factIds: [wound.id], met: true }],
+  }] }, { ...inputs.injury, description: noAgeDescription }, {
+    clauses: [clause], requestId: 'body-wound-length-age-review', model: 'test-model', extractedFacts: noAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+
+  const splitEventDescription = '2019年受伤时年龄6周岁；2025年本次事故后左上肢皮肤创口长30厘米。';
+  const splitEventFacts = normalizeExtractedFacts({ facts: [ageFact(6, '受伤时年龄6周岁', 'E1')],
+    missingMaterials: [], conflicts: [], requiresReview: false }, { description: splitEventDescription })
+    .facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(splitEventFacts.find(fact => fact.field === 'wound_length_cm')?.eventId, 'E1');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, splitEventFacts).met, null);
+});

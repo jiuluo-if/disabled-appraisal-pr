@@ -5849,6 +5849,7 @@
       },
       "5.11.1.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "创口或者瘢痕长度累计200.0cm以上",
@@ -5857,30 +5858,35 @@
             {
               "op": "condition",
               "sourceText": "创口",
-              "conditionText": "创口长度累计200.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "创口长度累计200.0cm以上"
-                ]
-              }
+              "conditionText": "单个创口或者瘢痕长度200.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 200,
+                "unit": "cm",
+                "evidenceGroups": [["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
-              "sourceText": "瘢痕长度累计200.0cm以上",
-              "conditionText": "瘢痕长度累计200.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "瘢痕长度累计200.0cm以上"
-                ]
-              }
+              "sourceText": "创口或者瘢痕长度累计200.0cm以上",
+              "conditionText": "多处创口或者瘢痕长度累计200.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 200,
+                "unit": "cm",
+                "evidenceGroups": [["多处", "多个", "两处", "两道"], ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"], ["总长", "总长度", "累计长", "累计长度", "长度合计", "长度累计"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
       },
       "5.11.2.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "创口或者瘢痕长度累计40.0cm以上",
@@ -5889,24 +5895,28 @@
             {
               "op": "condition",
               "sourceText": "创口",
-              "conditionText": "创口长度累计40.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "创口长度累计40.0cm以上"
-                ]
-              }
+              "conditionText": "单个创口或者瘢痕长度40.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 40,
+                "unit": "cm",
+                "evidenceGroups": [["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
-              "sourceText": "瘢痕长度累计40.0cm以上",
-              "conditionText": "瘢痕长度累计40.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "瘢痕长度累计40.0cm以上"
-                ]
-              }
+              "sourceText": "创口或者瘢痕长度累计40.0cm以上",
+              "conditionText": "多处创口或者瘢痕长度累计40.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 40,
+                "unit": "cm",
+                "evidenceGroups": [["多处", "多个", "两处", "两道"], ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"], ["总长", "总长度", "累计长", "累计长度", "长度合计", "长度累计"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
@@ -13558,6 +13568,7 @@
       },
       "5.11.3.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "单个创口或者瘢痕长度10.0cm以上；多个创口或者瘢痕长度累计15.0cm以上",
@@ -13572,7 +13583,8 @@
                 "operator": "gte",
                 "value": 10,
                 "unit": "cm"
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "any",
@@ -13607,7 +13619,9 @@
                       [
                         "创口",
                         "裂伤",
-                        "伤口"
+                        "伤口",
+                        "瘢痕",
+                        "疤痕"
                       ],
                       [
                         "总长",
@@ -13615,7 +13629,8 @@
                         "长度合计"
                       ]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 },
                 {
                   "op": "condition",
@@ -13635,68 +13650,37 @@
       },
       "5.11.4.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "一处创口或者瘢痕长度1.0cm以上；两处以上创口或者瘢痕长度累计1.5cm以上；刺创深达肌层",
           "conditionText": "一处创口或者瘢痕长度1.0cm以上；两处以上创口或者瘢痕长度累计1.5cm以上；刺创深达肌层",
           "children": [
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "一处创口或者瘢痕长度1.0cm以上",
               "conditionText": "一处创口或者瘢痕长度1.0cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "一处创口",
-                  "conditionText": "一处创口长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "一处创口长度1.0cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度1.0cm以上",
-                  "conditionText": "一处瘢痕长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "一处瘢痕长度1.0cm以上"
-                    ]
-                  }
-                }
-              ]
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 1,
+                "unit": "cm",
+                "evidenceGroups": [["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "两处以上创口或者瘢痕长度累计1.5cm以上",
               "conditionText": "两处以上创口或者瘢痕长度累计1.5cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "两处以上创口",
-                  "conditionText": "两处以上创口长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "两处以上创口长度累计1.5cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度累计1.5cm以上",
-                  "conditionText": "两处以上瘢痕长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "两处以上瘢痕长度累计1.5cm以上"
-                    ]
-                  }
-                }
-              ]
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 1.5,
+                "unit": "cm",
+                "evidenceGroups": [["两处以上", "多处", "多个", "两道以上"], ["创口", "伤口", "裂口", "裂创", "裂伤", "瘢痕", "疤痕"], ["总长", "总长度", "累计长", "累计长度", "长度合计", "长度累计"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
