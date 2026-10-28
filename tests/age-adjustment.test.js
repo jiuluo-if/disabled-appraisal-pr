@@ -1011,6 +1011,21 @@ test('unstructured 6.11 face-area and pigment claims cannot support a child asse
     check(clause.conditionLogic.logic);
   }
   assert.deepEqual(failures, []);
+
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.8.2.6');
+  const pigment = { id: 'P1', eventId: 'E1', field: 'clinical_finding',
+    value: '面部色素异常，累计面积达100.0cm2', certainty: 'reported', source: 'description',
+    evidence: '面部色素异常，累计面积达100.0cm2', verification: 'quoted' };
+  const description = `${pigment.evidence}。受伤时年龄6周岁，评残时年龄6周岁。`;
+  const childFacts = [pigment, ageFact(6), assessmentAgeFact(6)];
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: pigment.evidence, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: pigment.evidence, factIds: ['P1'], met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'unstructured-6-11-pigment-child',
+    model: 'test-model', extractedFacts: childFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.ok(result.missingMaterials.some(material => material.includes('6.11') && material.includes('人工核对')));
 });
 
 test('neck wound and scratch length thresholds use injury standard 6.18', () => {
