@@ -714,6 +714,15 @@ function hasExplicitCurrentEventLink(evidence) {
   return false;
 }
 
+function hasExplicitCurrentEventCausalProcedureLink(evidence) {
+  const text = normalize(String(evidence || ''));
+  const procedure = /(?:接受|施行|实施|进行|行|手术|切除|修补|摘除|清除|引流|缝合|固定|修复)/u;
+  const causeBeforeProcedure = text.match(/因.{0,32}(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^。；;\n]{0,40}/u);
+  if (causeBeforeProcedure && procedure.test(causeBeforeProcedure[0])) return true;
+  const eventCausedInjury = text.match(/(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^。；;\n]{0,28}(?:导致|造成|引起|所致)[^。；;\n]{0,40}/u);
+  return Boolean(eventCausedInjury && procedure.test(eventCausedInjury[0]));
+}
+
 function hasCurrentInjuryEventCue(evidence) {
   const text = normalize(evidence);
   const cues = [...text.matchAll(/(?:本次|此次|当前)(?:交通)?(?:事故|外伤|受伤|损伤)(?:后|中)?/gu)];
@@ -741,14 +750,15 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
       && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
       && clinicalOrgan(anchor) === factOrgan && compatibleLaterality(anchor, fact)
       && sharedClinicalInjuryPhrase(anchor, indication));
-    if (!indicationIsLinked) return false;
+    if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence)) return false;
   }
   const sameEventOrganSideConflict = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
     && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
     && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
     && factOrgan && clinicalOrgan(anchor) === factOrgan && !compatibleLaterality(anchor, fact));
   if (sameEventOrganSideConflict) return false;
-  if (hasExplicitCurrentEventLink(fact.evidence) && !requiresOrganAnchor
+  if (hasExplicitCurrentEventLink(fact.evidence) && hasExplicitCurrentEventCausalProcedureLink(fact.evidence)
+    && !requiresOrganAnchor
     && (!configuredOperationOrgans.size || configuredOperationOrgans.has(factOrgan))) return true;
   if (!fact.eventId || /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u
     .test(fact.evidence)) return false;

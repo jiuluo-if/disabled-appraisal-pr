@@ -513,6 +513,29 @@ test('procedure evidence links to the same mapped organ and rejects another even
     [testicleOperation, leftTesticleInjury]).met, true);
 });
 
+test('surgery after an event requires an explicit causal statement or same-event organ evidence', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.7.4.2');
+  const operation = { id: 'K1', eventId: 'E1', field: 'clinical_finding', value: '一侧肾切除术后',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '本次事故后行一侧肾切除术后' };
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [operation]).met, true);
+  const unsupported = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: operation.evidence, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: operation.evidence, factIds: [operation.id], met: true }] }] },
+  { ...inputs.disability, description: `合成资料，非真实病例。${operation.evidence}。` },
+  { clauses: [clause], requestId: 'kidney-removal-time-sequence-alone', model: 'test-model',
+    extractedFacts: [operation], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(unsupported.grade, null);
+  assert.notEqual(unsupported.references.find(item => item.id === clause.id)?.relation, 'supports');
+
+  const sameEventKidneyInjury = { id: 'K2', eventId: 'E1', field: 'diagnosis', value: '左肾损伤',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '本次事故CT诊断左肾损伤' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [operation, sameEventKidneyInjury]).met, true);
+
+  const explicitlyCausedOperation = { ...operation,
+    evidence: '因2025年3月21日本次事故接受一侧肾切除术后' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [explicitlyCausedOperation]).met, true);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
