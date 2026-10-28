@@ -2099,6 +2099,7 @@
                   "predicate": {
                     "field": "gcs_score",
                     "operator": "lte",
+                    "unit": "分",
                     "value": 12
                   }
                 }
@@ -2188,6 +2189,7 @@
                   "predicate": {
                     "field": "gcs_score",
                     "operator": "lte",
+                    "unit": "分",
                     "value": 12
                   }
                 }
@@ -5281,6 +5283,7 @@
               "predicate": {
                 "field": "ear_scalp_wound_ratio",
                 "operator": "gte",
+                "unit": "比例",
                 "value": 1,
                 "evidenceGroups": [
                   [
@@ -5348,6 +5351,7 @@
               "predicate": {
                 "field": "dental_loss_count",
                 "operator": "gte",
+                "unit": "枚",
                 "value": 2,
                 "evidenceGroups": [
                   [
@@ -8892,6 +8896,7 @@
               "predicate": {
                 "field": "cross_region_wound_ratio",
                 "operator": "gte",
+                "unit": "比例",
                 "value": 1
               }
             }
@@ -9012,6 +9017,7 @@
               "predicate": {
                 "field": "auricle_defect_ratio",
                 "operator": "gte",
+                "unit": "比例",
                 "value": 0.15,
                 "evidenceGroups": [
                   [

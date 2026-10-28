@@ -4,7 +4,8 @@ import { once } from 'node:events';
 import { createApp } from '../gemini/lib/app.js';
 import { loadProviderConfig } from '../gemini/lib/config.js';
 import { normalizeExtractedFacts } from '../gemini/lib/facts.js';
-import { retrieveClauses } from '../gemini/lib/catalog.js';
+import { catalogs, retrieveClauses } from '../gemini/lib/catalog.js';
+import { evaluateConditionLogic } from '../gemini/lib/results.js';
 
 const emptyExtraction = { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
 
@@ -50,6 +51,42 @@ test('structured facts supplement text recall without proving an incomplete cond
   ]);
   assert.ok(candidates.some(clause => clause.id === '5.1.2.c'));
   assert.equal(candidates.find(clause => clause.id === '5.1.2.c').conditionLogic.annotation, 'explicit');
+});
+
+test('pulmonary contusion and an unrelated operation do not prove lung rupture requiring surgery', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.f');
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'diagnosis', value: '左肺挫伤', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '胸部影像诊断左肺挫伤' },
+    { id: 'F2', eventId: 'E1', field: 'treatment', value: '手术探查', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '腹部损伤行手术探查' },
+  ];
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+});
+
+test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
+  const missingUnits = [];
+  const mismatchedUnits = [];
+  const expectedUnits = {
+    gcs_score: '分',
+    dental_loss_count: '枚',
+    cross_region_wound_ratio: '比例',
+    ear_scalp_wound_ratio: '比例',
+    auricle_defect_ratio: '比例',
+  };
+  const visit = (node, clauseId) => {
+    if (node.predicate) {
+      if (!node.predicate.unit) missingUnits.push(clauseId);
+      if (expectedUnits[node.predicate.field]
+        && node.predicate.unit !== expectedUnits[node.predicate.field]) mismatchedUnits.push(clauseId);
+    }
+    for (const child of node.children || []) visit(child, clauseId);
+  };
+  for (const catalog of Object.values(catalogs)) for (const clause of catalog.clauses) {
+    if (clause.conditionLogic.annotation === 'explicit') visit(clause.conditionLogic.logic, clause.id);
+  }
+  assert.deepEqual(missingUnits, []);
+  assert.deepEqual(mismatchedUnits, []);
 });
 
 test('public API CORS is limited to the two assessment sites and cache stats stay local', async () => {
