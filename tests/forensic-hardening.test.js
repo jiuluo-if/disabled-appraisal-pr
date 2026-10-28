@@ -812,6 +812,7 @@ test('single-leaf compound organ and function clauses do not grade from one comp
     { assessmentType: 'disability', id: '5.10.3.3', reason: /喉返神经损伤及其功能影响/u },
     { assessmentType: 'disability', id: '5.10.6.1', reason: /齿状突骨折及其造成的功能影响/u },
     { assessmentType: 'disability', id: '5.10.6.14', reason: /重要血管循环障碍、受累肢体与功能后果/u },
+    { assessmentType: 'injury', id: '5.9.2.q', reason: /同一足部除第一趾外三趾.*趾骨—跖骨对应关系/u },
   ];
 
   for (const { assessmentType, id, reason } of cases) {
