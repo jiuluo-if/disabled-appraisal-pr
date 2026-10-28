@@ -794,8 +794,8 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
           && normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`).includes(indicationText)));
     const operationAction = /(?:接受|施行|实施|进行|行|予以)([^，,。；;\n]{0,36})/u.exec(procedureText);
     const operationOrgan = clinicalOrgan({ value: fact.value, evidence: operationAction?.[1] || '' });
-    const indicationOrgan = clinicalOrgan(indication);
-    if (indicationOrgan && operationOrgan && indicationOrgan !== operationOrgan) return false;
+    const indicationOrgans = clinicalOrgans(indication);
+    if (indicationOrgans.length && operationOrgan && !indicationOrgans.includes(operationOrgan)) return false;
     if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)) return false;
     explicitlyIndicatedSurgery = indicationIsLinked && isPerformedSurgicalTreatmentFact(fact);
   }
@@ -906,6 +906,23 @@ function clinicalOrgan(fact) {
   if (/(?:眼球|眼睑|眼角膜|角膜|视网膜|视神经|眼)/u.test(text)) return 'eye';
   if (/髌骨/u.test(text)) return 'patella';
   return null;
+}
+
+function clinicalOrgans(fact) {
+  const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
+  const matches = [
+    ['frontal_brain_lobe', /额叶/u], ['temporal_brain_lobe', /颞叶/u], ['parietal_brain_lobe', /顶叶/u],
+    ['occipital_brain_lobe', /枕叶/u], ['brain_lobe', /脑叶/u], ['pericardium', /心包/u],
+    ['heart', /(?:心脏|心肌|心房|心室)/u],
+    ['great_vessel', /(?:大血管|主动脉|肺动脉|腔静脉|冠状动脉|颈动脉|锁骨下动脉|髂动脉|股动脉|股静脉)/u],
+    ['kidney', /肾/u], ['liver', /肝/u], ['spleen', /脾/u], ['pancreas', /胰/u], ['stomach', /胃/u],
+    ['intestine', /(?:小肠|大肠|结肠|直肠|十二指肠|肠)/u], ['gallbladder', /胆囊/u],
+    ['bile_duct', /(?:胆道|胆总管|胆管)/u], ['lung', /肺/u], ['thoracic_cage', /(?:胸廓|胸壁|肋骨)/u],
+    ['uterus', /子宫/u], ['bladder', /膀胱/u], ['esophagus', /食管/u], ['diaphragm', /膈肌/u],
+    ['testicle', /睾丸/u], ['urethra', /尿道/u], ['eye', /(?:眼球|眼睑|眼角膜|角膜|视网膜|视神经|眼)/u],
+    ['patella', /髌骨/u],
+  ];
+  return matches.filter(([, pattern]) => pattern.test(text)).map(([organ]) => organ);
 }
 
 function compatibleLaterality(left, right) {
