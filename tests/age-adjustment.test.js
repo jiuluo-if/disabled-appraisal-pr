@@ -659,3 +659,43 @@ test('limb and hand wound-length thresholds use injury standard 6.18', () => {
   assert.notEqual(assess('5.10.5.b', 6, '左小腿', 2, 0.75), true);
   assert.notEqual(assess('5.10.5.b', 6, '左手掌和左小腿', 2, 0.75), true);
 });
+
+test('the high-grade cumulative limb wound-length threshold uses injury standard 6.18', () => {
+  const assess = (age, length, site = '左上臂') => {
+    const description = `本次事故后受伤时年龄${age}周岁，${site}皮肤多处创口累计长度${length}厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.9.3.m').conditionLogic, facts).met;
+  };
+  const assessSingle = (age, length) => {
+    const description = `本次事故后受伤时年龄${age}周岁，左上臂皮肤创口长${length}厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.9.3.m').conditionLogic, facts).met;
+  };
+
+  assert.equal(assessSingle(6, 22.5), true);
+  assert.notEqual(assessSingle(6, 22.49), true);
+  assert.equal(assess(6, 22.5), true);
+  assert.equal(assess(7, 27), true);
+  assert.equal(assess(11, 36), true);
+  assert.equal(assess(15, 45), true);
+  assert.notEqual(assess(6, 22.49), true);
+  assert.notEqual(assess(6, 22.5, '面部'), true);
+
+  const description = '本次事故后，左上臂皮肤多处创口累计长度22.5厘米。';
+  const facts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.9.3.m');
+  const total = facts.find(fact => fact.field === 'aggregate_wound_length_cm');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, null);
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, evidence: total.evidence, reasoning: '模型认为累计长度达到阈值。', relation: 'supports',
+    conditions: [{ condition: clause.text, evidence: total.evidence, factIds: [total.id], met: true }],
+  }] }, { ...inputs.injury, description }, {
+    clauses: [clause], requestId: 'high-grade-limb-length-age-review', model: 'test-model', extractedFacts: facts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+});
