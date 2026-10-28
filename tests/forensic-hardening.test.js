@@ -1176,6 +1176,20 @@ test('a same-organ partial splenectomy cannot satisfy age-specific total-splenec
   assert.equal(evaluateConditionLogic(partialClause.conditionLogic, [partial]).met, true);
 });
 
+test('a lung site and same-event lung operation cannot substitute for a lung rupture diagnosis', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.f');
+  const facts = [
+    { id: 'L1', eventId: 'E1', field: 'clinical_finding', value: '左肺挫伤', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '本次事故导致左肺挫伤' },
+    { id: 'L2', eventId: 'E1', field: 'anatomical_site', value: '肺', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '本次事故导致左肺挫伤' },
+    { id: 'L3', eventId: 'E1', field: 'treatment', value: '左肺切除术', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '因本次事故导致左肺挫伤，接受左肺切除术' },
+  ];
+
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+});
+
 test('ISO-dated current injuries keep later measurements event-bound without merging a second accident', () => {
   const description = '2016-10-06遭酒瓶击伤后右眼受伤，右眼内眦创口长5.5cm。2018-03-12另一次事故后左面部受伤，左面部创口长5.5cm。';
   const facts = normalizeExtractedFacts({ facts: [
