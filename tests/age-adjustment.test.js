@@ -134,7 +134,7 @@ test('facial-scar disability thresholds require age evidence and use the separat
   const ids = ['5.6.2.2','5.6.2.3','5.7.2.1','5.7.2.2','5.8.2.4','5.8.2.5','5.8.2.6',
     '5.9.2.4','5.9.2.5','5.9.2.6','5.10.2.3','5.10.2.4','5.10.2.5','5.10.2.6'];
   for (const id of ids) collect(catalogs.disability.clauses.find(item => item.id === id).conditionLogic.logic);
-  assert.equal(markedLeaves.length, 25);
+  assert.equal(markedLeaves.length, 27);
 });
 
 test('contusion TBSA facts use the injury standard age bands and inclusive numeric boundaries', () => {

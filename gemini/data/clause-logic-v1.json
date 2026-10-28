@@ -24695,16 +24695,57 @@
         "annotation": "explicit",
         "ageAdjustment": "disability_standard_6_11",
         "logic": {
-          "op": "condition",
-          "sourceText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达6.0cm，其中至少3.0cm位于面部中心区",
-          "conditionText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达6.0cm，其中至少3.0cm位于面部中心区",
-          "ageAdjustment": "disability_standard_6_11",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "面部条状瘢痕形成（宽度达0.2cm），累计长度达6.0cm，其中至少3.0cm位于面部中心区"
-            ]
-          }
+          "op": "all",
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "面部条状瘢痕形成",
+              "conditionText": "面部条状瘢痕形成",
+              "factMatch": {
+                "field": "clinical_finding",
+                "values": ["面部条状瘢痕形成"]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "宽度达0.2cm",
+              "conditionText": "面部条状瘢痕宽度至少0.2cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {
+                "field": "facial_scar_width_cm",
+                "operator": "gte",
+                "value": 0.2,
+                "unit": "cm",
+                "evidenceGroups": [["面部"], ["条状瘢痕"], ["宽度"]]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "累计长度达6.0cm",
+              "conditionText": "面部条状瘢痕累计长度至少6.0cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {
+                "field": "aggregate_facial_scar_length_cm",
+                "operator": "gte",
+                "value": 6,
+                "unit": "cm",
+                "evidenceGroups": [["面部"], ["条状瘢痕"], ["累计长度"]]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "至少3.0cm位于面部中心区",
+              "conditionText": "面部中心区条状瘢痕长度至少3.0cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {
+                "field": "facial_center_scar_length_cm",
+                "operator": "gte",
+                "value": 3,
+                "unit": "cm",
+                "evidenceGroups": [["面部中心区"], ["条状瘢痕"], ["长度"]]
+              }
+            }
+          ]
         }
       },
       "5.10.2.4": {

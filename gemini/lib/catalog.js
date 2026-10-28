@@ -87,6 +87,7 @@ function validateLogicNode(node, clauseText, annotation) {
       'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
       'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2',
       'facial_skin_abnormality_area_cm2', 'aggregate_wound_length_cm', 'scalp_defect_area_cm2',
+      'facial_scar_width_cm', 'aggregate_facial_scar_length_cm', 'facial_center_scar_length_cm',
       'scalp_avulsion_area_cm2', 'skin_avulsion_area_cm2', 'skin_defect_area_cm2',
       'skin_abrasion_area_cm2', 'skin_contusion_area_cm2', 'scalp_abrasion_area_cm2', 'wound_length_cm',
       'lip_through_wound_length_cm', 'surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2']

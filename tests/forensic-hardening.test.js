@@ -192,6 +192,120 @@ test('ocular-content evisceration alone cannot satisfy whole-eye loss', () => {
   assert.ok(explicitGlobeStatus.facts.some(fact => fact.field === 'clinical_finding' && fact.value === '一侧眼球缺失'));
 });
 
+test('facial linear scar clause checks width, total length, and central-zone length independently', () => {
+  const description = '本次事故后面部条状瘢痕形成，宽度0.3cm；面部条状瘢痕累计长度8.0cm；面部中心区条状瘢痕长度4.0cm。受伤时年龄20周岁，评残时年龄21周岁。';
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.2.3');
+  const extraction = normalizeExtractedFacts({ facts: [
+    { id: 'F0', eventId: 'E1', field: 'clinical_finding', value: '面部条状瘢痕形成', certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕形成' },
+    { id: 'W1', eventId: 'E1', field: 'facial_scar_width_cm', value: 0.3, certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕形成，宽度0.3cm' },
+    { id: 'L1', eventId: 'E1', field: 'aggregate_facial_scar_length_cm', value: 8, certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕累计长度8.0cm' },
+    { id: 'C1', eventId: 'E1', field: 'facial_center_scar_length_cm', value: 4, certainty: 'reported',
+      source: 'description', evidence: '面部中心区条状瘢痕长度4.0cm' },
+    { id: 'A1', eventId: 'E1', field: 'age_at_injury_years', value: 20, certainty: 'reported',
+      source: 'description', evidence: '受伤时年龄20周岁' },
+    { id: 'A2', eventId: 'E1', field: 'age_at_assessment_years', value: 21, certainty: 'reported',
+      source: 'description', evidence: '评残时年龄21周岁' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+  assert.ok(retrieveClauses('disability', '', 0, facts).some(item => item.id === clause.id));
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: description, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'facial-linear-scar-complete',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(result.grade, clause.grade);
+  assert.ok(result.references.some(reference => reference.id === clause.id && reference.relation === 'supports'));
+  assert.equal(result.missingMaterials.some(material => material.includes('补充受伤时及评残时年龄资料')), false);
+  const childDescription = description.replace('宽度0.3cm', '宽度0.2cm')
+    .replace('累计长度8.0cm', '累计长度3.0cm').replace('长度4.0cm', '长度1.5cm')
+    .replace('20周岁', '6周岁').replace('21周岁', '6周岁');
+  const childExtraction = normalizeExtractedFacts({ facts: [
+    { id: 'F0', eventId: 'E1', field: 'clinical_finding', value: '面部条状瘢痕形成', certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕形成' },
+    { id: 'W1', eventId: 'E1', field: 'facial_scar_width_cm', value: 0.2, certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕形成，宽度0.2cm' },
+    { id: 'L1', eventId: 'E1', field: 'aggregate_facial_scar_length_cm', value: 3, certainty: 'reported',
+      source: 'description', evidence: '面部条状瘢痕累计长度3.0cm' },
+    { id: 'C1', eventId: 'E1', field: 'facial_center_scar_length_cm', value: 1.5, certainty: 'reported',
+      source: 'description', evidence: '面部中心区条状瘢痕长度1.5cm' },
+    { id: 'A1', eventId: 'E1', field: 'age_at_injury_years', value: 6, certainty: 'reported',
+      source: 'description', evidence: '受伤时年龄6周岁' },
+    { id: 'A2', eventId: 'E1', field: 'age_at_assessment_years', value: 6, certainty: 'reported',
+      source: 'description', evidence: '评残时年龄6周岁' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: childDescription });
+  const childFacts = childExtraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const childResult = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: childDescription, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: childDescription, factIds: childFacts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description: childDescription }, { clauses: [clause], requestId: 'facial-linear-scar-child-review',
+    model: 'test-model', extractedFacts: childFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(childResult.grade, clause.grade);
+  assert.equal(childResult.missingMaterials.some(material => material.includes('6.11')), false);
+  const childWidthBelowStandard = childFacts.map(fact => fact.field === 'facial_scar_width_cm'
+    ? { ...fact, value: 0.1, evidence: '面部条状瘢痕形成，宽度0.1cm' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, childWidthBelowStandard).met, true);
+  const age14Facts = childFacts.map(fact => {
+    if (fact.field === 'facial_scar_width_cm') return { ...fact, value: 0.2, evidence: '面部条状瘢痕形成，宽度0.2cm' };
+    if (fact.field === 'aggregate_facial_scar_length_cm') return { ...fact, value: 4.8, evidence: '面部条状瘢痕累计长度4.8cm' };
+    if (fact.field === 'facial_center_scar_length_cm') return { ...fact, value: 2.4, evidence: '面部中心区条状瘢痕长度2.4cm' };
+    if (['age_at_injury_years', 'age_at_assessment_years'].includes(fact.field)) {
+      const evidence = fact.field === 'age_at_injury_years' ? '受伤时年龄14周岁' : '评残时年龄14周岁';
+      return { ...fact, value: 14, evidence };
+    }
+    return fact;
+  });
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, age14Facts).met, true);
+  const age7BelowBoundaryFacts = age14Facts.map(fact => {
+    if (fact.field === 'facial_scar_width_cm') return { ...fact, value: 0.15, evidence: '面部条状瘢痕形成，宽度0.15cm' };
+    if (fact.field === 'aggregate_facial_scar_length_cm') return { ...fact, value: 4.79, evidence: '面部条状瘢痕累计长度4.79cm' };
+    if (fact.field === 'facial_center_scar_length_cm') return { ...fact, value: 2.39, evidence: '面部中心区条状瘢痕长度2.39cm' };
+    if (['age_at_injury_years', 'age_at_assessment_years'].includes(fact.field)) {
+      const evidence = fact.field === 'age_at_injury_years' ? '受伤时年龄7周岁' : '评残时年龄7周岁';
+      return { ...fact, value: 7, evidence };
+    }
+    return fact;
+  });
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, age7BelowBoundaryFacts).met, true);
+  const ageBandConflictFacts = childFacts.map(fact => fact.field === 'age_at_assessment_years'
+    ? { ...fact, value: 7, evidence: '评残时年龄7周岁' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, ageBandConflictFacts).met, true);
+  const incompleteResult = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: description, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'facial-linear-scar-missing-center-length',
+    model: 'test-model', extractedFacts: facts.filter(fact => fact.field !== 'facial_center_scar_length_cm'),
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(incompleteResult.grade, null);
+  assert.notEqual(incompleteResult.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  const boundaryFacts = facts.map(fact => {
+    if (fact.field === 'facial_scar_width_cm') return { ...fact, value: 0.2, evidence: '面部条状瘢痕形成，宽度0.2cm' };
+    if (fact.field === 'aggregate_facial_scar_length_cm') return { ...fact, value: 6, evidence: '面部条状瘢痕累计长度6.0cm' };
+    if (fact.field === 'facial_center_scar_length_cm') return { ...fact, value: 3, evidence: '面部中心区条状瘢痕长度3.0cm' };
+    return fact;
+  });
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, boundaryFacts).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.filter(fact => !['age_at_injury_years', 'age_at_assessment_years'].includes(fact.field))).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.filter(fact => fact.field !== 'facial_center_scar_length_cm')).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'facial_scar_width_cm'
+      ? { ...fact, value: 0.19, evidence: '面部条状瘢痕宽度0.19cm' } : fact)).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'aggregate_facial_scar_length_cm'
+      ? { ...fact, value: 5.99, evidence: '面部条状瘢痕累计长度5.99cm' } : fact)).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'facial_center_scar_length_cm'
+      ? { ...fact, value: 2.99, evidence: '面部中心区条状瘢痕长度2.99cm' } : fact)).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'facial_center_scar_length_cm' ? { ...fact, eventId: 'E2' } : fact)).met, true);
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];
