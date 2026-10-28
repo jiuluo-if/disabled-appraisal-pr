@@ -8230,17 +8230,12 @@
         }
       },
       "5.1.4.f": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条文同时要求脑神经损伤、与该神经相对应的功能障碍及损伤因果关系。当前事实结构不能可靠地分别核验受损神经、对应功能结果和二者关系；单条完整结论不能替代神经系统检查、专科诊断及因果核对，需人工复核。",
         "logic": {
           "op": "condition",
-          "sourceText": "脑神经损伤引起相应神经功能障碍",
-          "conditionText": "脑神经损伤引起相应神经功能障碍",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "脑神经损伤引起相应神经功能障碍"
-            ]
-          }
+          "sourceText": "脑神经损伤引起相应神经功能障碍。",
+          "conditionText": "脑神经损伤引起相应神经功能障碍。"
         }
       },
       "5.2.2.h": {
@@ -8460,17 +8455,12 @@
         }
       },
       "5.9.3.f": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条文要求四肢长骨骨折并累及相应关节面，必须核验骨折部位、长骨归属及关节面受累的影像证据。当前事实结构不能可靠绑定这些条件到同一骨折部位；完整短语不能替代影像复核，需人工复核。",
         "logic": {
           "op": "condition",
-          "sourceText": "四肢长骨骨折累及关节面",
-          "conditionText": "四肢长骨骨折累及关节面",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "四肢长骨骨折累及关节面"
-            ]
-          }
+          "sourceText": "四肢长骨骨折累及关节面。",
+          "conditionText": "四肢长骨骨折累及关节面。"
         }
       },
       "5.9.4.h": {
@@ -25680,17 +25670,12 @@
         }
       },
       "5.10.6.7": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条文要求青少年四肢长骨骨折并累及骨骺，需核验受伤时年龄、具体长骨、骨折性质及骨骺累及的影像证据。当前事实结构不能分别验证年龄和同一部位的骨骺损伤；单条结论不能替代年龄资料及影像复核，需人工复核。",
         "logic": {
           "op": "condition",
-          "sourceText": "青少年四肢长骨骨折累及骨骺",
-          "conditionText": "青少年四肢长骨骨折累及骨骺",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "青少年四肢长骨骨折累及骨骺"
-            ]
-          }
+          "sourceText": "青少年四肢长骨骨折累及骨骺；",
+          "conditionText": "青少年四肢长骨骨折累及骨骺；"
         }
       },
       "5.10.6.11": {

@@ -734,7 +734,7 @@ test('service normalization rejects model support for every opaque grading claus
     assert.ok(reference?.conditions.every(condition => condition.evidence === ''
       && condition.factIds.length === 0 && condition.met === null), clause.id);
   }
-  assert.equal(checked, 33);
+  assert.equal(checked, 36);
 });
 
 test('service normalization rejects unsupported model support claims for every explicit clause', () => {
@@ -755,7 +755,7 @@ test('service normalization rejects unsupported model support claims for every e
     assert.equal(result.grade, null, clause.id);
     assert.ok(result.references.every(reference => reference.relation !== 'supports'), clause.id);
   }
-  assert.equal(checked, 814);
+  assert.equal(checked, 811);
 });
 
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
@@ -1117,6 +1117,18 @@ test('5.9.6.2 stays opaque until vertebral levels and surgery-object linkage are
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.6.2');
   assert.equal(clause.conditionLogic.annotation, 'opaque');
   assert.match(clause.conditionLogic.reason, /椎体.*(?:层面|数量).*(?:附件|手术|影像)/u);
+});
+
+test('cranial nerve, articular surface, and juvenile physeal composites stay opaque without typed components', () => {
+  const clauses = [
+    catalogs.injury.clauses.find(item => item.id === '5.1.4.f'),
+    catalogs.injury.clauses.find(item => item.id === '5.9.3.f'),
+    catalogs.disability.clauses.find(item => item.id === '5.10.6.7'),
+  ];
+  for (const clause of clauses) {
+    assert.equal(clause.conditionLogic.annotation, 'opaque', clause.id);
+    assert.ok(clause.conditionLogic.reason.trim(), clause.id);
+  }
 });
 
 test('traumatic glaucoma surgery clauses verify diagnosis and current-event treatment separately', () => {
