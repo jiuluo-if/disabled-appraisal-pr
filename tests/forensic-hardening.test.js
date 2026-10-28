@@ -1146,6 +1146,18 @@ test('traumatic glaucoma surgery clauses verify diagnosis and current-event trea
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [diagnosis, { ...treatment, eventId: 'E2' }]).met, true);
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [diagnosis, { ...treatment,
     value: '肾修补术', evidence: '因本次事故导致左眼外伤性青光眼，接受肾修补术' }]).met, true);
+
+  const kidneySurgeryRequirement = { annotation: 'explicit', logic: { op: 'all', children: [
+    { op: 'condition', sourceText: '脾破裂', conditionText: '脾破裂',
+      factMatch: { field: 'diagnosis', values: ['脾破裂'] } },
+    { op: 'condition', sourceText: '经手术治疗', conditionText: '经手术治疗',
+      factMatch: { field: 'treatment', values: ['经手术治疗'], valueIncludes: ['手术'], evidenceAliases: ['手术'] } },
+  ] } };
+  const spleenInjury = { id: 'S1', eventId: 'E1', field: 'diagnosis', value: '脾破裂', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '本次事故导致脾破裂' };
+  const wrongOrganOperation = { id: 'S2', eventId: 'E1', field: 'treatment', value: '左眼手术', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '因本次事故导致脾破裂，接受左眼手术' };
+  assert.notEqual(evaluateConditionLogic(kidneySurgeryRequirement, [spleenInjury, wrongOrganOperation]).met, true);
 });
 
 test('a same-organ partial splenectomy cannot satisfy age-specific total-splenectomy clauses', () => {

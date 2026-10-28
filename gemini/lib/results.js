@@ -792,6 +792,10 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
       && (sharedClinicalInjuryPhrase(anchor, indication)
         || indicationText.length >= 4 && !genericIndication.test(indicationText)
           && normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`).includes(indicationText)));
+    const operationAction = /(?:接受|施行|实施|进行|行|予以)([^，,。；;\n]{0,36})/u.exec(procedureText);
+    const operationOrgan = clinicalOrgan({ value: fact.value, evidence: operationAction?.[1] || '' });
+    const indicationOrgan = clinicalOrgan(indication);
+    if (indicationOrgan && operationOrgan && indicationOrgan !== operationOrgan) return false;
     if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)) return false;
     explicitlyIndicatedSurgery = indicationIsLinked && isPerformedSurgicalTreatmentFact(fact);
   }
