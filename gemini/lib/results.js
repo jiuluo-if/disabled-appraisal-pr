@@ -879,9 +879,9 @@ function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
 
-function verifiedAdultAgeAtInjury(facts, eventId) {
+function verifiedAdultAgeAtPoint(facts, eventId, field, agePattern) {
   if (!eventId) return false;
-  const ageFacts = facts.filter(fact => fact.field === 'age_at_injury_years' && fact.eventId === eventId
+  const ageFacts = facts.filter(fact => fact.field === field && fact.eventId === eventId
     && fact.source === 'description' && fact.verification === 'quoted');
   if (!ageFacts.length) return false;
   const values = new Set();
@@ -892,30 +892,51 @@ function verifiedAdultAgeAtInjury(facts, eventId) {
     if (/(?:患者的?父亲|患者的?母亲|其父|其母|家属|丈夫|妻子|他人|其他人|另一个人|同事)/u.test(fact.evidence || '')) {
       return false;
     }
-    const match = /(?:受伤|事故|损伤)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u.exec(fact.evidence || '');
+    const match = agePattern.exec(fact.evidence || '');
     if (!match || Number(match[1]) !== fact.value) return false;
     values.add(fact.value);
   }
   return values.size === 1 && [...values][0] >= 15;
 }
 
+function verifiedAdultAgeAtInjury(facts, eventId) {
+  return verifiedAdultAgeAtPoint(facts, eventId, 'age_at_injury_years',
+    /(?:受伤|事故|损伤)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u);
+}
+
+function verifiedAdultAgeAtAssessment(facts, eventId) {
+  return verifiedAdultAgeAtPoint(facts, eventId, 'age_at_assessment_years',
+    /(?:评残|伤残评定|残疾评定|鉴定|评估)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u);
+}
+
+function verifiedAdultAgeForAdjustment(facts, eventId, ageAdjustment) {
+  if (ageAdjustment === 'injury_standard_6_18') return verifiedAdultAgeAtInjury(facts, eventId);
+  if (ageAdjustment === 'disability_standard_6_11') {
+    return verifiedAdultAgeAtInjury(facts, eventId) && verifiedAdultAgeAtAssessment(facts, eventId);
+  }
+  return false;
+}
+
 function ageAdjustmentFollowUp(logic, facts) {
   for (const { node } of collectLogicNodes(logic).filter(({ node }) =>
-    node.ageAdjustment === 'injury_standard_6_18')) {
+    ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment))) {
     const observed = evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
     if (observed.met !== true) continue;
     const eventIds = new Set(observed.factIds.map(id => facts.find(fact => fact.id === id)?.eventId).filter(Boolean));
-    const hasValidAdultAge = eventIds.size === 1 && verifiedAdultAgeAtInjury(facts, [...eventIds][0]);
+    const hasValidAdultAge = eventIds.size === 1
+      && verifiedAdultAgeForAdjustment(facts, [...eventIds][0], node.ageAdjustment);
     if (!hasValidAdultAge) {
-      return '补充受伤时年龄资料，并按标准6.18核对体表损伤阈值（0–6岁按50%、7–10岁按60%、11–14岁按80%计算）；当前不能按成人阈值自动判断。';
+      return node.ageAdjustment === 'injury_standard_6_18'
+        ? '补充受伤时年龄资料，并按标准6.18核对体表损伤阈值（0–6岁按50%、7–10岁按60%、11–14岁按80%计算）；当前不能按成人阈值自动判断。'
+        : '补充受伤时及评残时年龄资料，并按伤残分级标准6.11核对面部瘢痕长度或面积阈值（0–6周岁按50%、7–14周岁按80%计算）；标准未明确年龄时点时需人工核实，当前不能按成人阈值自动判断。';
     }
   }
   return null;
 }
 
 function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled = false) {
-  if (ageAdjustmentEnabled && node.ageAdjustment === 'injury_standard_6_18'
-    && !verifiedAdultAgeAtInjury(facts, eventId)) {
+  if (ageAdjustmentEnabled && ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment)
+    && !verifiedAdultAgeForAdjustment(facts, eventId, node.ageAdjustment)) {
     return { met: null, evidence: '', factIds: [] };
   }
   const acceptedFields = conditionFactFields(node.factMatch, node.predicate);
@@ -1038,7 +1059,8 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   if (conditionLogic?.annotation !== 'explicit' || !conditionLogic.logic || !Array.isArray(facts)) {
     return { met: null, evidence: '', factIds: [] };
   }
-  const ageAdjustmentEnabled = conditionLogic.ageAdjustment === 'injury_standard_6_18';
+  const ageAdjustmentEnabled = ['injury_standard_6_18', 'disability_standard_6_11']
+    .includes(conditionLogic.ageAdjustment);
   const evaluate = (node, scopedFacts, eventId) => {
     if (node.op === 'condition') return evaluateConditionLeaf(node, scopedFacts, eventId, ageAdjustmentEnabled);
     if (node.op === 'not') {
@@ -1701,7 +1723,7 @@ export function normalizeResult(raw, input, context) {
     }
     if (clause.grade && clause.conditionLogic?.annotation === 'explicit') {
       const bound = bindExplicitGroups(clause, proposed.conditions, facts);
-      const ageFollowUp = clause.conditionLogic.ageAdjustment === 'injury_standard_6_18'
+      const ageFollowUp = clause.conditionLogic.ageAdjustment
         ? ageAdjustmentFollowUp(clause.conditionLogic.logic, facts) : null;
       if (ageFollowUp && !ageAdjustmentMissingMaterials.includes(ageFollowUp)) ageAdjustmentMissingMaterials.push(ageFollowUp);
       if (bound.invalid && /肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;

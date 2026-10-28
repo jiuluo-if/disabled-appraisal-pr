@@ -20102,10 +20102,12 @@
       },
       "5.6.2.2": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "condition",
           "sourceText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达20.0cm",
           "conditionText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达20.0cm",
+          "ageAdjustment": "disability_standard_6_11",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -20116,6 +20118,7 @@
       },
       "5.6.2.3": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部片状细小瘢痕形成或者色素显著异常，累计达面部面积的80％",
@@ -20125,6 +20128,7 @@
               "op": "condition",
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成累计达面部面积的80％",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -20136,6 +20140,7 @@
               "op": "condition",
               "sourceText": "色素显著异常",
               "conditionText": "面部色素显著异常累计达面部面积的80％",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -20714,10 +20719,12 @@
       },
       "5.7.2.1": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "condition",
           "sourceText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达15.0cm",
           "conditionText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达15.0cm",
+          "ageAdjustment": "disability_standard_6_11",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -20728,6 +20735,7 @@
       },
       "5.7.2.2": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部片状细小瘢痕形成或者色素显著异常，累计达面部面积的50％",
@@ -20737,6 +20745,7 @@
               "op": "condition",
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成累计达面部面积的50％",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -20748,6 +20757,7 @@
               "op": "condition",
               "sourceText": "色素显著异常",
               "conditionText": "面部色素显著异常累计达面部面积的50％",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22784,6 +22794,7 @@
       },
       "5.9.2.5": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部块状瘢痕形成，单块面积达7.0cm2，或者多块累计面积达9.0cm2；",
@@ -22793,6 +22804,7 @@
               "op": "condition",
               "sourceText": "面部块状瘢痕形成，单块面积达7.0cm2",
               "conditionText": "面部块状瘢痕形成，单块面积达7.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22804,6 +22816,7 @@
               "op": "condition",
               "sourceText": "多块累计面积达9.0cm2",
               "conditionText": "多块累计面积达9.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22816,6 +22829,7 @@
       },
       "5.9.2.6": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部片状细小瘢痕形成或者色素异常，累计面积达30.0cm2",
@@ -22825,6 +22839,7 @@
               "op": "condition",
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达30.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22836,6 +22851,7 @@
               "op": "condition",
               "sourceText": "色素异常",
               "conditionText": "色素异常，累计面积达30.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22938,6 +22954,7 @@
       },
       "5.8.2.4": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部条状瘢痕形成，累计长度达30.0cm；面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm；",
@@ -22947,6 +22964,7 @@
               "op": "condition",
               "sourceText": "面部条状瘢痕形成",
               "conditionText": "面部条状瘢痕形成，累计长度达30.0cm",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22958,6 +22976,7 @@
               "op": "condition",
               "sourceText": "面部中心区条状瘢痕形成",
               "conditionText": "面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22970,6 +22989,7 @@
       },
       "5.8.2.5": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部块状增生性瘢痕形成，累计面积达15.0cm2；面部中心区块状增生性瘢痕形成，单块面积达7.0cm2或者多块累计面积达9.0cm2；",
@@ -22979,6 +22999,7 @@
               "op": "condition",
               "sourceText": "面部块状增生性瘢痕形成",
               "conditionText": "面部块状增生性瘢痕形成，累计面积达15.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -22995,6 +23016,7 @@
                   "op": "condition",
                   "sourceText": "单块面积达7.0cm2",
                   "conditionText": "面部中心区块状增生性瘢痕形成，单块面积达7.0cm2",
+                  "ageAdjustment": "disability_standard_6_11",
                   "factMatch": {
                     "field": "clinical_finding",
                     "values": [
@@ -23006,6 +23028,7 @@
                   "op": "condition",
                   "sourceText": "多块累计面积达9.0cm2",
                   "conditionText": "面部中心区块状增生性瘢痕形成，多块累计面积达9.0cm2",
+                  "ageAdjustment": "disability_standard_6_11",
                   "factMatch": {
                     "field": "clinical_finding",
                     "values": [
@@ -23020,6 +23043,7 @@
       },
       "5.8.2.6": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部片状细小瘢痕形成或者色素异常，累计面积达100.0cm2；",
@@ -23029,6 +23053,7 @@
               "op": "condition",
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达100.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -23040,6 +23065,7 @@
               "op": "condition",
               "sourceText": "色素异常",
               "conditionText": "面部色素异常，累计面积达100.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -23098,6 +23124,7 @@
       },
       "5.9.2.4": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部条状瘢痕形成，累计长度达20.0cm；面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区；",
@@ -23107,6 +23134,7 @@
               "op": "condition",
               "sourceText": "累计长度达20.0cm",
               "conditionText": "面部条状瘢痕形成，累计长度达20.0cm",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -23118,6 +23146,7 @@
               "op": "condition",
               "sourceText": "宽度达0.2cm",
               "conditionText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -24109,10 +24138,12 @@
       },
       "5.10.2.3": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "condition",
           "sourceText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达6.0cm，其中至少3.0cm位于面部中心区",
           "conditionText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达6.0cm，其中至少3.0cm位于面部中心区",
+          "ageAdjustment": "disability_standard_6_11",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -24123,10 +24154,12 @@
       },
       "5.10.2.4": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "condition",
           "sourceText": "面部条状瘢痕形成，累计长度达10.0cm",
           "conditionText": "面部条状瘢痕形成，累计长度达10.0cm",
+          "ageAdjustment": "disability_standard_6_11",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -24137,6 +24170,7 @@
       },
       "5.10.2.5": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部块状瘢痕形成，单块面积达3.0cm2，或者多块累计面积达5.0cm2；",
@@ -24146,6 +24180,7 @@
               "op": "condition",
               "sourceText": "单块面积达3.0cm2",
               "conditionText": "面部块状瘢痕形成，单块面积达3.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -24157,6 +24192,7 @@
               "op": "condition",
               "sourceText": "多块累计面积达5.0cm2",
               "conditionText": "面部块状瘢痕形成，多块累计面积达5.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -24169,6 +24205,7 @@
       },
       "5.10.2.6": {
         "annotation": "explicit",
+        "ageAdjustment": "disability_standard_6_11",
         "logic": {
           "op": "any",
           "sourceText": "面部片状细小瘢痕形成或者色素异常，累计面积达10.0cm2；",
@@ -24178,6 +24215,7 @@
               "op": "condition",
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达10.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -24189,6 +24227,7 @@
               "op": "condition",
               "sourceText": "色素异常",
               "conditionText": "面部色素异常，累计面积达10.0cm2",
+              "ageAdjustment": "disability_standard_6_11",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [

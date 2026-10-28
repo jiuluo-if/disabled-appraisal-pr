@@ -3555,6 +3555,7 @@ function factFinding(field, value, certainty) {
   const labels = {
     anatomical_site: '解剖部位', injury_site: '受伤部位', injury_cause: '致伤机制', injury_date: '受伤时间',
     age_at_injury_years: '受伤时年龄（周岁）',
+    age_at_assessment_years: '评残/鉴定时年龄（周岁）',
     injury_type: '损伤类型', laterality: '侧别', fractured_rib_numbers: '骨折肋骨序号',
     fractured_rib_count: '骨折肋骨根数', fracture_site_count: '骨折处数', symptom: '症状',
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
