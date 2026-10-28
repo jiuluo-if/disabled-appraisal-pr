@@ -86,8 +86,13 @@ export function quotedDentalDefectCount(evidence, expectedValue) {
   return Number.isInteger(count) && count > 0 && count === expectedValue ? count : null;
 }
 
+const POSTPOSED_UNCERTAINTY_QUALIFIER = /^(?:\s*[，,：:]?\s*)(?:(?:诊断|性质|结果|考虑)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|待核实|待确认|不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|存疑|未明确|不明确|尚不明确|尚未明确))/u;
+const POSTPOSED_MEDICAL_QUALIFIER = /^(?:\s*[，,：:]?\s*)(?:(?:诊断|性质|结果|明确|考虑)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|待核实|待确认|不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|存疑|排除|已排除|未见|未发现|阴性|否认|未明确|不明确|尚不明确|尚未明确))/u;
+
 function certaintyFor(text, start, end) {
-  const context = text.slice(start, Math.min(text.length, end));
+  const spanEnd = Math.min(text.length, end);
+  const trailingQualifier = POSTPOSED_UNCERTAINTY_QUALIFIER.exec(text.slice(spanEnd));
+  const context = text.slice(start, spanEnd + (trailingQualifier?.[0].length || 0));
   if (hasUnresolvedOtherExperiencer(context) || /若(?!干)|如果|假如|倘若|一旦|假设|如有|如出现|如发生|必要时/.test(context)) return 'unknown';
   if (/(?:建议|推荐|需要|拟|计划|应当|应).{0,24}(?:复查|检查|重建|排除)/.test(context)
     && !/(?:已排除|排除后|复查结果|检查结果)/.test(context)) return 'unknown';
@@ -97,9 +102,9 @@ function certaintyFor(text, start, end) {
 }
 
 function certaintyForMention(text, start, end) {
-  const trailingQualifier = /^(?:\s*[，,：:]?\s*)(?:(?:诊断|性质|结果|明确|考虑)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|待核实|待确认|不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|存疑|排除|已排除|未见|未发现|阴性|否认|未明确|不明确|尚不明确|尚未明确))/u
-    .exec(text.slice(end));
-  return certaintyFor(text, start, end + (trailingQualifier?.[0].length || 0));
+  const spanEnd = Math.min(text.length, end);
+  const trailingQualifier = POSTPOSED_MEDICAL_QUALIFIER.exec(text.slice(spanEnd));
+  return certaintyFor(text, start, spanEnd + (trailingQualifier?.[0].length || 0));
 }
 
 function hasUnresolvedOtherExperiencer(text) {
@@ -250,7 +255,7 @@ function normalizeVertebralFractureDiagnosisFacts(inputText) {
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
     const end = start + match[0].length;
-    if (certaintyFor(text, start, end) !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
+    if (certaintyForMention(text, start, end) !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
     findings.push({ field: 'diagnosis', value: match[0], certainty: 'reported', source_type: 'user_text',
       source_excerpt: match[0] });
   }
@@ -268,7 +273,7 @@ function normalizeBrainCompressionEvidenceFacts(inputText) {
     const clause = clauseMatch[0];
     for (const { pattern, field, value } of patterns) {
       for (const match of clause.matchAll(new RegExp(pattern.source, pattern.flags))) {
-        let certainty = certaintyFor(clause, match.index, match.index + match[0].length);
+        let certainty = certaintyForMention(clause, match.index, match.index + match[0].length);
         if (certainty === 'reported' && explicitNegationCoversTerm(clause, match[0])) certainty = 'excluded';
         const start = clauseMatch.index + match.index;
         const end = start + match[0].length;
@@ -683,7 +688,7 @@ function normalizeNasalSeptumCombinationFacts(inputText) {
   for (const clauseMatch of text.matchAll(/[^。；;\n]+/gu)) {
     const clause = clauseMatch[0];
     for (const match of clause.matchAll(pattern)) {
-      if (certaintyFor(clause, match.index, match.index + match[0].length) !== 'reported'
+      if (certaintyForMention(clause, match.index, match.index + match[0].length) !== 'reported'
         || hasNonCurrentClinicalContext(text, clauseMatch.index + match.index,
           clauseMatch.index + match.index + match[0].length)) continue;
       findings.push({ field: 'diagnosis', value: '鼻骨骨折合并鼻中隔骨折', certainty: 'reported',
@@ -1268,7 +1273,7 @@ function normalizeSharedSuffixBoneFractureFacts(inputText) {
       sharedSites.unshift(tokens[index]);
     }
     if (sharedSites.length < 2) continue;
-    const certainty = certaintyFor(text, start, end);
+    const certainty = certaintyForMention(text, start, end);
     if (hasNonCurrentClinicalContext(text, start, end)) continue;
     const first = sharedSites[0];
     const evidence = text.slice(start + first.index, end).trim();

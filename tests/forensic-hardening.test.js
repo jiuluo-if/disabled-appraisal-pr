@@ -77,6 +77,28 @@ test('postposed epilepsy qualifiers cannot turn uncertain or excluded diagnoses 
   assert.notEqual(evaluateConditionLogic(sahClause.conditionLogic, uncertainSah).met, true);
 });
 
+test('postposed fracture uncertainty applies to structured vertebral diagnoses', () => {
+  const uncertain = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。影像示L1左侧横突骨折可疑。',
+  }).facts;
+  assert.equal(uncertain.some(fact => fact.field === 'diagnosis'
+    && fact.value === 'L1左侧横突骨折' && fact.certainty === 'reported'), false);
+
+  const definitive = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。影像明确示L1左侧横突骨折。',
+  }).facts;
+  assert.ok(definitive.some(fact => fact.field === 'diagnosis'
+    && fact.value === 'L1左侧横突骨折' && fact.certainty === 'reported'));
+});
+
+test('a following negated condition does not negate the preceding wound measurement', () => {
+  const facts = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。左前臂创口长5cm，未见骨折。',
+  }).facts;
+  assert.ok(facts.some(fact => fact.field === 'wound_length_cm' && fact.value === 5
+    && fact.certainty === 'reported'));
+});
+
 test('rib ordinal lists do not create fracture-site counts', () => {
   const snapshot = normalizeExtractedFacts(emptyExtraction, {
     description: '左侧第3至第6肋骨骨折。',
