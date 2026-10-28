@@ -2796,12 +2796,27 @@ function assessmentScopeExclusions(text) {
   const segments = /[^。；;\n]+(?:[。；;\n]|$)/gu;
   const matches = [...text.matchAll(segments)];
   const domains = [
-    /头部|头颅|颅脑|颅内|头皮|颅骨|额骨|顶骨|枕骨|颞骨|硬脑膜|脑脊液|脑膜|脑损伤|开颅/u,
-    /眼球|眼眶|眼部|眼睛|视神经|视力|眼/u,
-    /肋骨|肋软骨/u,
-    /腹部|腹腔|腹膜|肝脏|肝|脾脏|脾|胰腺|胰|肾脏|肾|胃肠|肠道/u,
-    /脊柱|脊髓|椎体|椎骨/u,
-    /心脏|心包|冠状动脉|心肌/u,
+    { scope: /头部|头颅|颅脑|颅内|头皮|颅骨|额骨|顶骨|枕骨|颞骨|硬脑膜|脑脊液|脑膜|脑损伤|开颅/u,
+      finding: /头部|头颅|颅脑|颅内|头皮|颅骨|额骨|顶骨|枕骨|颞骨|硬脑膜|脑脊液|脑膜|脑损伤|开颅/u },
+    { scope: /面部|颜面|脸部|面颊|颊部|颧部|鼻部|鼻骨|颌面|下颌|口唇|唇部|眉部|眼睑/u,
+      finding: /面部|颜面|脸部|面颊|颊部|颧部|鼻部|鼻骨|鼻梁|鼻翼|颌面|下颌|上颌|口唇|唇部|眉部|眼睑|颧骨/u },
+    { scope: /眼球|眼眶|眼部|眼睛|视神经|视力|眼/u,
+      finding: /眼球|眼眶|眼部|眼睛|视神经|视力|眼/u },
+    { scope: /颈部|颈椎|咽喉|喉部|喉|甲状软骨|环状软骨|会厌|舌骨|甲状腺|颈动脉|颈部血管/u,
+      finding: /颈部|颈椎|咽喉|喉部|喉|甲状软骨|环状软骨|会厌|舌骨|甲状腺|颈动脉|颈部血管/u },
+    { scope: /胸部|胸壁|胸腔|肋骨|肋软骨|肺|胸骨|气胸|血胸/u,
+      finding: /胸部|胸壁|胸腔|肋骨|肋软骨|肺|胸骨|气胸|血胸|支气管|胸膜/u },
+    { scope: /腹部|腹腔|腹膜|肝脏|肝|脾脏|脾|胰腺|胰|肾脏|肾|胃肠|肠道/u,
+      finding: /腹部|腹腔|腹膜|肝脏|肝|脾脏|脾|胰腺|胰|肾脏|肾|胃肠|肠道|胃|十二指肠|胆囊|胆道/u },
+    { scope: /脊柱|脊髓|椎体|椎骨|颈椎|胸椎|腰椎|骶椎|尾椎|背部|腰部/u,
+      finding: /脊柱|脊髓|椎体|椎骨|颈椎|胸椎|腰椎|骶椎|尾椎|背部|腰部/u },
+    { scope: /心脏|心包|冠状动脉|心肌/u, finding: /心脏|心包|冠状动脉|心肌/u },
+    { scope: /上肢|上臂|前臂|肱骨|尺骨|桡骨|腕部|腕骨|手部|左手|右手|手掌|手背|手指|掌骨|指骨|肩部|肩胛|锁骨/u,
+      finding: /上肢|上臂|前臂|肱骨|尺骨|桡骨|腕部|腕骨|手部|左手|右手|手掌|手背|手指|手|掌骨|指骨|肩部|肩胛|锁骨|肩/u },
+    { scope: /下肢|左腿|右腿|腿部|大腿|股骨|髋部|髋骨|膝部|膝骨|小腿|胫骨|腓骨|踝部|踝骨|足部|左足|右足|左脚|右脚|足背|足骨|趾部|趾骨|跗骨|跖骨|骨盆|髂骨|耻骨|坐骨/u,
+      finding: /下肢|大腿|股骨|髋部|髋骨|膝部|膝骨|小腿|胫骨|腓骨|踝部|踝骨|足部|足背|足|趾部|趾骨|跗骨|跖骨|骨盆|髂骨|耻骨|坐骨/u },
+    { scope: /泌尿|膀胱|尿道|输尿管|生殖器|睾丸|附睾|阴茎|阴囊|子宫|卵巢|输卵管|前列腺/u,
+      finding: /泌尿|膀胱|尿道|输尿管|生殖器|睾丸|附睾|阴茎|阴囊|子宫|卵巢|输卵管|前列腺/u },
   ];
   for (let index = 0; index < matches.length; index += 1) {
     const match = matches[index];
@@ -2809,9 +2824,11 @@ function assessmentScopeExclusions(text) {
     const marker = /不属于|不在|不纳入|未纳入|不列入|排除在|不作为|不用于/u.exec(segment);
     if (!marker) continue;
     const suffix = segment.slice(marker.index);
-    if (!/(?:本次|此次|该次|本项).{0,28}(?:评估|鉴定|分析).{0,8}范围/u.test(suffix)) continue;
+    const scopeMatch = /(?:本次|此次|该次|本项)(.{0,28})(?:评估|鉴定|分析).{0,8}范围/u.exec(suffix);
+    if (!scopeMatch) continue;
     const subject = segment.slice(0, marker.index);
-    const excludedDomains = domains.filter(domain => domain.test(subject));
+    const excludedDomains = domains.filter(domain => domain.scope.test(subject));
+    const scopeDomains = domains.filter(domain => domain.scope.test(scopeMatch[1]));
     const inclusionPattern = /(?:但|但是|不过|而|同时|并且|且)\s*[，,]?\s*(?:[^。；;，,]{0,48}?(?:属于|纳入|列入|作为)[^。；;，,]{0,24}(?:本次|此次|该次|本项).{0,12}(?:评估|鉴定|分析)(?:范围|内容)?|(?:本次|此次|该次|本项).{0,12}(?:评估|鉴定|分析)(?:范围|内容)?(?:包括|包含)[^。；;，,]{1,40})/u;
     let inclusionLocation = match.index + marker.index;
     let includedTail = suffix.match(inclusionPattern);
@@ -2830,6 +2847,7 @@ function assessmentScopeExclusions(text) {
     const includedEnd = includedTail ? includedStart + includedTail[0].length : null;
     exclusions.push({ start: match.index, subjectEnd: match.index + marker.index, end: match.index + segment.length,
       domains: excludedDomains,
+      scopeDomains,
       excludedEnd: includedStart ?? sentenceEnd,
       includedStart,
       includedEnd,
@@ -2857,11 +2875,13 @@ function factIsOutsideAssessmentScope(text, evidence, value) {
     if (valueStart >= exclusion.start && valueStart < exclusion.excludedEnd) return true;
     const factFollowsExclusion = valueStart >= (exclusion.includedEnd ?? exclusion.end)
       || valueOffset < 0 && evidenceStart < exclusion.end && evidenceStart + evidence.length > exclusion.end;
-    if (exclusion.historicalOnly && currentEventAnchorBefore(text, valueStart)) return false;
+    if (exclusion.historicalOnly && currentEventAnchorBefore(text, valueStart)
+      && (!exclusion.scopeDomains.length || exclusion.scopeDomains.some(domain =>
+        domain.finding.test(`${value} ${valueContext}`)))) return false;
     return exclusion.domains.length > 0 && factFollowsExclusion
-      && exclusion.domains.some(domain => domain.test(`${value} ${valueContext}`)
+      && exclusion.domains.some(domain => domain.finding.test(`${value} ${valueContext}`)
         || valueOffset < 0 && evidenceStart < exclusion.end && evidenceStart + evidence.length > exclusion.end
-          && domain.test(evidence.slice(Math.max(0, exclusion.end - evidenceStart))));
+          && domain.finding.test(evidence.slice(Math.max(0, exclusion.end - evidenceStart))));
   });
 }
 
@@ -2882,9 +2902,10 @@ function removeOutOfScopeAssessmentSegments(text) {
       && start < exclusion.includedEnd && end > exclusion.includedStart);
     const excludedByDomain = !explicitlyIncluded && exclusions.some(exclusion => {
       if (exclusion.historicalOnly) {
-        if (currentEventAnchorBefore(text, start) || CURRENT_EVENT_SCOPE_ANCHOR.test(segment)) return false;
+        if ((currentEventAnchorBefore(text, start) || CURRENT_EVENT_SCOPE_ANCHOR.test(segment))
+          && (!exclusion.scopeDomains.length || exclusion.scopeDomains.some(domain => domain.finding.test(segment)))) return false;
       }
-      return exclusion.domains.some(domain => domain.test(segment));
+      return exclusion.domains.some(domain => domain.finding.test(segment));
     });
     if (!excludedByDomain) filtered += segment;
   }

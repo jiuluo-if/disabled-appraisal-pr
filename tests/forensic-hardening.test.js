@@ -719,6 +719,56 @@ test('combined nasal and maxillary fractures require both typed diagnoses', () =
   assert.equal(evaluateConditionLogic(clause.conditionLogic, reversedFacts).met, true);
 });
 
+test('assessment scope excludes hand findings without excluding current eye evidence', () => {
+  const description = '合成资料，非真实病例。早期左手损伤不属于本次眼部补充评估范围。早期影像明确左手第4掌骨骨折。本次事故后右眼视神经萎缩。';
+  const extraction = normalizeExtractedFacts({ facts: [
+    { id: 'H1', field: 'diagnosis', value: '左手第4掌骨骨折', certainty: 'reported', source: 'description',
+      evidence: '早期影像明确左手第4掌骨骨折' },
+    { id: 'E1', field: 'diagnosis', value: '右眼视神经萎缩', certainty: 'reported', source: 'description',
+      evidence: '本次事故后右眼视神经萎缩' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+
+  assert.equal(extraction.facts.some(fact => /左手第4掌骨骨折/u.test(fact.value)), false);
+  assert.ok(extraction.facts.some(fact => /右眼视神经萎缩/u.test(fact.value)));
+  assert.equal(extraction.scopeText.includes('左手第4掌骨骨折'), false);
+  assert.ok(extraction.scopeText.includes('右眼视神经萎缩'));
+
+  const unrelatedCurrentDescription = '合成资料，非真实病例。早期左手损伤不属于本次眼部补充评估范围。2026年本次事故后左手第4掌骨骨折。2026年本次事故后右眼视神经萎缩。';
+  const unrelatedCurrent = normalizeExtractedFacts({ facts: [
+    { id: 'H3', field: 'diagnosis', value: '左手第4掌骨骨折', certainty: 'reported', source: 'description',
+      evidence: '2026年本次事故后左手第4掌骨骨折' },
+    { id: 'E2', field: 'diagnosis', value: '右眼视神经萎缩', certainty: 'reported', source: 'description',
+      evidence: '2026年本次事故后右眼视神经萎缩' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: unrelatedCurrentDescription });
+  assert.equal(unrelatedCurrent.facts.some(fact => /左手第4掌骨骨折/u.test(fact.value)), false);
+  assert.ok(unrelatedCurrent.facts.some(fact => /右眼视神经萎缩/u.test(fact.value)));
+  assert.equal(unrelatedCurrent.scopeText.includes('左手第4掌骨骨折'), false);
+  assert.ok(unrelatedCurrent.scopeText.includes('右眼视神经萎缩'));
+
+  const currentHandDescription = '合成资料，非真实病例。早期左手损伤不属于本次手部补充评估范围。2026年本次事故后左手第4掌骨骨折。';
+  const currentHand = normalizeExtractedFacts({ facts: [{ id: 'H2', field: 'diagnosis', value: '左手第4掌骨骨折',
+    certainty: 'reported', source: 'description', evidence: '2026年本次事故后左手第4掌骨骨折' }],
+    missingMaterials: [], conflicts: [], requiresReview: false }, { description: currentHandDescription });
+  assert.ok(currentHand.facts.some(fact => fact.value === '左手第4掌骨骨折'));
+  assert.ok(currentHand.scopeText.includes('左手第4掌骨骨折'));
+
+  const excludedSites = [
+    ['既往左上肢损伤不属于本次评估范围。左肱骨骨折。', '左肱骨骨折'],
+    ['既往右足损伤不属于本次评估范围。右足第2跖骨骨折。', '右足第2跖骨骨折'],
+    ['既往面部损伤不属于本次评估范围。鼻骨骨折。', '鼻骨骨折'],
+    ['既往颈部损伤不属于本次评估范围。甲状软骨骨折。', '甲状软骨骨折'],
+    ['既往胸部损伤不属于本次评估范围。右肺挫伤。', '右肺挫伤'],
+    ['既往生殖器损伤不属于本次评估范围。左侧睾丸挫伤。', '左侧睾丸挫伤'],
+  ];
+  for (const [text, finding] of excludedSites) {
+    const scoped = normalizeExtractedFacts({ facts: [{ id: 'X1', field: 'diagnosis', value: finding,
+      certainty: 'reported', source: 'description', evidence: finding }], missingMaterials: [], conflicts: [],
+      requiresReview: false }, { description: text });
+    assert.equal(scoped.facts.some(fact => fact.value === finding), false, text);
+    assert.equal(scoped.scopeText.includes(finding), false, text);
+  }
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
