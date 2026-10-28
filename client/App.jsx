@@ -3,6 +3,7 @@ import { Activity, AlertTriangle, BookOpen, Check, FileText, History, Loader2, R
 import { analyze, apiBase } from './api.js';
 import { prepareImage } from './images.js';
 import { clearHistory, hasLegacyHistory, readHistory, saveHistory } from './history.js';
+import { assessmentToday } from '../gemini/lib/assessment-date.js';
 import { ResultView } from './ResultView.jsx';
 import { StandardsView } from './StandardsView.jsx';
 
@@ -72,7 +73,7 @@ export function App({ type }) {
   }
   async function submit(event) {
     event?.preventDefault();
-    if (busy || uploading || (!description.trim() && !images.length)) return;
+    if (active.current || busy || uploading || (!description.trim() && !images.length)) return;
     const controller = new AbortController();
     const id = Symbol('analysis');
     active.current = { id, controller };
@@ -126,7 +127,7 @@ export function App({ type }) {
           <label className="field-label" htmlFor="description">病历与检查记录</label>
           <textarea id="description" value={description} disabled={busy} maxLength={40000} onChange={event => { setDescription(event.target.value); invalidate(); }} placeholder={config.placeholder} />
           <div className="input-meta"><span>{description.length.toLocaleString()} 字</span></div>
-          <div className="context-fields"><label><span className="field-label">受伤日期</span><input type="date" value={injuryDate} max={new Date().toISOString().slice(0, 10)} disabled={busy} onChange={event => { setInjuryDate(event.target.value); invalidate(); }} /></label><label><span className="field-label">治疗状态</span><select value={treatmentStatus} disabled={busy} onChange={event => { setTreatmentStatus(event.target.value); invalidate(); }}><option value="unknown">尚不明确</option><option value="ongoing">治疗中</option><option value="stable">治疗终结或稳定</option></select></label></div>
+          <div className="context-fields"><label><span className="field-label">受伤日期</span><input type="date" value={injuryDate} max={assessmentToday()} disabled={busy} onChange={event => { setInjuryDate(event.target.value); invalidate(); }} /></label><label><span className="field-label">治疗状态</span><select value={treatmentStatus} disabled={busy} onChange={event => { setTreatmentStatus(event.target.value); invalidate(); }}><option value="unknown">尚不明确</option><option value="ongoing">治疗中</option><option value="stable">治疗终结或稳定</option></select></label></div>
           <div className="section-heading upload-heading"><h3>报告图片</h3><span className="section-meta">{images.length} / 6</span></div>
           <input ref={inputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden-input" aria-label="上传报告图片" onChange={upload} disabled={busy || uploading} />
           {images.length > 0 && <div className="image-list">{images.map((image, index) => <div className="image-item" key={image.id}><button type="button" className="image-preview-button" title="查看报告图片" aria-label={`查看报告图片${index + 1}`} onClick={() => setPreviewImage(image)}><img src={image.preview} alt={`报告图片${index + 1}`} /></button><div><strong>报告 {index + 1}</strong><span>{image.name}</span></div><button type="button" className="icon-button" aria-label={`移除报告图片${index + 1}`} title="移除图片" disabled={busy || uploading} onClick={() => { setImages(items => items.filter(item => item.id !== image.id)); invalidate(); }}><X size={17} /></button></div>)}</div>}

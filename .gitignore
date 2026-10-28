@@ -35,6 +35,12 @@ playwright-report/
 **/.kimi-*.cjs
 **/*-raw-diagnostic.json
 **/*-repeat-results.json
+测试截图/
+.playwright-mcp/
+.review-*.png
+随机评测截图_*/
+全量案例五次复测_*/
+codex法医学伤情智鉴系统鉴定文书全量五次评测截图_*/
 **/test-results/
 *.har
 *.trace

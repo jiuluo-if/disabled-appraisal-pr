@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { gzipSync } from 'node:zlib';
 import { createAnalysisCache, createApp } from '../gemini/lib/app.js';
 import { createProvider, ServiceError } from '../gemini/lib/provider.js';
 import { factExtractionSchema, providerResultSchema } from '../gemini/lib/contracts.js';
@@ -32,6 +33,8 @@ test('analysis returns validated result and legacy envelope; live and ready are 
     : providerFixture() };
   assert.equal(inputs.injury.description, evidence);
   await withApp({ provider: assessmentProvider }, async url => {
+    const root = await fetch(url + '/');
+    assert.equal(await root.text(), 'Assessment API is Running!');
     const response = await post(url, inputs.injury); assert.equal(response.status, 200);
     const body = await response.json(); assert.equal(body.result.grade, '轻伤二级');
     assert.equal(JSON.parse(body.candidates[0].content.parts[0].text).grade, '轻伤二级');
@@ -40,6 +43,164 @@ test('analysis returns validated result and legacy envelope; live and ready are 
     assert.equal((await fetch(url + '/api/health/live')).status, 200);
     assert.equal((await fetch(url + '/api/health/ready')).status, 200);
     assert.equal((await fetch(url + '/api/standards/disability')).status, 200);
+  });
+});
+
+test('invalid model conflict fact IDs do not turn an analysis request into HTTP 500', async () => {
+  const description = '耳鸣，眩晕。';
+  const malformedConflictProvider = { ...provider, complete: async request => request.name === 'fact_extraction'
+    ? { facts: [
+      { id: 'F1', field: 'symptom', value: '耳鸣', certainty: 'reported', source: 'description', evidence: '耳鸣' },
+      { id: 'F2', field: 'symptom', value: '眩晕', certainty: 'reported', source: 'description', evidence: '眩晕' },
+    ], missingMaterials: [], conflicts: [{ factIds: ['F1', 'MISSING'], reason: '模型冲突引用错误' }], requiresReview: true }
+    : providerFixture() };
+
+  await withApp({ provider: malformedConflictProvider }, async url => {
+    for (const input of [inputs.injury, inputs.disability]) {
+      const response = await post(url, { ...input, description });
+      assert.equal(response.status, 200);
+      const result = (await response.json()).result;
+      assert.equal(result.requiresReview, false);
+      assert.ok(result.warnings.some(warning => warning.includes('冲突声明引用无效')));
+    }
+  });
+});
+
+test('analysis rate limit returns retry metadata before parsing or calling the provider', async () => {
+  let providerCalls = 0;
+  let now = 1_000;
+  const limitedProvider = { ...provider, complete: async request => {
+    providerCalls += 1;
+    return request.name === 'fact_extraction' ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false } : providerFixture();
+  } };
+  await withApp({ provider: limitedProvider, analysisRateLimit: { windowMs: 60_000, maxRequests: 1, now: () => now } }, async url => {
+    const first = await post(url, inputs.injury);
+    assert.equal(first.status, 200);
+    const callsAfterFirst = providerCalls;
+    const blocked = await fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{broken' });
+    assert.equal(blocked.status, 429);
+    assert.equal((await blocked.json()).error.code, 'RATE_LIMITED');
+    assert.equal(blocked.headers.get('retry-after'), '60');
+    assert.equal(blocked.headers.get('ratelimit-limit'), '1');
+    assert.equal(blocked.headers.get('ratelimit-remaining'), '0');
+    assert.equal(providerCalls, callsAfterFirst);
+    now += 60_000;
+    assert.equal((await post(url, inputs.injury)).status, 200);
+  });
+});
+
+test('analysis rate limit uses the client IP forwarded by the trusted local proxy', async () => {
+  await withApp({ provider, analysisRateLimit: { windowMs: 60_000, maxRequests: 1 } }, async url => {
+    const requestFrom = ip => fetch(url + '/api/analyze', { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'X-Forwarded-For': ip,
+    }, body: JSON.stringify(inputs.injury) });
+    const first = await requestFrom('198.51.100.11');
+    const second = await requestFrom('198.51.100.12');
+    assert.equal(first.status, 200);
+    assert.equal(second.status, 200);
+  });
+});
+
+test('analysis concurrency limit prevents a single client from opening an upstream request burst', async () => {
+  let enterExtraction;
+  let releaseExtraction;
+  const extractionEntered = new Promise(resolve => { enterExtraction = resolve; });
+  const extractionGate = new Promise(resolve => { releaseExtraction = resolve; });
+  const slowProvider = { ...provider, complete: async request => {
+    if (request.name === 'fact_extraction') {
+      enterExtraction();
+      await extractionGate;
+      return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+    }
+    return providerFixture();
+  } };
+  await withApp({ provider: slowProvider, analysisConcurrencyLimit: { maxConcurrent: 1 } }, async url => {
+    const firstRequest = post(url, inputs.injury);
+    await extractionEntered;
+    const blockedOutcome = await Promise.race([
+      post(url, inputs.disability).then(response => ({ response })),
+      new Promise(resolve => setTimeout(() => resolve({ timedOut: true }), 100)),
+    ]);
+    releaseExtraction();
+    assert.equal((await firstRequest).status, 200);
+    assert.ok(blockedOutcome.response);
+    assert.equal(blockedOutcome.response.status, 429);
+    assert.equal((await blockedOutcome.response.json()).error.code, 'ANALYSIS_CONCURRENCY_LIMIT');
+    assert.equal(blockedOutcome.response.headers.get('retry-after'), '1');
+    assert.equal((await post(url, inputs.disability)).status, 200);
+  });
+});
+
+test('analysis concurrency limit also caps simultaneous upstream work across distinct client IPs', async () => {
+  let enterExtraction;
+  let releaseExtraction;
+  const extractionEntered = new Promise(resolve => { enterExtraction = resolve; });
+  const extractionGate = new Promise(resolve => { releaseExtraction = resolve; });
+  const slowProvider = { ...provider, complete: async request => {
+    if (request.name === 'fact_extraction') {
+      enterExtraction();
+      await extractionGate;
+      return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+    }
+    return providerFixture();
+  } };
+  await withApp({ provider: slowProvider, analysisConcurrencyLimit: { maxConcurrent: 2, maxGlobalConcurrent: 1 } }, async url => {
+    const requestFrom = (ip, input) => fetch(url + '/api/analyze', { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'X-Forwarded-For': ip,
+    }, body: JSON.stringify(input) });
+    const firstRequest = requestFrom('198.51.100.21', inputs.injury);
+    await extractionEntered;
+    const blocked = await requestFrom('198.51.100.22', inputs.disability);
+    assert.equal(blocked.status, 429);
+    assert.equal((await blocked.json()).error.code, 'ANALYSIS_CONCURRENCY_LIMIT');
+    releaseExtraction();
+    assert.equal((await firstRequest).status, 200);
+  });
+});
+
+test('large request bodies are concurrency-limited before JSON parsing', async () => {
+  let enterExtraction;
+  let releaseExtraction;
+  const extractionEntered = new Promise(resolve => { enterExtraction = resolve; });
+  const extractionGate = new Promise(resolve => { releaseExtraction = resolve; });
+  const slowProvider = { ...provider, complete: async request => {
+    if (request.name === 'fact_extraction') {
+      enterExtraction();
+      await extractionGate;
+      return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+    }
+    return providerFixture();
+  } };
+  await withApp({ provider: slowProvider, analysisBodyConcurrencyLimit: {
+    maxConcurrentPerIp: 1, maxConcurrentGlobal: 2, minContentLengthBytes: 262_144,
+  } }, async url => {
+    const largeInput = { ...inputs.injury, extra: 'x'.repeat(300_000) };
+    const firstRequest = post(url, largeInput);
+    await extractionEntered;
+    const malformedLargeBody = await fetch(url + '/api/analyze', { method: 'POST', headers: {
+      'Content-Type': 'application/json',
+    }, body: `{${' '.repeat(300_000)}` });
+    assert.equal(malformedLargeBody.status, 429);
+    assert.equal((await malformedLargeBody.json()).error.code, 'ANALYSIS_BODY_CONCURRENCY_LIMIT');
+    releaseExtraction();
+    assert.equal((await firstRequest).status, 200);
+  });
+});
+
+test('compressed JSON requests are rejected before decompression can bypass body concurrency limits', async () => {
+  let providerCalls = 0;
+  const trackingProvider = { ...provider, complete: async request => {
+    providerCalls += 1;
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false } : providerFixture();
+  } };
+  await withApp({ provider: trackingProvider }, async url => {
+    const response = await fetch(url + '/api/analyze', { method: 'POST', headers: {
+      'Content-Type': 'application/json', 'Content-Encoding': 'gzip',
+    }, body: gzipSync(JSON.stringify(inputs.injury)) });
+    assert.equal(response.status, 415);
+    assert.equal((await response.json()).error.code, 'UNSUPPORTED_ENCODING');
+    assert.equal(providerCalls, 0);
   });
 });
 
@@ -169,6 +330,19 @@ test('provider adapts both observed Kimi conflict-object shapes into the strict 
   }
 });
 
+test('Agnes text requests send the configured low-variance sampling temperature', async () => {
+  let payload;
+  const mocked = createProvider({ ...config, temperature: 0 }, async (_url, init) => {
+    payload = JSON.parse(init.body);
+    return Response.json({ choices: [{ message: { content: JSON.stringify(providerFixture()) }, finish_reason: 'stop' }] });
+  });
+  await mocked.complete({ model: 'agnes-3.0-flash', schema: providerResultSchema, name: 'assessment_result',
+    messages: [{ role: 'system', content: 'test' }, { role: 'user', content: 'synthetic input' }] });
+
+  assert.equal(payload.model, 'agnes-3.0-flash');
+  assert.equal(payload.temperature, 0);
+});
+
 test('upstream status errors never expose provider response bodies', async () => {
   const cases = [[401, 'PROVIDER_CONFIGURATION'], [403, 'PROVIDER_CONFIGURATION'], [404, 'MODEL_UNAVAILABLE'], [429, 'UPSTREAM_RATE_LIMIT'], [503, 'UPSTREAM_FAILURE']];
   for (const [status, code] of cases) {
@@ -260,6 +434,24 @@ test('ordinary identical requests reuse validated results; forceReanalysis bypas
   });
 });
 
+test('zero cache configuration causes every repeated analysis to call the provider again', async () => {
+  const calls = [];
+  const provider = { async complete(request) {
+    calls.push(request.name);
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+      : { ...providerFixture('injury'), facts: [] };
+  } };
+  await withApp({ provider }, async url => {
+    assert.equal((await post(url, inputs.injury)).status, 200);
+    assert.equal((await post(url, inputs.injury)).status, 200);
+    assert.deepEqual(calls, ['fact_extraction', 'assessment_result', 'fact_extraction', 'assessment_result']);
+    const stats = await (await fetch(url + '/api/cache/stats')).json();
+    assert.equal(stats.entries, 0);
+    assert.equal(stats.inFlight, 0);
+  }, { cacheTtlMs: 0, cacheCapacity: 0 });
+});
+
 test('twenty concurrent identical requests share one fact and assessment run', async () => {
   const calls = [];
   const provider = { async complete(request) {
@@ -279,6 +471,68 @@ test('twenty concurrent identical requests share one fact and assessment run', a
   });
 });
 
+test('cancelling one identical-request waiter leaves the shared analysis for other waiters', async () => {
+  const cache = createAnalysisCache({ ttlMs: 1000, capacity: 2 });
+  const firstRequest = new AbortController();
+  const secondRequest = new AbortController();
+  let producerSignal;
+  let finishProducer;
+  let started;
+  const producerStarted = new Promise(resolve => { started = resolve; });
+  const producer = sharedSignal => new Promise((resolve, reject) => {
+    producerSignal = sharedSignal || firstRequest.signal;
+    finishProducer = () => resolve({ value: 'complete' });
+    producerSignal.addEventListener('abort', () => reject(producerSignal.reason), { once: true });
+    started();
+  });
+  const first = cache.run({ description: 'same input' }, 'first', producer, { signal: firstRequest.signal });
+  await producerStarted;
+  const second = cache.run({ description: 'same input' }, 'second', producer, { signal: secondRequest.signal });
+  const secondOutcome = second.then(value => ({ value }), error => ({ error }));
+
+  firstRequest.abort(new Error('first client cancelled'));
+  await assert.rejects(first, /first client cancelled/);
+  finishProducer();
+  const settledSecond = await secondOutcome;
+  assert.equal(producerSignal.aborted, false);
+  assert.equal(settledSecond.error, undefined);
+  assert.deepEqual(settledSecond.value, { value: 'complete', requestId: 'second' });
+});
+
+test('a request cancelled as its provider completes does not leave an unconsumed result cached', async () => {
+  const cache = createAnalysisCache({ ttlMs: 1000, capacity: 2 });
+  const request = new AbortController();
+  let finishProducer;
+  let started;
+  const producerStarted = new Promise(resolve => { started = resolve; });
+  const providerResult = new Promise(resolve => { finishProducer = resolve; });
+  const pending = cache.run({ description: 'completion cancellation race' }, 'race', async () => {
+    started();
+    return providerResult;
+  }, { signal: request.signal });
+
+  await producerStarted;
+  finishProducer({ value: 'unconsumed' });
+  request.abort(new Error('client cancelled at completion'));
+  await assert.rejects(pending, /client cancelled at completion/);
+  assert.equal(cache.stats().entries, 0);
+  assert.equal(cache.stats().inFlight, 0);
+});
+
+test('an already cancelled request does not start a new cached analysis', async () => {
+  const cache = createAnalysisCache({ ttlMs: 1000, capacity: 2 });
+  const request = new AbortController();
+  request.abort(new Error('client already cancelled'));
+  let calls = 0;
+
+  await assert.rejects(cache.run({ description: 'same input' }, 'cancelled', async () => {
+    calls += 1;
+    return { value: 'unexpected' };
+  }, { signal: request.signal }), /client already cancelled/);
+  assert.equal(calls, 0);
+  assert.deepEqual(cache.stats(), { entries: 0, inFlight: 0, hits: 0, misses: 0 });
+});
+
 test('analysis cache expires entries and enforces its bounded capacity', async () => {
   let now = 100;
   const cache = createAnalysisCache({ ttlMs: 10, capacity: 1, now: () => now });
@@ -296,7 +550,27 @@ test('analysis cache expires entries and enforces its bounded capacity', async (
   assert.equal(calls, 4);
 });
 
+test('zero TTL and capacity disable cache storage and in-flight request sharing', async () => {
+  const cache = createAnalysisCache({ ttlMs: 0, capacity: 0 });
+  let calls = 0;
+  const producer = async () => {
+    const value = ++calls;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return { value };
+  };
+
+  const [first, second] = await Promise.all([
+    cache.run({ description: 'same input' }, 'first', producer),
+    cache.run({ description: 'same input' }, 'second', producer),
+  ]);
+
+  assert.equal(calls, 2);
+  assert.notEqual(first.value, second.value);
+  assert.deepEqual(cache.stats(), { entries: 0, inFlight: 0, hits: 0, misses: 2 });
+});
+
 test('truncated upstream output is rejected even if a partial JSON value happens to parse', async () => {
   const mocked = createProvider(config, async () => Response.json({ choices: [{ finish_reason: 'length', message: { content: JSON.stringify(providerFixture()) } }] }));
-  await assert.rejects(mocked.complete({ model: 'test-text', schema: providerResultSchema, name: 'result', messages: [] }), error => error.code === 'OUTPUT_TRUNCATED');
+  await assert.rejects(mocked.complete({ model: 'test-text', schema: providerResultSchema, name: 'result', messages: [] }),
+    error => error.code === 'OUTPUT_TRUNCATED' && error.message.includes('本次未形成有效结论'));
 });

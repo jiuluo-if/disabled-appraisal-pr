@@ -108,6 +108,11 @@ textarea:disabled, input:disabled, select:disabled { background: #f8f9fa; }
 .fact-title strong { font-size: 13px; font-weight: 550; }
 .source-label { font-size: 10px; color: #89949e; flex-shrink: 0; padding-top: 2px; }
 blockquote { margin: 6px 0 0; color: #6d7a85; padding-left: 10px; border-left: 2px solid #c9d5df; font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.derived-evidence { margin-top: 8px; padding: 8px 10px; border-radius: 8px; background: #f5f7f9; color: #65727d; font-size: 11px; }
+.derived-evidence > strong { display: block; margin-bottom: 5px; color: #52606c; font-weight: 600; }
+.derived-evidence > div + div { margin-top: 6px; }
+.derived-evidence span { color: #52606c; }
+.derived-evidence blockquote { margin-top: 3px; font-size: 11px; }
 .reference-row + .reference-row { margin-top: 22px; padding-top: 20px; border-top: 1px dashed #e2e6eb; }
 .reference-title { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; font-size: 12px; }
 .reference-title strong { color: var(--accent); font-size: 13px; }

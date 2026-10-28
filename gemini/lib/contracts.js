@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { assessmentToday } from './assessment-date.js';
 
 const text = z.string().trim().max(8000);
 const shortText = z.string().trim().max(1000);
@@ -20,7 +21,7 @@ export const requestSchema = z.object({
   if (!value.description && !value.images.length) {
     context.addIssue({ code: 'custom', message: '请填写病历内容或上传报告图片。' });
   }
-  if (value.injuryDate && value.injuryDate > new Date().toISOString().slice(0, 10)) {
+  if (value.injuryDate && value.injuryDate > assessmentToday()) {
     context.addIssue({ code: 'custom', path: ['injuryDate'], message: '受伤日期不能晚于今天。' });
   }
 });
@@ -70,7 +71,7 @@ export const extractedFactSchema = z.object({
   certainty: factCertaintySchema,
   source: z.enum(['description', 'image']),
   evidence: shortText,
-  sourceRefs: z.array(factSourceReferenceSchema).max(6).optional(),
+  sourceRefs: z.array(factSourceReferenceSchema).max(200).optional(),
 });
 export const factConflictSchema = z.object({
   factIds: z.array(z.string().trim().min(1).max(24)).max(30),

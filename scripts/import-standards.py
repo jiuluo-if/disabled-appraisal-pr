@@ -9,6 +9,38 @@ from pathlib import Path
 from bs4 import BeautifulSoup
 
 
+DISABILITY_EXTRACTION_FIXES = {
+    "5.8.2.4": ("面部条状瘢痕形成，累计长度达30.0cm；面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm；2",
+                "面部条状瘢痕形成，累计长度达30.0cm；面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm；"),
+    "5.8.2.5": ("面部块状增生性瘢痕形成，累计面积达15.0cm；面部中心区块状增生性瘢痕形成，单块22面积达7.0cm或者多块累计面积达9.0cm；2",
+                "面部块状增生性瘢痕形成，累计面积达15.0cm2；面部中心区块状增生性瘢痕形成，单块面积达7.0cm2或者多块累计面积达9.0cm2；"),
+    "5.8.2.6": ("面部片状细小瘢痕形成或者色素异常，累计面积达100.0cm；",
+                "面部片状细小瘢痕形成或者色素异常，累计面积达100.0cm2；"),
+    "5.9.2.1": ("头皮瘢痕形成或者无毛发，达头皮面积50％；2",
+                "头皮瘢痕形成或者无毛发，达头皮面积50％；"),
+    "5.9.2.2": ("颅骨缺损25.0cm以上，不宜或者无法手术修补；",
+                "颅骨缺损25.0cm2以上，不宜或者无法手术修补；"),
+    "5.9.2.4": ("面部条状瘢痕形成，累计长度达20.0cm；面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区；22",
+                "面部条状瘢痕形成，累计长度达20.0cm；面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区；"),
+    "5.9.2.5": ("面部块状瘢痕形成，单块面积达7.0cm，或者多块累计面积达9.0cm；2",
+                "面部块状瘢痕形成，单块面积达7.0cm2，或者多块累计面积达9.0cm2；"),
+    "5.9.2.6": ("面部片状细小瘢痕形成或者色素异常，累计面积达30.0cm；",
+                "面部片状细小瘢痕形成或者色素异常，累计面积达30.0cm2；"),
+    "5.10.2.1": ("面颅骨部分缺损或者畸形，影响面容；2",
+                 "面颅骨部分缺损或者畸形，影响面容；"),
+    "5.10.2.2": ("头皮瘢痕形成或者无毛发，面积达40.0cm；",
+                 "头皮瘢痕形成或者无毛发，面积达40.0cm2；"),
+    "5.10.2.5": ("面部块状瘢痕形成，单块面积达3.0cm2，或者多块累计面积达5.0cm2；2",
+                 "面部块状瘢痕形成，单块面积达3.0cm2，或者多块累计面积达5.0cm2；"),
+    "5.10.2.6": ("面部片状细小瘢痕形成或者色素异常，累计面积达10.0cm；",
+                 "面部片状细小瘢痕形成或者色素异常，累计面积达10.0cm2；"),
+    "5.10.3.1": ("颏颈粘连畸形松解术后；2", "颏颈粘连畸形松解术后；"),
+    "5.10.3.2": ("颈前三角区瘢痕形成，累计面积达25.0cm；",
+                 "颈前三角区瘢痕形成，累计面积达25.0cm2；"),
+}
+DISABILITY_EXTRACTION_FIX_SHA256 = "8281ea72449f64722b5ab9fcd457a7fd93dd2af d8409cd8c40772e4acb57cac0".replace(" ", "")
+
+
 def compact(text):
     return re.sub(r"\s+", "", text.replace("\u00a0", " "))
 
@@ -62,6 +94,7 @@ def injury_catalog(path):
 
 
 def disability_catalog(path, pdf_path):
+    source_sha256 = hashlib.sha256(pdf_path.read_bytes()).hexdigest()
     lines = []
     for raw in path.read_text().splitlines():
         line = raw.strip()
@@ -101,6 +134,13 @@ def disability_catalog(path, pdf_path):
             active["text"] += compact(line)
     assert len(clauses) > 300, "Incomplete disability source"
     index = {clause["id"]: clause for clause in clauses}
+    if source_sha256 == DISABILITY_EXTRACTION_FIX_SHA256:
+        for clause_id, (extracted_text, official_text) in DISABILITY_EXTRACTION_FIXES.items():
+            clause = index[clause_id]
+            if clause["text"] == extracted_text:
+                clause["text"] = official_text
+            elif clause["text"] != official_text:
+                raise ValueError(f"Unrecognized PDF extraction text for {clause_id}")
     assert "肋骨骨折6根以上" in index["5.10.3.7"]["text"]
     assert index["5.10.3.7"]["grade"] == "十级伤残"
     assert "脾部分切除" in index["5.9.4.2"]["text"]
@@ -109,7 +149,7 @@ def disability_catalog(path, pdf_path):
                          "version": "2016年公布版", "effectiveDate": "2017-01-01",
                          "sourceUrl": "https://sfj.taian.gov.cn/module/download/downfile.jsp?classid=0&filename=657c49dd386d41d3a0b913c63e332dbb.pdf",
                          "noticeUrl": "https://www.moj.gov.cn/pub/sfbgwapp/zwgk/tzggApp/202105/t20210517_395433.html",
-                         "sourceSha256": hashlib.sha256(pdf_path.read_bytes()).hexdigest()},
+                         "sourceSha256": source_sha256},
             "principles": principles, "clauses": clauses}
 
 

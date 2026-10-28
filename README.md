@@ -64,11 +64,18 @@ npm ci --ignore-scripts --prefix gemini
 cp gemini/.env.example gemini/.env
 ```
 
-Configure the Moonshot key and certificates in `gemini/.env`. The default text
-and vision model is `kimi-k2.6`, verified against the deployment account. Provider
-models and access can change; `/api/health/ready` checks the configured model IDs.
-`KIMI_THINKING`, `KIMI_JSON_MODE`, token budget and overall analysis timeout can
-be configured through `.env`. Use the provider's documented supported values.
+Configure the Agnes China key in `gemini/.env`; the default provider is Agnes and
+the default text and vision model is `agnes-3.0-flash`. Provider models and access
+can change; `/api/health/ready` checks the configured model IDs. Set
+`ASSESSMENT_PROVIDER=kimi` explicitly to use Kimi. The provider is selected once
+at startup and never falls back to another provider after an error.
+
+For local testing without certificates, set `LOCAL_HTTP=true`, `HOST=127.0.0.1`,
+`PORT=3301`, `CACHE_TTL_MS=0`, and `CACHE_CAPACITY=0` in the backend process
+environment. This mode rejects non-loopback hosts and production mode. Start the
+frontend with `DEV_API_URL=http://127.0.0.1:3301 npm run dev`. Zero cache settings
+disable both saved analysis entries and duplicate in-flight request sharing.
+Production remains HTTPS and requires the configured certificate paths.
 
 Start the backend from its own working directory:
 
@@ -133,11 +140,28 @@ The existing BaoTa configurations are in `deploy/nginx/html_*.conf`. Install
 /www/server/panel/vhost/nginx/extension/appraise.lintsing.net/assessment-api.conf
 ```
 
-This forwards same-origin `/api/` requests to the existing HTTPS service, verifies
-its certificate and gives versioned assets long-lived caching. Adjust the CA
-bundle path for your operating system; the deployed server uses
-`/etc/pki/tls/certs/ca-bundle.crt`. API authentication, traffic limits and quotas
-are intentionally unchanged.
+This forwards same-origin `/api/` requests to the configured local API. For the
+HTTPS production service, certificate verification remains enabled. The
+analysis endpoint allows 60 requests per client IP per 60 seconds by default;
+set `ANALYSIS_RATE_LIMIT_MAX_REQUESTS` and `ANALYSIS_RATE_LIMIT_WINDOW_MS` in
+`gemini/.env` to tune it. It limits each IP to four active assessments and
+the service to 16 active assessments in total; set `ANALYSIS_CONCURRENCY_PER_IP`
+and `ANALYSIS_CONCURRENCY_GLOBAL` to tune those caps. Upload bodies of 256 KB or
+more are limited to two simultaneous requests per IP and eight service-wide;
+the byte threshold and caps can be tuned with `ANALYSIS_BODY_CONCURRENCY_*`.
+The API key
+authentication and provider quotas remain unchanged. The backend trusts forwarded client IPs only from loopback proxies,
+matching this Nginx upstream. The proxy accepts request bodies up to 50 MB,
+matching the backend JSON parser. It keeps Nginx's default client body idle timeout
+and uses 325-second upstream proxy timeouts so the
+300-second analysis limit fits within the proxy window. The Node request timeout
+limits the time to receive the complete request body to 315 seconds; the separate
+300-second assessment timer starts after JSON parsing. The browser allows 620 seconds
+for both upload and assessment. Each decoded image is limited to 6 MB, so six
+base64-encoded images remain within the 50 MB request-body limit.
+The 315-second upload and 300-second analysis windows are the configured maxima;
+`gemini/.env.example` uses a 180-second analysis timeout, resulting in 195 seconds
+to receive the request body followed by up to 180 seconds of analysis.
 
 ```sh
 /www/server/nginx/sbin/nginx -t -c /www/server/nginx/conf/nginx.conf

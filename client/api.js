@@ -1,10 +1,12 @@
 import { resultSchema } from '../gemini/lib/contracts.js';
+import { CLIENT_ANALYSIS_TIMEOUT_MS } from '../gemini/lib/request-timeouts.js';
 
 export const apiBase = import.meta.env.VITE_API_BASE || '/api';
 
 export async function analyze(input, signal) {
   const timeout = new AbortController();
-  const timer = setTimeout(() => timeout.abort(new DOMException('分析超时，请稍后重试。', 'TimeoutError')), 200000);
+  const timer = setTimeout(() => timeout.abort(new DOMException('分析超时，请稍后重试。', 'TimeoutError')),
+    CLIENT_ANALYSIS_TIMEOUT_MS);
   const cancel = () => timeout.abort(signal.reason);
   signal.addEventListener('abort', cancel, { once: true });
   if (signal.aborted) cancel();

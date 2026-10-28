@@ -65,12 +65,17 @@ export function ResultView({ result, busy, elapsed, error, onRetry, retryDisable
       <h3>材料事实 <span className="section-count">{result.facts.length}</span></h3>
       {result.facts.length ? <div className="fact-list">{result.facts.map((fact, index) => {
         const sourceSummary = sourceReferenceSummary(fact);
+        const derivedFacts = (fact.derivedFrom || []).map(id => result.facts.find(candidate => candidate.id === id)).filter(Boolean);
         return <div className="fact-row" key={index}>
           <div className="fact-title"><strong>{fact.finding}</strong><span className="source-label">
             {fact.source === 'image' ? '图片识别 · 待核对' : '描述原文'} · {certaintyNames[fact.certainty]}
             {sourceSummary ? ` · 来源：${sourceSummary}` : ''}
           </span></div>
           <blockquote>{fact.evidence}</blockquote>
+          {derivedFacts.length > 0 && <div className="derived-evidence">
+            <strong>规则推导依据</strong>
+            {derivedFacts.map(parent => <div key={parent.id}><span>{parent.finding}</span><blockquote>{parent.evidence}</blockquote></div>)}
+          </div>}
         </div>;
       })}</div> : <p className="muted">暂无能够回查的明确事实。</p>}
     </section>

@@ -1,13 +1,50 @@
 import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
-import { canonicalMissingMaterials, parseNumber, sourceReferenceMatches } from './facts.js';
+import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
+  explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
+  isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts, parseNumber,
+  sourceReferenceMatches } from './facts.js';
 
 const grades = {
   injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
   disability: ['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残'],
 };
+
+export function deduplicateClauseReferences(references) {
+  const byId = new Map();
+  const rank = reference => (reference.relation === 'supports' ? 3 : reference.relation === 'incomplete' ? 2 : 1)
+    + (reference.conditions?.filter(condition => condition.met === true).length || 0) / 100
+    + (reference.evidence ? 0.001 : 0);
+  for (const reference of references) {
+    const previous = byId.get(reference.id);
+    if (!previous || rank(reference) > rank(previous)) byId.set(reference.id, reference);
+  }
+  return [...byId.values()];
+}
+
 const normalize = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
 export const includesEvidence = (source, quote) => Boolean(quote?.trim()) && normalize(source).includes(normalize(quote));
+
+function hasDistinctDatedInjuryEvents(text) {
+  const anchors = [...String(text || '').matchAll(/(?<year>(?:19|20)\d{2})年(?:\s*(?<month>\d{1,2})月(?:\s*(?<day>\d{1,2})日)?)?(?:发生|因)?(?:交通)?(?:事故|外伤|车祸|受伤)/gu)]
+    .map(match => {
+      const year = Number(match.groups.year);
+      const month = match.groups.month == null ? null : Number(match.groups.month);
+      const day = match.groups.day == null ? null : Number(match.groups.day);
+      if (month != null && (month < 1 || month > 12) || day != null && (day < 1 || day > 31)) return null;
+      return { start: year * 10000 + (month ?? 1) * 100 + (day ?? 1),
+        end: year * 10000 + (month ?? 12) * 100 + (day ?? 31) };
+    }).filter(Boolean);
+  return anchors.some((left, index) => anchors.slice(index + 1)
+    .some(right => left.end < right.start || right.end < left.start));
+}
+
+function hasExplicitAndRelativeInjuryDate(text) {
+  const normalized = String(text || '').normalize('NFKC');
+  const explicitDate = /(?:19|20)\d{2}年\d{1,2}月\d{1,2}日[^。；;\n]{0,48}(?:受伤|外伤|遭殴打|被殴打)/u.test(normalized);
+  const relativeDate = /(?:昨日|前日|前一天)受伤|(?:受伤|外伤)后[^。；;\n]{0,16}(?:疼痛)?\s*\d+\s*天/u.test(normalized);
+  return explicitDate && relativeDate;
+}
 
 function officialCondition(condition, clauseText) {
   const modelText = normalize(condition.replace(/[（(][^）)]*[）)]/g, ''));
@@ -67,17 +104,362 @@ function explicitRibSiteCountStatus(conditionText, evidence) {
   return Number.isInteger(thresholdValue) && Number.isInteger(countValue) ? countValue >= thresholdValue : undefined;
 }
 
+function lowerBoundFromFracturedRibNumbers(facts) {
+  const sidesByRoot = new Map();
+  for (const fact of facts) {
+    if (fact.field !== 'fractured_rib_numbers' || !Array.isArray(fact.value)) continue;
+    const evidence = normalize(String(fact.evidence || ''));
+    for (const root of new Set(fact.value.filter(Number.isInteger))) {
+      const sides = sidesByRoot.get(root) || new Set();
+      const sidePattern = new RegExp(`(?:^|[^0-9])${root}(?![0-9])`, 'gu');
+      for (const match of evidence.matchAll(sidePattern)) {
+        const prefixStart = Math.max(0, match.index - 24);
+        const prefix = evidence.slice(prefixStart, match.index);
+        const clauseStart = Math.max(prefix.lastIndexOf('。'), prefix.lastIndexOf('；'), prefix.lastIndexOf(';'),
+          prefix.lastIndexOf('\n')) + 1;
+        const sideCues = [...prefix.slice(clauseStart).matchAll(/左右两侧|双侧|两侧|左侧|右侧|左|右/gu)];
+        const sideCue = sideCues.at(-1);
+        const suffix = evidence.slice(match.index + match[0].length, match.index + match[0].length + 24);
+        if (!sideCue || match.index - (prefixStart + sideCue.index) > 22 || !/肋骨/u.test(suffix)) continue;
+        const sideText = sideCue[0];
+        sides.add(/左右|双侧|两侧/u.test(sideText) ? 'bilateral' : /左/u.test(sideText) ? 'left' : 'right');
+      }
+      if (!sides.size) sides.add('unknown');
+      sidesByRoot.set(root, sides);
+    }
+  }
+  return [...sidesByRoot.values()].reduce((sum, sides) => sum
+    + (sides.has('bilateral') || sides.has('left') && sides.has('right') ? 2 : 1), 0);
+}
+
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
 const sameValue = (left, right) => JSON.stringify(left) === JSON.stringify(right);
 
-function predicateEvidenceValue(predicate, fact) {
+function conditionFactFields(factMatch, predicate) {
+  if (!factMatch) {
+    const fields = new Set([predicate?.field]);
+    if (predicate?.field === 'fracture_site_count') fields.add('fractured_rib_numbers');
+    if (predicate?.field === 'aggregate_wound_length_cm'
+      && predicate.evidenceGroups?.some(group => group.includes('头皮'))) fields.add('wound_length_cm');
+    return fields;
+  }
+  const fields = new Set([factMatch.field, ...(factMatch.fields || [])]);
+  if (factMatch.field === 'clinical_finding' && !factMatch.fields?.length) {
+    for (const field of ['diagnosis', 'imaging_finding', 'symptom', 'treatment', 'functional_impairment', 'injury_type']) fields.add(field);
+  }
+  return fields;
+}
+
+function isReducedMuscleStrengthEvidence(evidence) {
+  const text = String(evidence || '').normalize('NFKC');
+  if (/(?:既往史|既往|既有|陈旧|原有|此前|术前|曾经)/u.test(text)) return false;
+  const match = /肌力(?:(?:检查|测定|记录)(?:结果)?)?\s*(?:为|约|达)?\s*(?<grade>[0-6]|[IVX]+)\s*级/iu.exec(text);
+  if (!match) return false;
+  const gradeText = match.groups.grade.toUpperCase();
+  const romanGrades = { I: 1, II: 2, III: 3, IV: 4, V: 5, VI: 6 };
+  const grade = /^\d$/u.test(gradeText) ? Number(gradeText) : romanGrades[gradeText];
+  return Number.isInteger(grade) && grade >= 0 && grade < 5;
+}
+
+function brainFindingProfile(fact) {
+  const texts = [fact.value, fact.evidence].flatMap(value => Array.isArray(value) ? value : [value])
+    .filter(Boolean).map(value => String(value).normalize('NFKC'));
+  const patterns = [
+    ['subarachnoid_hemorrhage', /蛛网膜下腔出血|蛛血/gu],
+    ['subdural_hemorrhage', /硬膜下(?:血肿|出血)/gu],
+    ['epidural_hemorrhage', /硬膜外(?:血肿|出血)/gu],
+    ['intracerebral_hemorrhage', /(?:脑内|脑实质)(?:出血|血肿)/gu],
+    ['brain_contusion', /脑挫(?:裂)?伤|挫裂伤/gu],
+    ['skull_fracture', /(?:颅骨|额骨|顶骨|颞骨|枕骨)(?:凹陷性|粉碎性)?(?:骨折|骨裂)/gu],
+    ['head_injury', /(?:头部|头颅|颅脑)(?:外伤|受伤|损伤)/gu],
+    ['unspecified_intracranial_hemorrhage', /颅内出血/gu],
+  ];
+  const types = new Map();
+  for (const text of texts) {
+    for (const [type, pattern] of patterns) {
+      for (const match of text.matchAll(pattern)) {
+        const segmentStart = Math.max(text.lastIndexOf('，', match.index - 1), text.lastIndexOf(',', match.index - 1),
+          text.lastIndexOf('、', match.index - 1),
+          text.lastIndexOf('；', match.index - 1), text.lastIndexOf(';', match.index - 1),
+          text.lastIndexOf('。', match.index - 1), text.lastIndexOf('\n', match.index - 1)) + 1;
+        const segment = text.slice(segmentStart, match.index + match[0].length);
+        const regions = types.get(type) || new Set();
+        if (/额叶|额部|额顶部|额顶|额颞/u.test(segment)) regions.add('frontal');
+        if (/顶叶|顶部|顶枕|枕顶|额顶|顶颞|颞顶/u.test(segment)) regions.add('parietal');
+        if (/颞叶|颞部|额颞|顶颞|颞顶|颞枕/u.test(segment)) regions.add('temporal');
+        if (/枕叶|枕部|顶枕|枕顶|颞枕/u.test(segment)) regions.add('occipital');
+        types.set(type, regions);
+      }
+    }
+  }
+  return types;
+}
+
+function explicitlySeparateBrainFindings(positiveFact, excludedFact) {
+  const positive = brainFindingProfile(positiveFact);
+  const excluded = brainFindingProfile(excludedFact);
+  if (!positive.size || !excluded.size) return false;
+  const sharedTypes = [...positive.keys()].filter(type => excluded.has(type));
+  if (!sharedTypes.length) return true;
+  return sharedTypes.every(type => positive.get(type).size > 0 && excluded.get(type).size > 0
+    && [...positive.get(type)].every(region => !excluded.get(type).has(region)));
+}
+
+function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
+  if (predicate.field === 'fracture_site_count' && fact.field === 'fractured_rib_numbers'
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && reliableCertainties.has(fact.certainty) && Array.isArray(fact.value)
+    && fact.value.every(value => Number.isInteger(value) && value > 0)) {
+    const evidence = normalize(String(fact.evidence || ''));
+    if (/(?:既往史|既往|既有|陈旧|原有|此前|术前)/u.test(evidence)
+      || /(?:肋骨|肋)[^。；;\n]{0,16}(?:旧骨折|旧性骨折|陈旧性骨折)/u.test(evidence)
+      || !/(?:肋骨|前肋|后肋)/u.test(evidence) || !/(?:骨折|骨折线|骨裂)/u.test(evidence)
+      || /(?:未见|未发现|排除|否认)[^。；;\n]{0,12}(?:肋骨)?骨折/u.test(evidence)) return null;
+    const roots = new Set();
+    for (const match of evidence.matchAll(/第?\s*([0-9零〇一二两三四五六七八九十百]+(?:\s*[、,，和及]\s*[0-9零〇一二两三四五六七八九十百]+)*)\s*(?:前|后)?肋骨?/gu)) {
+      for (const token of match[1].split(/\s*[、,，和及]\s*/u)) roots.add(parseNumber(token));
+    }
+    const listedRoots = new Set(fact.value);
+    return roots.size > 0 && [...listedRoots].every(value => roots.has(value)) ? listedRoots.size : null;
+  }
   if (!Number.isFinite(fact.value)) return null;
+  if (predicate.field === 'gcs_score') {
+    const evidence = normalize(String(fact.evidence || ''));
+    const score = /(?:GCS|格拉斯哥昏迷评分)\s*(?:评分|分数)?\s*[:：=]?\s*(1[0-5]|[3-9])\s*分?/iu.exec(evidence);
+    return score && Number(score[1]) === fact.value ? fact.value : null;
+  }
   const number = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
-  const unit = predicate.unit ? predicate.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
-  const match = fact.evidence.match(new RegExp(`${number}\\s*${unit}`));
-  if (!match) return null;
-  const sourceValue = parseNumber(match[1]);
-  return Number.isFinite(sourceValue) && sourceValue === fact.value ? sourceValue : null;
+  const unit = predicate.unit === 'cm' ? '(?:cm|厘米)'
+    : predicate.unit === 'cm2' ? '(?:cm2|平方厘米)'
+    : predicate.unit ? predicate.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+  const evidence = normalize(String(fact.evidence || ''));
+  if (predicate.field === 'fracture_site_count' && fact.certainty === 'derived'
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length > 0) {
+    const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+    const ribNumberParents = parents.filter(parent => parent?.field === 'fractured_rib_numbers'
+      && parent.source === 'description' && parent.verification === 'quoted'
+      && ['reported', 'observed', 'derived'].includes(parent.certainty)
+      && Array.isArray(parent.value) && parent.value.length > 0
+      && parent.value.every(value => Number.isInteger(value) && value > 0)
+      && parent.eventId === fact.eventId);
+    const rootCountParents = parents.filter(parent => parent?.field === 'fractured_rib_count'
+      && parent.source === 'description' && parent.verification === 'quoted'
+      && ['reported', 'observed', 'derived'].includes(parent.certainty)
+      && Number.isInteger(parent.value) && parent.value > 0 && parent.eventId === fact.eventId
+      && quotedPredicateEvidenceValue({ field: 'fractured_rib_count', unit: '根' }, parent, facts) === parent.value);
+    const distinctRibNumbers = new Set(ribNumberParents.flatMap(parent => parent.value));
+    const countsBySide = new Map();
+    let unspecifiedRootCount = 0;
+    for (const parent of rootCountParents) {
+      const sideMatch = /(?:左侧|左)(?=第|\d|[零〇一二两三四五六七八九十百])/.test(parent.evidence) ? 'left'
+        : /(?:右侧|右)(?=第|\d|[零〇一二两三四五六七八九十百])/.test(parent.evidence) ? 'right' : null;
+      if (sideMatch) countsBySide.set(sideMatch, Math.max(countsBySide.get(sideMatch) || 0, parent.value));
+      else unspecifiedRootCount = Math.max(unspecifiedRootCount, parent.value);
+    }
+    const rootCountLowerBound = Math.max([...countsBySide.values()].reduce((sum, value) => sum + value, 0),
+      unspecifiedRootCount);
+    const lowerBound = Math.max(distinctRibNumbers.size, rootCountLowerBound);
+    const upperBound = Math.max(distinctRibNumbers.size * 2, rootCountLowerBound);
+    if (fact.eventId && ribNumberParents.length + rootCountParents.length === parents.length
+      && lowerBound > 0 && fact.value >= lowerBound && fact.value <= upperBound) return fact.value;
+    return null;
+  }
+  for (const match of evidence.matchAll(new RegExp(`${number}\\s*${unit}`, 'gu'))) {
+    const sourceValue = /^\d+(?:\.\d+)?$/.test(match[1]) ? Number(match[1]) : parseNumber(match[1]);
+    if (Number.isFinite(sourceValue) && sourceValue === fact.value) return sourceValue;
+  }
+  if (predicate.field === 'wound_length_cm'
+    && (/(?:创口|伤口|裂口|裂创|裂伤|切口)/u.test(evidence)
+      || /(?:瘢痕|疤痕)/u.test(evidence) && /横(?:行|向)|纵(?:行|向)|线状|条状/u.test(evidence))) {
+    const dimensions = new RegExp(`${number}\\s*(?:${unit})?\\s*[×xX*]\\s*${number}\\s*${unit}`, 'gu');
+    for (const match of evidence.matchAll(dimensions)) {
+      const first = /^\d+(?:\.\d+)?$/u.test(match[1]) ? Number(match[1]) : parseNumber(match[1]);
+      const second = /^\d+(?:\.\d+)?$/u.test(match[2]) ? Number(match[2]) : parseNumber(match[2]);
+      const longAxis = Math.max(first, second);
+      const shortAxis = Math.min(first, second);
+      if (Number.isFinite(longAxis) && Number.isFinite(shortAxis) && shortAxis > 0
+        && longAxis / shortAxis >= 1.5 && longAxis === fact.value) return longAxis;
+    }
+  }
+  return null;
+}
+
+function predicateEvidenceValue(predicate, fact, facts = []) {
+  const quotedValue = quotedPredicateEvidenceValue(predicate, fact, facts);
+  if (predicate.field === 'aggregate_wound_length_cm' && fact.field === 'wound_length_cm') return quotedValue;
+  if (predicate.field === 'aggregate_wound_length_cm' && fact.certainty === 'reported'
+    && fact.source === 'description' && /(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\\s*(?:处|道))/u.test(fact.evidence)
+    && /(?:创口|创痕|裂伤|伤口)/u.test(fact.evidence)
+    && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)/u.test(fact.evidence)) {
+    return quotedValue;
+  }
+  if (predicate.field === 'aggregate_wound_length_cm' && fact.certainty === 'derived'
+    && fact.source === 'description' && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length >= 1) {
+    const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+    if (fact.aggregateRegion === 'auricle') {
+      const earPattern = /(?:耳廓|耳屏|耳垂|耳背|耳前|耳后)/u;
+      const scarPattern = /(?:创口|伤口|裂口|裂创|裂伤|瘢痕|疤痕)/u;
+      const sideOf = evidence => {
+        const sites = [...String(evidence || '').matchAll(/(?:(左侧|右侧|左|右|双侧|两侧))?(?:耳廓内|耳廓外|耳屏|耳垂|耳背|耳前|耳后|耳廓)/gu)];
+        if (!sites.length) return null;
+        const sides = new Set(sites.map(match => /^(?:双侧|两侧)/u.test(match[1] || '') ? 'bilateral'
+          : /^(?:左侧|左)/u.test(match[1] || '') ? 'left'
+            : /^(?:右侧|右)/u.test(match[1] || '') ? 'right' : 'unknown'));
+        return sides.size === 1 ? [...sides][0] : null;
+      };
+      if (parents.some(parent => !parent || parent.field !== 'wound_length_cm' || parent.source !== fact.source
+        || parent.verification !== 'quoted' || !reliableCertainties.has(parent.certainty)
+        || !Number.isFinite(parent.value) || !aggregateEvidenceIncludesParent(fact, parent)
+        || !earPattern.test(parent.evidence) || !scarPattern.test(parent.evidence) || !sideOf(parent.evidence))) return null;
+      if (new Set(parents.map(parent => parent.eventId || '')).size !== 1
+        || new Set(parents.map(parent => sideOf(parent.evidence))).size !== 1) return null;
+      const total = Math.round(parents.reduce((sum, parent) => sum + parent.value, 0) * 100) / 100;
+      return total === fact.value ? total : null;
+    }
+    const faceSitePattern = /(?:面部|脸部|额部|前额|额头|眉弓|眉部|眉|眼内眦|眼外侧|眼外眦|外眦|眼上方|眼下方|下睑|上睑|眼睑|面颊|颧部|鼻唇沟|鼻背|鼻梁|鼻部|鼻翼|唇上方|唇下方|上唇|下唇|口唇|唇部|下颌)/u;
+    const isFacialAggregate = fact.aggregateRegion === 'face' || !fact.aggregateRegion && parents.every(parent => parent
+      && parent.field === 'wound_length_cm' && faceSitePattern.test(parent.evidence)
+      && !isUnsegmentedFaceScalpMeasurement(parent)
+       && /(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(parent.evidence));
+    if (isFacialAggregate) {
+      if (parents.some(parent => parent && isUnsegmentedFaceScalpMeasurement(parent))) return null;
+      if (parents.some(parent => !parent || parent.field !== 'wound_length_cm' || parent.source !== fact.source
+        || parent.verification !== 'quoted' || !reliableCertainties.has(parent.certainty)
+        || !Number.isFinite(parent.value) || !aggregateEvidenceIncludesParent(fact, parent)
+        || !faceSitePattern.test(parent.evidence)
+         || (!/(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(parent.evidence)
+           && !/(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(parent.regionEvidence?.injuryType || '')))) return null;
+      if (new Set(parents.map(parent => parent.eventId || '')).size !== 1) return null;
+      const siteKeys = parents.map(parent => {
+        const evidence = parent.evidence;
+        if (/前额|额部|额头/u.test(evidence)) return 'forehead';
+        if (/眉弓|眉部/u.test(evidence)) return 'brow';
+        if (/下颌/u.test(evidence)) return 'jaw';
+        if (/眼内眦|内眦|眼外侧|眼外眦|外眦|眼上方|眼下方|眼睑|上睑|下睑/u.test(evidence)) return 'eye';
+        if (/面颊|颧部/u.test(evidence)) return 'cheek';
+        if (/鼻背|鼻梁|鼻部|鼻翼/u.test(evidence)) return 'nose';
+        if (/唇上方|唇下方|上唇|下唇|口唇|唇部/u.test(evidence)) return 'lip';
+        return null;
+      });
+      const hasRepeatObservationCue = /(?:手术后|术后|再次|复查|复诊|复测|随访|后续)/u.test(fact.evidence);
+      const explicitlySeparateWounds = /(?:另有|另见|两处|多处|分别|各有|两道|多道)/u.test(fact.evidence);
+      if (hasRepeatObservationCue && !explicitlySeparateWounds && siteKeys.every(Boolean)
+        && new Set(siteKeys).size === 1) return null;
+      const total = Math.round(parents.reduce((sum, parent) => sum + parent.value, 0) * 100) / 100;
+      return total === fact.value ? total : null;
+    }
+    const scalpMeasurementSites = parents.map(parent => quotedScalpMeasurementSite(parent, facts));
+    if (parents.some((parent, index) => !parent || parent.field !== 'wound_length_cm' || parent.source !== fact.source
+      || parent.verification !== 'quoted' || !reliableCertainties.has(parent.certainty)
+      || !Number.isFinite(parent.value) || !aggregateEvidenceIncludesParent(fact, parent)
+      || !scalpMeasurementSites[index])) return null;
+    if (new Set(parents.map(parent => parent.eventId || '')).size !== 1) return null;
+    const regions = scalpMeasurementSites.map(evidence => {
+      const region = evidence.match(/枕骨隆突部|枕项部|后枕部|颞枕部|顶枕部|颞顶部|额顶部|头顶部|颞部|顶部|枕部|头皮/u)?.[0];
+      return /顶部/u.test(region || '') ? 'top'
+        : /颞枕|顶枕|后枕|枕骨隆突|枕项|枕部/u.test(region || '') ? 'occipital'
+          : /颞部/u.test(region || '') ? 'temporal' : region || '';
+    });
+      const explicitScarCountTotal = explicitScalpScarCountTotal(fact.evidence);
+      const explicitlySeparateWounds = /(?:另有|另见|两处|多处|[0-9零〇一二两三四五六七八九十百]+\s*(?:处|道)|分别|各有|两道|多道)/u.test(fact.evidence)
+        || explicitScarCountTotal > 1 && explicitScarCountTotal === parents.length
+      || /(?:\d+(?:\.\d+)?\s*(?:cm|厘米)\s*[、,，]\s*)+\d+(?:\.\d+)?\s*(?:cm|厘米)[^。；;]{0,8}(?:瘢痕|疤痕)/u.test(fact.evidence);
+      const namedScalpSites = scalpMeasurementSites.map(evidence => {
+        const match = /(?:(双侧|两侧|左侧|右侧|左|右))?(枕骨隆突部|颞枕部|顶枕部|后枕部|枕项部|颞顶部|额顶部|头顶部|颞部|顶部|枕部|头皮|发际内|发际线内)/u
+          .exec(evidence);
+        return match ? `${match[1] || ''}${match[2]}` : null;
+      });
+      const explicitlySeparateNamedSites = namedScalpSites.length >= 2 && namedScalpSites.every(Boolean)
+        && new Set(namedScalpSites).size === namedScalpSites.length;
+    if (new Set(regions).size !== parents.length && !explicitlySeparateWounds && !explicitlySeparateNamedSites) return null;
+    const total = Math.round(parents.reduce((sum, parent) => sum + parent.value, 0) * 100) / 100;
+    return total === fact.value ? total : null;
+  }
+  if (predicate.field === 'dental_loss_count' && fact.certainty === 'reported' && fact.source === 'description') {
+    return /1\s*[╋＋+┼]\s*1(?:上颌)?(?:(?:前|中切)牙)?(?:牙齿)?(?:新鲜)?(?:缺失|脱落)/u.test(fact.evidence) ? fact.value : null;
+  }
+  if (quotedValue !== null) return quotedValue;
+  if (predicate.field === 'lip_wound_length_cm' && fact.certainty === 'derived'
+    && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length === 1) {
+    const parent = facts.find(candidate => candidate.id === fact.derivedFrom[0]);
+    if (!parent || parent.field !== 'wound_length_cm' || parent.source !== fact.source
+      || parent.verification !== 'quoted' || !reliableCertainties.has(parent.certainty)
+      || !/(?:唇|口唇)/u.test(parent.evidence) || /(?:黏膜|粘膜)/u.test(parent.evidence)
+      || !normalize(fact.evidence).includes(normalize(parent.evidence))) return null;
+    const length = quotedPredicateEvidenceValue({ unit: 'cm' }, parent);
+    return Number.isFinite(length) && length === fact.value ? length : null;
+  }
+  if (predicate.field === 'lip_through_wound_length_cm' && fact.certainty === 'derived'
+    && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length === 2) {
+    const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+    const diagnosis = parents.find(parent => parent?.field === 'clinical_finding'
+      && /(?:下唇|上唇|口唇).{0,4}(?:贯通伤|全层裂创)/u.test(parent.value));
+    const wound = parents.find(parent => parent?.field === 'wound_length_cm');
+    const diagnosisSite = diagnosis?.value.includes('下唇') ? '下唇'
+      : diagnosis?.value.includes('上唇') ? '上唇' : '口唇';
+    if (!diagnosis || !wound || diagnosis.source !== fact.source || wound.source !== fact.source
+      || ![diagnosis, wound].every(parent => parent.verification === 'quoted'
+        && reliableCertainties.has(parent.certainty) && normalize(fact.evidence).includes(normalize(parent.evidence)))
+      || !/(?:唇|口唇)/u.test(wound.evidence) || /(?:黏膜|粘膜|既往|旧伤|曾经|陈旧)/u.test(wound.evidence)
+      || diagnosisSite !== '口唇' && !wound.evidence.includes(diagnosisSite)
+      || diagnosis.eventId && wound.eventId && diagnosis.eventId !== wound.eventId) return null;
+    const length = quotedPredicateEvidenceValue({ unit: 'cm' }, wound);
+    return Number.isFinite(length) && length === fact.value ? length : null;
+  }
+  if (predicate.field === 'cross_region_wound_ratio' && fact.certainty === 'derived'
+    && Array.isArray(fact.derivedFrom) && fact.derivedFrom.length === 2) {
+    const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+    const face = parents.find(parent => parent?.field === 'wound_length_cm'
+      && (/面部创口长/.test(parent.evidence) || parent.regionEvidence?.site === '面部'));
+    const head = parents.find(parent => parent?.field === 'wound_length_cm'
+      && (/(?:头部|头皮)创口长/.test(parent.evidence) || parent.regionEvidence?.site === '头皮'));
+    if (!face || !head || face.source !== fact.source || head.source !== fact.source
+      || ![face, head].every(parent => parent.verification === 'quoted' && reliableCertainties.has(parent.certainty)
+        && Number.isFinite(parent.value) && normalize(fact.evidence).includes(normalize(parent.evidence)))) return null;
+    const faceLength = quotedPredicateEvidenceValue({ unit: 'cm' }, face);
+    const headLength = quotedPredicateEvidenceValue({ unit: 'cm' }, head);
+    if (!Number.isFinite(faceLength) || !Number.isFinite(headLength)) return null;
+    const ratio = faceLength / 4.5 + headLength / 8;
+    return Number.isFinite(ratio) && Math.abs(ratio - fact.value) < 1e-9 ? ratio : null;
+  }
+  if (predicate.field === 'ear_scalp_wound_ratio' && fact.certainty === 'derived'
+    && Array.isArray(fact.derivedFrom) && [2, 3].includes(fact.derivedFrom.length)) {
+    const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+    const auricle = parents.find(parent => parent?.field === 'wound_length_cm'
+      && (parent.regionEvidence?.site === '耳廓' || /耳廓(?:创口|裂伤)?长/.test(parent.evidence)));
+    const scalp = parents.find(parent => parent?.field === 'wound_length_cm'
+      && (parent.regionEvidence?.site === '头皮' || /头皮(?:创口|裂伤)?长/.test(parent.evidence)));
+    const whole = parents.find(parent => parent?.field === 'wound_length_cm' && parent !== auricle && parent !== scalp);
+    if (!auricle || !scalp || auricle.source !== fact.source || scalp.source !== fact.source
+      || ![auricle, scalp].every(parent => parent.verification === 'quoted' && reliableCertainties.has(parent.certainty)
+        && Number.isFinite(parent.value) && normalize(fact.evidence).includes(normalize(parent.evidence)))) return null;
+    const auricleLength = quotedPredicateEvidenceValue({ unit: 'cm' }, auricle);
+    const scalpLength = quotedPredicateEvidenceValue({ unit: 'cm' }, scalp);
+    const totalLength = whole && whole.source === fact.source && whole.verification === 'quoted'
+      && reliableCertainties.has(whole.certainty) && normalize(fact.evidence).includes(normalize(whole.evidence))
+      ? quotedPredicateEvidenceValue({ unit: 'cm' }, whole)
+      : Number(fact.evidence.match(/(?:创口)?总长\s*(\d+(?:\.\d+)?)\s*(?:cm|厘米)/u)?.[1]);
+    if (!Number.isFinite(auricleLength) || !Number.isFinite(scalpLength) || !Number.isFinite(totalLength)
+      || Math.abs(totalLength - auricleLength - scalpLength) > 0.1) return null;
+    const ratio = auricleLength / 6 + scalpLength / 8;
+    return Number.isFinite(ratio) && Math.abs(ratio - fact.value) < 1e-9 ? ratio : null;
+  }
+  if (predicate.field === 'auricle_defect_ratio' && fact.certainty === 'derived' && fact.source === 'description') {
+    const match = fact.evidence.match(/(左|右)耳廓缺损面积\s*(\d+(?:\.\d+)?)\s*(?:cm2|平方厘米)[，,;；]\s*(?:(对侧)|(左|右))耳面积\s*(\d+(?:\.\d+)?)\s*(?:cm2|平方厘米)/u);
+    if (!match || match[4] && match[4] === (match[1] === '左' ? '左' : '右')) return null;
+    const defectArea = Number(match[2]);
+    const referenceArea = Number(match[5]);
+    if (!Number.isFinite(defectArea) || !Number.isFinite(referenceArea) || defectArea < 0 || referenceArea <= 0) return null;
+    const ratio = defectArea / referenceArea;
+    return Number.isFinite(ratio) && Math.abs(ratio - fact.value) < 1e-9 ? ratio : null;
+  }
+  if (predicate.field !== 'fractured_rib_count' || fact.certainty !== 'derived' || !fact.eventId
+    || !Array.isArray(fact.derivedFrom) || !fact.derivedFrom.length) return null;
+  const parents = fact.derivedFrom.map(id => facts.find(candidate => candidate.id === id));
+  return parents.every(parent => parent?.field === 'fractured_rib_numbers' && parent.source === fact.source
+    && parent.eventId === fact.eventId && parent.verification === 'quoted' && reliableCertainties.has(parent.certainty)
+    && Array.isArray(parent.value) && parent.value.length > 0) ? fact.value : null;
 }
 
 function comparePredicate(predicate, value) {
@@ -89,44 +471,578 @@ function comparePredicate(predicate, value) {
   return null;
 }
 
+function woundLengthEvidenceSupportsPredicate(predicate, fact, facts = []) {
+  const sourceRefs = Array.isArray(fact.sourceRefs) ? fact.sourceRefs
+    .filter(reference => reference.source === fact.source && typeof reference.evidence === 'string'
+      && reference.evidence.trim()) : [];
+  const broadEvidence = normalize(String(fact.evidence || ''));
+  const localQuotes = sourceRefs.map(reference => reference.evidence)
+    .filter(evidence => normalize(evidence) !== broadEvidence);
+  const candidates = localQuotes.length ? localQuotes : [fact.evidence];
+  if (!localQuotes.length && sourceRefs.length === 0 && !fact.regionEvidence?.site) {
+    const measurements = [...String(fact.evidence || '').matchAll(/(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)(?!2)/gu)];
+    if (measurements.length > 1) return false;
+  }
+  return candidates.some(evidence => {
+    const exactLength = quotedPredicateEvidenceValue({ field: 'wound_length_cm', unit: predicate.unit || 'cm' },
+      { ...fact, evidence }, facts);
+    if (exactLength !== fact.value) return false;
+    const siteCue = /头顶部|额顶部|颞顶部|顶枕部|后枕部|颞枕部|头皮|头部|枕部|颞部|面部|脸部|额部|前额|额头|眉弓|眉部|眼内眦|眼外侧|眼外眦|外眦|眼上方|眼下方|下睑|上睑|眼睑|面颊|颧部|鼻唇沟|鼻背|鼻梁|鼻部|鼻翼|口角|唇上方|唇下方|上唇|下唇|口唇|唇部|下颌|耳廓|颈前正中|颈前部|颈前|颈部|颈|胸部|胸|腹部|腹|背部|背|腰部|腰|左肩|右肩|肩部|肩|上肢|下肢|大腿|小腿|手部|手指|手|膝部|膝|足部|足|踝部|踝|肋骨|骨盆/gu;
+    const contextForMeasurement = (start, measurementEnd) => {
+      const prefix = evidence.slice(0, start);
+      const sentenceStart = Math.max(prefix.lastIndexOf('。'), prefix.lastIndexOf('；'), prefix.lastIndexOf(';'),
+        prefix.lastIndexOf('\n')) + 1;
+      siteCue.lastIndex = 0;
+      const locations = [...prefix.slice(sentenceStart).matchAll(siteCue)];
+      const latestLocation = locations.at(-1);
+      const siteIndex = latestLocation ? sentenceStart + latestLocation.index : sentenceStart;
+      const suffix = evidence.slice(measurementEnd);
+      siteCue.lastIndex = 0;
+      const nextLocation = siteCue.exec(suffix);
+      const terminator = /[。；;\n]/u.exec(suffix);
+      const relativeEnd = Math.min(nextLocation?.index ?? Infinity, terminator?.index ?? Infinity);
+      const contextEnd = Number.isFinite(relativeEnd) ? measurementEnd + relativeEnd : evidence.length;
+      return { text: evidence.slice(siteIndex, contextEnd), site: latestLocation?.[0] || fact.regionEvidence?.site || '' };
+    };
+    const numberPattern = '(?:\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+    const lengthValue = value => /^\d/u.test(value) ? Number(value) : parseNumber(value);
+    const measurementContexts = [
+      ...[...evidence.matchAll(new RegExp(`(${numberPattern})\\s*(?:cm|厘米)`, 'gu'))]
+        .filter(match => lengthValue(match[1]) === fact.value)
+        .map(match => contextForMeasurement(match.index, match.index + match[0].length)),
+      ...[...evidence.matchAll(new RegExp(`(${numberPattern})\\s*(?:(?:cm|厘米)\\s*)?[×xX*]\\s*(${numberPattern})\\s*(?:cm|厘米)`, 'gu'))]
+        .filter(match => Math.max(lengthValue(match[1]), lengthValue(match[2])) === fact.value)
+        .map(match => contextForMeasurement(match.index, match.index + match[0].length)),
+    ];
+    if (/(?:皮肤)?划痕/u.test(evidence)
+      && !/(?:创口|伤口|裂口|裂创|裂伤|切口|瘢痕|疤痕)/u.test(evidence)) return false;
+    const woundDescription = `${evidence} ${fact.regionEvidence?.injuryType || ''}`;
+    if (!/(?:创口|伤口|裂口|裂创|裂伤|切口|瘢痕|疤痕|划伤)/u.test(woundDescription)) return false;
+    return !predicate.evidenceGroups || predicate.evidenceGroups.every(group => {
+      const requiresSite = group.some(alias => /头|额|枕|颞|面|脸|眉|眼|颊|颧|鼻|唇|颌|耳|颈|胸|腹|背|腰|肩|肢|腿|手|膝|足|踝|肋|骨盆/u.test(alias));
+      return measurementContexts.some(context => group.some(alias => requiresSite
+        ? includesEvidence(context.site, alias) || includesEvidence(fact.regionEvidence?.site || '', alias)
+        : includesEvidence(context.text, alias) || includesEvidence(fact.regionEvidence?.injuryType || '', alias)));
+    });
+  });
+}
+
+function canonicalClinicalFindingEvidence(value, evidence, linkedToCurrentEvent = false) {
+  if (/(?:既往史|既往|既有|陈旧|原有|此前|曾经|术前)/u.test(evidence)) return false;
+  if (value === '心包破裂' || value === '心脏破裂') return isCanonicalCardiacRuptureEvidence(value, evidence);
+  if (value === '开颅术后') {
+    const completedCraniotomy = /(?:手术(?:名称|为|记录)?|行|接受|施行|实施|进行|术后)[^。！？；;\n]{0,32}开颅[^。！？；;\n]{0,72}(?:清除|探查|减压|切除|修补|整复|手术|术)/u;
+    return linkedToCurrentEvent && completedCraniotomy.test(evidence)
+      && !/(?:拟行|拟施行|计划|建议|考虑|未行|未施行|拒绝)/u.test(evidence);
+  }
+  if (value === '开放性颅骨骨折伴硬脑膜破裂') {
+    const hardDura = '(?:硬脑膜|硬膜(?!下))';
+    const explicitDuralDiagnosis = findExplicitOpenSkullDuralDiagnoses(evidence).length > 0;
+    const normalizedOpenSkullEvidence = linkedToCurrentEvent && hasSupportedOpenSkullDuralRuptureEvidence(evidence);
+    const quotedDuralPenetration = /头皮[^。！？\n]{0,32}(?:撕裂伤|撕裂|裂伤|裂创|裂口)/u.test(evidence)
+      && /(?:颅骨[^。！？\n]{0,24}(?:骨折|骨裂)|(?:左|右|双侧)?(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨[^。！？\n]{0,16}(?:骨折|骨裂))/u.test(evidence)
+      && new RegExp(`(?:骨折[^。！？\\n]{0,24}(?:刺破|穿破|刺入)${hardDura}|${hardDura}[^。！？\\n]{0,24}(?:被|有)?(?:骨折|骨片)[^。！？\\n]{0,12}(?:刺破|穿破|刺入))`, 'u').test(evidence);
+    const openFractureDiagnosis = /(?:开放性(?:颅骨|(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨)|(?:颅骨|(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨)[^。！？\n]{0,24}开放性)[^。！？\n]{0,12}骨(?:折|裂)/u.test(evidence)
+      || /开放性颅脑损伤[^。！？\n]{0,180}(?:颅骨|(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨)[^。！？\n]{0,24}(?:骨折|骨裂)|(?:颅骨|(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨)[^。！？\n]{0,24}(?:骨折|骨裂)[^。！？\n]{0,180}开放性颅脑损伤/u.test(evidence);
+    const operativeDuralDamage = new RegExp(`(?:术中|手术记录|探查|(?:取出|移除|清除|去除)[^。！？\\n]{0,24}后)[^。！？\\n]{0,100}${hardDura}[^。！？\\n]{0,28}(?:破口|开放|破损|破裂|撕裂|裂伤)`, 'u').test(evidence);
+    const quotedOperativeDuralDamage = linkedToCurrentEvent && openFractureDiagnosis && operativeDuralDamage;
+    const operativeMeningealRupture = /(?:术中|手术记录|探查)[^。！？\n]{0,180}脑膜沿(?:伤口|创口)[^。！？\n]{0,16}方向(?:破裂|破开|裂开)/u.test(evidence);
+    const quotedOperativeMeningealRupture = linkedToCurrentEvent && openFractureDiagnosis && operativeMeningealRupture;
+    const fractureCsfFlow = /(?:骨折中心|骨折处|骨折断端|骨折缝|骨折裂隙)[^。；;\n]{0,24}脑脊液[^。；;\n]{0,20}(?:流出|外流)|脑脊液[^。；;\n]{0,20}(?:由|从)(?:骨折中心|骨折处|骨折断端|骨折缝|骨折裂隙)[^。；;\n]{0,16}(?:流出|外流)/u.test(evidence);
+    const quotedFractureCsfFlow = linkedToCurrentEvent && openFractureDiagnosis && fractureCsfFlow;
+    const headWoundDeepToBone = /(?:头皮|头部)[^。！？\n]{0,32}(?:伤口|创口|裂伤|裂口)[^。！？\n]{0,20}(?:深至|深达|达至|达)骨(?:面|质)/u.test(evidence);
+    const intracranialGasInCollection = /(?:颅骨内板下|(?:硬膜下|硬膜外|颅内)血肿(?:内)?)[^。！？\n]{0,24}(?:见|有|伴)?[^。！？\n]{0,12}(?:气体(?:密度影)?|积气)/u.test(evidence);
+    const quotedDeepWoundWithIntracranialGas = linkedToCurrentEvent && headWoundDeepToBone
+      && /(?:颅骨[^。！？\n]{0,24}(?:骨折|骨裂)|(?:左|右|双侧)?(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨[^。！？\n]{0,16}(?:骨折|骨裂))/u.test(evidence)
+      && intracranialGasInCollection;
+    return explicitDuralDiagnosis || normalizedOpenSkullEvidence || quotedDuralPenetration || quotedOperativeDuralDamage
+      || quotedOperativeMeningealRupture || quotedFractureCsfFlow || quotedDeepWoundWithIntracranialGas;
+  }
+  if (value === '胃非全层破裂') {
+    return /胃[^。！？；;\n]{0,24}?(?:浆膜(?:层)?[^。！？；;\n]{0,12}(?:破裂|裂伤)|浆肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|非全层破裂)/u.test(evidence)
+      && !/全层破裂/u.test(evidence);
+  }
+  if (value === '肠非全层破裂') {
+    return /(?:小肠|大肠|结肠|直肠|肠)[^。！？；;\n]{0,24}?(?:浆膜(?:层)?[^。！？；;\n]{0,12}(?:破裂|裂伤)|浆肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|非全层破裂)/u.test(evidence)
+      && !/全层破裂/u.test(evidence);
+  }
+  if (value === '胆囊非全层破裂' || value === '胆道非全层破裂') {
+    const site = value === '胆囊非全层破裂' ? '胆囊' : '胆道';
+    return new RegExp(`${site}[^。！？；;\\n]{0,24}?(?:浆膜(?:层)?[^。！？；;\\n]{0,12}(?:破裂|裂伤)|浆肌层[^。！？；;\\n]{0,12}(?:破裂|裂伤)|肌层[^。！？；;\\n]{0,12}(?:破裂|裂伤)|非全层破裂)`, 'u').test(evidence)
+      && !/全层破裂/u.test(evidence);
+  }
+  if (typeof value === 'string' && normalize(value) === normalize('四肢瘫（三肢以上肌力3级以下）')) {
+    return normalizeMuscleStrengthFacts(evidence, { eventScopedEvidence: linkedToCurrentEvent }).some(fact =>
+      normalize(fact.value) === normalize('四肢瘫（三肢以上肌力3级以下）')
+      && ['reported', 'observed', 'derived'].includes(fact.certainty));
+  }
+  if (value === '颈部损伤出现窒息征象') {
+    return normalizeNeckAsphyxiaFacts(evidence).some(fact => fact.value === value);
+  }
+  if (value === '帽状腱膜下血肿范围50.0cm2以上') {
+    const area = /帽状腱膜下血肿[^。；;\n]{0,120}?(?:血肿)?(?:范围|面积)[^。；;\n]{0,24}?(\d+(?:\.\d+)?)\s*(?:cm\s*2|平方厘米)(?:以上|及以上)?/u.exec(evidence);
+    if (!area || Number(area[1]) < 50) return false;
+    const areaMarker = Math.max(area[0].lastIndexOf('范围'), area[0].lastIndexOf('面积'));
+    return !/约|大约|左右|接近|不超过|不足|未达|小于|低于/u.test(area[0].slice(Math.max(0, areaMarker)));
+  }
+  if (value === '一眼矫正视力减退至0.5以下') {
+    const acuity = evidence.match(/(右|左)眼[^，,。；;\n]{0,8}?矫正视力\s*(?:为|[:：])?\s*(\d+(?:\.\d+)?)(?![\d.])/u);
+    if (!acuity || Number(acuity[2]) > 0.5) return false;
+    const side = acuity[1];
+    return new RegExp(`(?:${side}眼[^。；;\\n]{0,24}(?:外伤|受伤)后|(?:外伤|受伤)后[^。；;\\n]{0,24}${side}眼)`, 'u').test(evidence);
+  }
+  if (value === '外伤性鼓膜穿孔6周不能自行愈合') return confirmsSixWeekUnhealedTympanicPerforation(evidence);
+  if (value === '置入式假体装置损坏' || value === '置入式假体装置需要手术修复') {
+    const implantedDevice = /(?:颅骨修补材料|人工晶体|义眼座|固定义齿|种植牙|阴茎假体|人工关节|起搏器|支架)/u;
+    const currentTrauma = /(?:本次|此次)(?:交通)?(?:事故|外伤|受伤|损伤)/u.test(evidence);
+    const documentedDamage = /(?:损坏|破损|破裂|缺损|脱位|脱出)/u.test(evidence);
+    const documentedRepair = /(?:(?:手术|术)[^。；;\n]{0,12}(?:更换|修补|修复)|(?:更换|修补|修复)[^。；;\n]{0,12}(?:手术|术))/u.test(evidence);
+    if (value === '置入式假体装置损坏') return currentTrauma && implantedDevice.test(evidence) && documentedDamage;
+    return currentTrauma && implantedDevice.test(evidence) && documentedDamage && documentedRepair;
+  }
+  const linkedToCurrentInjury = linkedToCurrentEvent || hasExplicitCurrentEventLink(evidence);
+  if (!linkedToCurrentInjury) return false;
+  if (value === '成年人脾切除术后') return /(?:成年人|成人|年满\s*18\s*周岁|18\s*岁以上)/.test(evidence)
+    && /脾(?:脏)?(?:全|全部|完全)?切除术/.test(evidence) && !/脾.{0,4}部分切除/.test(evidence);
+  if (value === '一侧肾切除术后') return /(?:一侧|单侧|左(?:侧)?|右(?:侧)?)\s*肾(?:脏)?(?:全)?切除术?/.test(evidence);
+  if (value === '肾修补术后') return /肾(?:脏)?修补术?/.test(evidence);
+  if (value === '胸壁穿透创') return /胸壁.{0,8}(?:穿透创|贯通伤)|(?:穿透创|贯通伤).{0,8}胸壁/.test(evidence);
+  return false;
+}
+
+function hasExplicitCurrentEventLink(evidence) {
+  const text = normalize(evidence);
+  const cues = [...text.matchAll(/(?:本次|此次)(?:交通)?(?:事故|外伤|受伤|损伤)(?:后|中)?|因(?:本次|此次)(?:交通)?(?:事故|外伤)|(?:19|20)\d{2}年[^。；;\n]{0,32}被[^。；;\n]{0,8}(?:拳击|殴打|击打|打伤)/gu)];
+  const historicalCue = /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u;
+  for (const cue of cues) {
+    const nearby = text.slice(cue.index + cue[0].length, cue.index + cue[0].length + 32);
+    if (historicalCue.test(nearby)) continue;
+    const action = nearby.search(/有|需要|需|须|接受|施行|实施|进行|行|导致|所致|记载|报告|发现|确诊|诊断为|提示|出现|检查见|查见|手术记录|手术治疗/u);
+    const procedure = nearby.search(/手术|切除|修补|摘除|固定术|穿透创|贯通伤|骨折|损伤|出血|暴露|缺损|破损|损坏|破裂/u);
+    if (action >= 0 && procedure >= 0 && procedure >= action && procedure <= 32) return true;
+  }
+  return false;
+}
+
+function hasCurrentInjuryEventCue(evidence) {
+  const text = normalize(evidence);
+  const cues = [...text.matchAll(/(?:本次|此次|当前)(?:交通)?(?:事故|外伤|受伤|损伤)(?:后|中)?/gu)];
+  return cues.some(cue => {
+    const nearby = text.slice(cue.index + cue[0].length, cue.index + cue[0].length + 40);
+    return /(?:骨折|破裂|损伤|挫伤|创口|穿透创|贯通伤|出血|脱位|撕裂|断裂)/u.test(nearby)
+      && !/(?:未见|未发现|排除|否认)/u.test(nearby);
+  });
+}
+
+function hasCurrentEventLinkForProcedure(fact, facts, node) {
+  const procedureText = normalize(`${fact.value ?? ''} ${fact.evidence ?? ''}`);
+  const operationTerms = [...new Set([...(node.factMatch?.values || []), ...(node.factMatch?.valueIncludes || []),
+    ...(node.factMatch?.evidenceAliases || [])].filter(value => typeof value === 'string' && value))];
+  const configuredOperationOrgans = new Set(operationTerms.map(term => clinicalOrgan({ value: term, evidence: '' }))
+    .filter(Boolean));
+  const requiresOrganAnchor = /(?:破裂|裂口|裂伤|挫裂伤|损伤|血肿)[^。；;]{0,24}(?:手术|切除|修补|缝合)/u
+    .test(node.conditionText || '');
+  const factOrgan = clinicalOrgan(fact);
+  if (hasExplicitCurrentEventLink(fact.evidence) && !requiresOrganAnchor
+    && (!configuredOperationOrgans.size || configuredOperationOrgans.has(factOrgan))) return true;
+  if (!fact.eventId || /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u
+    .test(fact.evidence)) return false;
+  const skullFractureAnchors = facts.filter(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+      && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type'].includes(anchor.field)
+      && reliableCertainties.has(anchor.certainty) && anchor.source === 'description'
+      && anchor.verification === 'quoted'
+      && /(?:颅骨|枕骨|顶骨|额骨|颞骨|顶枕|颞顶)/u.test(normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`))
+      && /骨折/u.test(normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`)));
+  if (/(?:颅骨骨折减压|凹陷骨折(?:减压|整复|复位))(?:术)?/u.test(procedureText)) {
+    return skullFractureAnchors.length > 0;
+  }
+  if (/动脉瘤夹闭/u.test(procedureText)) {
+    return facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+      && ['diagnosis', 'imaging_finding', 'clinical_finding'].includes(anchor.field)
+      && reliableCertainties.has(anchor.certainty) && anchor.source === 'description'
+      && anchor.verification === 'quoted'
+      && /(?:外伤性|创伤性)(?:颅内)?(?:脑)?动脉瘤/u.test(normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`)));
+  }
+  if (/去骨瓣减压(?:术)?/u.test(procedureText)) {
+    const cranialRegions = [
+      ['额骨', '额部', '额顶部', '额颞'],
+      ['顶骨', '顶部', '顶颞', '颞顶', '颞顶部', '额顶部', '顶枕'],
+      ['颞骨', '颞部', '额颞', '颞顶', '颞顶部'],
+      ['枕骨', '枕部', '枕顶部', '枕顶', '顶枕'],
+    ];
+    const side = value => {
+      const text = normalize(value);
+      const left = /左(?:侧)?(?:额|顶|颞|枕|顶部|颞顶部)/u.test(text);
+      const right = /右(?:侧)?(?:额|顶|颞|枕|顶部|颞顶部)/u.test(text);
+      return left === right ? null : left ? 'left' : 'right';
+    };
+    const procedureSide = side(procedureText);
+    return skullFractureAnchors.some(anchor => {
+      const anchorText = normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`);
+      const anchorSide = side(anchorText);
+      if (procedureSide && anchorSide && procedureSide !== anchorSide) return false;
+      return cranialRegions.some(region => region.some(site => procedureText.includes(site))
+        && region.some(site => anchorText.includes(site)));
+    });
+  }
+  if (!/(?:手术|切除|修补|摘除|清除|引流|缝合|修复)/u.test(procedureText)) return false;
+  const matchedOperationOrgans = new Set(operationTerms.filter(term => procedureText.includes(normalize(term))
+    || normalize(String(fact.evidence || '')).includes(normalize(term)))
+    .map(term => clinicalOrgan({ value: term, evidence: '' })).filter(Boolean));
+  const operationOrgans = matchedOperationOrgans.size ? matchedOperationOrgans : new Set(factOrgan ? [factOrgan] : []);
+  if (!operationOrgans.size) return false;
+  return facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+    && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
+    && reliableCertainties.has(anchor.certainty) && anchor.source === 'description'
+    && operationOrgans.has(clinicalOrgan(anchor)) && compatibleLaterality(anchor, fact));
+}
+
+function clinicalOrgan(fact) {
+  const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
+  if (/肾/u.test(text)) return 'kidney';
+  if (/肝/u.test(text)) return 'liver';
+  if (/脾/u.test(text)) return 'spleen';
+  if (/胰/u.test(text)) return 'pancreas';
+  if (/胃/u.test(text)) return 'stomach';
+  if (/(?:小肠|大肠|结肠|直肠|十二指肠|肠)/u.test(text)) return 'intestine';
+  if (/胆囊/u.test(text)) return 'gallbladder';
+  if (/(?:胆道|胆总管|胆管)/u.test(text)) return 'bile_duct';
+  if (/肺/u.test(text)) return 'lung';
+  return null;
+}
+
+function compatibleLaterality(left, right) {
+  const side = fact => {
+    const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
+    return /左(?:侧)?(?:肾|肺)/u.test(text) ? 'left' : /右(?:侧)?(?:肾|肺)/u.test(text) ? 'right' : null;
+  };
+  const leftSide = side(left), rightSide = side(right);
+  return !leftSide || !rightSide || leftSide === rightSide;
+}
+
+function sharedClinicalInjuryPhrase(left, right) {
+  const phrases = evidence => {
+    const text = normalize(evidence || '');
+    const result = new Set();
+    for (const match of text.matchAll(/[\u4e00-\u9fff]{1,4}(?:骨折|破裂|挫伤|损伤|创口|穿透创|贯通伤|出血|脱位|撕裂|断裂)/gu)) {
+      for (let start = 0; start <= match[0].length - 3; start += 1) {
+        const phrase = match[0].slice(start);
+        if (phrase.length >= 4 || /^(?:肺|脾|肾|肝|胰)破裂$/u.test(phrase)) result.add(phrase);
+      }
+    }
+    return result;
+  };
+  const leftPhrases = phrases(left);
+  return [...phrases(right)].some(phrase => leftPhrases.has(phrase));
+}
+
+function requiresCurrentProcedureLink(node) {
+  const procedurePattern = /手术|切除术?|修补术?|摘除术|清除|引流|缝合|修复术|修复手术/u;
+  return procedurePattern.test(`${node.sourceText || ''} ${node.conditionText || ''}`)
+    || (node.factMatch?.values || []).some(value => typeof value === 'string' && procedurePattern.test(value));
+}
+
+function evidenceLabelsFindingAsHistorical(evidence, sourceText) {
+  const normalizedEvidence = normalize(evidence);
+  const finding = normalize(sourceText);
+  const index = normalizedEvidence.indexOf(finding);
+  if (index < 0) return false;
+  const segmentStart = Math.max(normalizedEvidence.lastIndexOf('。', index - 1),
+    normalizedEvidence.lastIndexOf('；', index - 1), normalizedEvidence.lastIndexOf(';', index - 1),
+    normalizedEvidence.lastIndexOf('\n', index - 1)) + 1;
+  const context = normalizedEvidence.slice(segmentStart, index + finding.length);
+  const historicalCues = [...context.matchAll(/既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/gu)];
+  const currentCues = [...context.matchAll(/(?:本次|此次|当前)(?:交通)?(?:事故|外伤|受伤|损伤)/gu)];
+  return historicalCues.length > 0 && (!currentCues.length
+    || historicalCues.at(-1).index > currentCues.at(-1).index);
+}
+
+function aggregateEvidenceIncludesParent(aggregate, parent) {
+  if (includesEvidence(aggregate.evidence, parent.evidence)) return true;
+  return Array.isArray(aggregate.sourceRefs) && aggregate.sourceRefs.some(reference => reference.source === parent.source
+    && includesEvidence(parent.evidence, reference.evidence));
+}
+
+function quotedScalpMeasurementSite(fact, facts = []) {
+  if (!fact || typeof fact !== 'object') return null;
+  if (fact.regionEvidence?.site === '头皮'
+    && /创口|伤口|创痕|划痕|划伤|瘢痕|疤痕|切口|裂口|裂创|裂伤/u.test(fact.regionEvidence.injuryType || '')
+    && Number.isFinite(fact.value)
+    && [fact.evidence, ...(fact.sourceRefs || []).map(reference => reference.evidence)]
+      .some(evidence => typeof evidence === 'string'
+        && [...evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu)]
+          .some(match => Number(match[1]) === fact.value || parseNumber(match[1]) === fact.value))) {
+    return `${fact.regionEvidence.site}${fact.regionEvidence.injuryType}`;
+  }
+  const sitePattern = /枕骨隆突部|枕项部|后枕部|颞枕部|顶枕部|颞顶部|额顶部|头顶部|颞部|顶部|枕部|头皮/u;
+  const injuryPattern = /创口|伤口|创痕|划伤|裂口|裂创|裂伤|瘢痕|疤痕/u;
+  const facePattern = /面部|脸部|额部|前额|额头|眉弓|眉部|眉|眼睑|眼外侧|外眦|面颊|颧部|鼻唇沟|鼻部|鼻背|口唇|上唇|下唇|下颌/u;
+  const sourceEvidence = [...new Set([
+    ...(Array.isArray(fact.sourceRefs) ? fact.sourceRefs
+      .filter(reference => reference.source === fact.source).map(reference => reference.evidence) : []),
+    fact.evidence,
+  ].filter(value => typeof value === 'string' && value))];
+  for (const evidence of sourceEvidence) {
+    for (const match of evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu)) {
+      const amount = /^\d/u.test(match[1]) ? Number(match[1]) : parseNumber(match[1]);
+      if (amount !== fact.value) continue;
+      const preceding = evidence.slice(0, match.index);
+      const start = Math.max(preceding.lastIndexOf('，'), preceding.lastIndexOf(','), preceding.lastIndexOf('、'),
+        preceding.lastIndexOf('；'), preceding.lastIndexOf(';'), preceding.lastIndexOf('。')) + 1;
+      const following = evidence.slice(match.index);
+      const stops = ['，', ',', '、', '；', ';', '。'].map(delimiter => {
+        const index = following.indexOf(delimiter);
+        return index < 0 ? Infinity : match.index + index;
+      });
+      const end = Math.min(...stops);
+      const localEvidence = evidence.slice(start, Number.isFinite(end) ? end : evidence.length).trim();
+      if (sitePattern.test(localEvidence) && injuryPattern.test(evidence) && !facePattern.test(localEvidence)) {
+        return localEvidence;
+      }
+    }
+  }
+  const measurementValue = Number.isFinite(fact.value) ? fact.value : null;
+  if (measurementValue !== null) {
+    const aggregateContexts = facts.filter(candidate => candidate.field === 'aggregate_wound_length_cm'
+      && candidate.source === fact.source && candidate.certainty === 'derived'
+      && candidate.derivedFrom?.includes(fact.id));
+    for (const aggregate of aggregateContexts) {
+      const evidenceTexts = [aggregate.evidence, ...(aggregate.sourceRefs || [])
+        .filter(reference => reference.source === fact.source).map(reference => reference.evidence)]
+        .filter(value => typeof value === 'string' && value);
+      for (const evidence of evidenceTexts) {
+        const sharedScalpScarHeading = /(?:头部|头皮|头顶部|额顶部|顶部|枕部|颞部)[^。；;]{0,18}(?:瘢痕|疤痕)\s*[:：]/u.test(evidence)
+          && !/(?:未见|无|否认|排除|可能|考虑)[^。；;]{0,20}(?:头部|头皮)?(?:瘢痕|疤痕)/u.test(evidence);
+        const groups = evidence.split(/[。！？；;\n]+/u).map(value => value.trim()).filter(Boolean);
+        for (const group of groups) {
+          const countMatches = [...group.matchAll(/([0-9零〇一二两三四五六七八九十百]+)\s*(?:处|道|条)/gu)];
+          for (let index = 0; index < countMatches.length; index += 1) {
+            const countMatch = countMatches[index];
+            const count = parseNumber(countMatch[1]);
+            const nextCount = countMatches[index + 1]?.index ?? group.length;
+            const suffix = group.slice(countMatch.index, nextCount);
+            const measurementMatches = [...suffix.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu)];
+            let values = measurementMatches.map(match => /^\d/u.test(match[1]) ? Number(match[1]) : parseNumber(match[1]));
+            if (values.length !== count) {
+              const listCue = /(?:分别|各)(?:\s*(?:为|长|长度))?\s*|(?:长|长度)(?:约|为|达)?\s*/u.exec(suffix);
+              if (listCue) {
+                const listStart = listCue.index + listCue[0].length;
+                const listTail = suffix.slice(listStart);
+                const lastUnit = /(?:cm|厘米)/u.exec(listTail);
+                const listText = lastUnit ? listTail.slice(0, lastUnit.index) : listTail;
+                const tokens = [...listText.matchAll(/\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+/gu)];
+                values = tokens.map(match => /^\d/u.test(match[0]) ? Number(match[0]) : parseNumber(match[0]));
+              }
+            }
+            const prefix = group.slice(Math.max(0, countMatch.index - 48), countMatch.index);
+            const siteMatches = [...prefix.matchAll(new RegExp(sitePattern.source, 'gu'))];
+            const site = siteMatches.at(-1)?.[0] || '';
+            const siteEvidence = `${site}${suffix}`;
+            if (count !== values.length || values.filter(value => value === measurementValue).length !== 1
+              || !sitePattern.test(siteEvidence) || !(injuryPattern.test(suffix) || sharedScalpScarHeading)
+              || facePattern.test(prefix)) continue;
+            return siteEvidence;
+          }
+          const measurementMatches = [...group.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu)];
+          const values = measurementMatches.map(match => /^\d/u.test(match[1]) ? Number(match[1]) : parseNumber(match[1]));
+          if (values.filter(value => value === measurementValue).length === 1
+            && sitePattern.test(group) && injuryPattern.test(group) && !facePattern.test(group)) return group;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function isUnsegmentedFaceScalpMeasurement(fact) {
+  if (fact.regionEvidence?.site) return false;
+  const evidence = normalize(fact.evidence || '');
+  const faceSite = '(?:面部|脸部|额部|前额|额头|眉弓|眉部|眉|眼外侧|眼外眦|外眦|眼睑|上睑|下睑|内眦|颧部|鼻唇沟|鼻部|鼻背|鼻梁|口唇|上唇|下唇|下颌)';
+  const scalpSite = '(?:额顶部|头顶部|颞顶部|顶枕部|后枕部|颞枕部|顶部|枕部|颞部|头皮|发际内|发际线)';
+  const measurements = [...evidence.matchAll(/(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu)];
+  const sites = [...evidence.matchAll(new RegExp(`${faceSite}|${scalpSite}`, 'gu'))];
+  const woundCues = [...evidence.matchAll(/创口|伤口|裂口|裂创|裂伤|切口|瘢痕|疤痕/gu)];
+  if (measurements.length >= 2 && sites.length >= 2 && woundCues.length >= 2
+    && /(?:两处|多处|分别|各自|两道|多道)/u.test(evidence)) return false;
+  return new RegExp(`${faceSite}.{0,14}${scalpSite}|${scalpSite}.{0,14}${faceSite}`, 'u').test(evidence);
+}
+
+function isWholeMeasurementWithRegionSegments(fact, facts) {
+  if (fact.field !== 'wound_length_cm' || fact.regionEvidence?.site || !Number.isFinite(fact.value)) return false;
+  const relatedSegments = facts.filter(candidate => candidate !== fact && candidate.source === fact.source
+    && candidate.field === 'wound_length_cm' && candidate.regionEvidence?.site && Number.isFinite(candidate.value));
+  const hasFace = relatedSegments.some(candidate => /^(?:面部|脸部)$/u.test(candidate.regionEvidence.site));
+  const hasOutsideFace = relatedSegments.some(candidate => /^(?:颈部|颈前部|头部|头皮)$/u.test(candidate.regionEvidence.site));
+  const hasAuricle = relatedSegments.some(candidate => candidate.regionEvidence.site === '耳廓');
+  const hasScalp = relatedSegments.some(candidate => candidate.regionEvidence.site === '头皮');
+  const segmentTotal = Math.round(relatedSegments.reduce((sum, candidate) => sum + candidate.value, 0) * 100) / 100;
+  return (hasFace && hasOutsideFace || hasAuricle && hasScalp) && segmentTotal === fact.value;
+}
+
+function uniqueEvidenceText(values) {
+  const seen = new Set();
+  const unique = [];
+  for (const value of values) {
+    for (const evidence of String(value || '').split('；').map(item => item.trim()).filter(Boolean)) {
+      if (seen.has(evidence)) continue;
+      seen.add(evidence);
+      unique.push(evidence);
+    }
+  }
+  return unique.join('；');
+}
+
+function conditionFactIsExplicitlyNegated(node, fact) {
+  if (!node.factMatch || typeof fact.evidence !== 'string') return false;
+  const terms = [...new Set([...(node.factMatch.values || []), ...(node.factMatch.valueIncludes || []),
+    ...(node.factMatch.evidenceAliases || [])].filter(value => typeof value === 'string' && value))];
+  const clauses = normalize(fact.evidence).split(/[，,。！？；;、\n]/u);
+  const negation = /(?:未见|未发现|未提示|未查见|未检查出|未提及|未记载|没有|不存在|否认|排除|无)[^，,。！？；;、\n]{0,18}$/u;
+  return clauses.some(clause => terms.some(term => {
+    const index = clause.indexOf(normalize(term));
+    return index >= 0 && negation.test(clause.slice(0, index));
+  }));
+}
+
+function isSpinalEpiduralHematomaFact(fact) {
+  const spinalLocation = /(?:脊髓|椎体|椎管|颈椎|胸椎|腰椎|\b[CTLS]\s*\d)/iu;
+  const value = normalize(String(fact.value || ''));
+  if (/硬膜外(?:血肿|出血)/u.test(value) && spinalLocation.test(value)) return true;
+  const evidenceSegments = String(fact.evidence || '').normalize('NFKC').split(/[，,。；;！？!?\n]/u);
+  return evidenceSegments.some(segment => /硬膜外(?:血肿|出血)/u.test(segment) && spinalLocation.test(segment));
+}
+
+function isIntracranialCondition(node) {
+  return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
+}
+
 function evaluateConditionLeaf(node, facts) {
-  const candidates = facts.filter(fact => fact.field === (node.factMatch?.field || node.predicate?.field)
+  const acceptedFields = conditionFactFields(node.factMatch, node.predicate);
+  const candidates = facts.filter(fact => acceptedFields.has(fact.field)
     && fact.source === 'description' && fact.verification === 'quoted');
   const relevant = candidates.filter(fact => {
+    if (isIntracranialCondition(node) && isSpinalEpiduralHematomaFact(fact)) return false;
+    if (node.predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(node.predicate.field)
+      && fact.field === 'wound_length_cm' && !woundLengthEvidenceSupportsPredicate(node.predicate, fact, facts)) return false;
+    if (node.predicate?.field === 'wound_length_cm' && node.predicate.evidenceGroups
+      && isWholeMeasurementWithRegionSegments(fact, facts)) return false;
+    if (node.predicate?.field === 'wound_length_cm' && node.predicate.evidenceGroups
+      && isUnsegmentedFaceScalpMeasurement(fact)) return false;
     if (node.factMatch) {
-      const valueMatches = node.factMatch.values.some(value => sameValue(value, fact.value));
-      const exactEvidence = includesEvidence(fact.evidence, node.sourceText);
+      const factValues = Array.isArray(fact.value) ? fact.value : [fact.value];
+      const exactValueMatches = node.factMatch.values?.some(value => factValues.some(factValue => sameValue(value, factValue))) || false;
+      const includedValues = node.factMatch.valueIncludes || [];
+      const includedValueMatches = includedValues.some(value => typeof value === 'string'
+        && factValues.some(factValue => typeof factValue === 'string'
+          && normalize(factValue).includes(normalize(value))));
+      const historicalEvidence = evidenceLabelsFindingAsHistorical(fact.evidence, node.sourceText);
+      const exactEvidence = includesEvidence(fact.evidence, node.sourceText) && !historicalEvidence;
+      const evidenceAliasMatch = node.factMatch.evidenceAliases?.find(alias => includesEvidence(fact.evidence, alias));
+      const evidenceAliasHistorical = evidenceAliasMatch
+        ? evidenceLabelsFindingAsHistorical(fact.evidence, evidenceAliasMatch) : false;
+      const genericBrainContusionValue = normalize(node.sourceText || '') === normalize('脑挫(裂)伤')
+        && factValues.some(value => typeof value === 'string' && normalize(value) === normalize('挫伤'))
+        && Boolean(evidenceAliasMatch);
+      const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue;
+      const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
+        && isReducedMuscleStrengthEvidence(fact.evidence);
+      const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
+        && valueMatches && /骨折/u.test(fact.evidence);
+      const evidenceAlias = (Boolean(evidenceAliasMatch) || sharedSuffixEvidence)
+        && !historicalEvidence && !evidenceAliasHistorical;
       const ribFractureEvidence = node.factMatch.field === 'injury_type'
         && node.factMatch.values.includes('rib_fracture') && normalize(node.sourceText) === normalize('肋骨骨折')
-        && /肋骨/.test(fact.evidence) && /骨折/.test(fact.evidence);
-      return valueMatches && (exactEvidence || ribFractureEvidence);
+        && /肋骨/.test(fact.evidence) && /骨折/.test(fact.evidence) && !historicalEvidence;
+      const canonicalEvidence = node.factMatch.field === 'clinical_finding'
+        && fact.source === 'description' && fact.verification === 'quoted'
+        && canonicalClinicalFindingEvidence(fact.value, fact.evidence, Boolean(fact.eventId));
+      const currentProcedureLink = !requiresCurrentProcedureLink(node) || hasCurrentEventLinkForProcedure(fact, facts, node);
+      return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
+        && (exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence))
+        || reducedStrengthSign && !historicalEvidence && !evidenceAliasHistorical;
     }
-    return predicateEvidenceValue(node.predicate, fact) !== null;
+    const evidenceGroups = node.predicate.evidenceGroups;
+    return predicateEvidenceValue(node.predicate, fact, facts) !== null
+      && (!evidenceGroups || evidenceGroups.every(group => group.some(alias => includesEvidence(fact.evidence, alias)
+        || fact.field === 'wound_length_cm' && [fact.regionEvidence?.site, fact.regionEvidence?.injuryType]
+          .some(value => includesEvidence(value || '', alias)))));
   });
   const positive = relevant.filter(fact => reliableCertainties.has(fact.certainty));
-  const excluded = relevant.filter(fact => fact.certainty === 'excluded');
+  const excluded = relevant.filter(fact => fact.certainty === 'excluded'
+    && conditionFactIsExplicitlyNegated(node, fact));
   const uncertain = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
-  if (positive.length && excluded.length || uncertain) return { met: null, evidence: '', factIds: [] };
-  if (node.predicate && positive.length) {
-    const states = positive.map(fact => comparePredicate(node.predicate, predicateEvidenceValue(node.predicate, fact)));
-    if (states.some(state => state === null) || new Set(states).size > 1) return { met: null, evidence: '', factIds: [] };
-    return { met: states[0], evidence: positive.map(fact => fact.evidence).join('；'), factIds: positive.map(fact => fact.id) };
+  const conflictingExclusions = excluded.filter(negative => positive.some(affirmative =>
+    !explicitlySeparateBrainFindings(affirmative, negative)));
+  if (positive.length && conflictingExclusions.length || !positive.length && uncertain) {
+    return { met: null, evidence: '', factIds: [] };
   }
-  if (positive.length) return { met: true, evidence: positive.map(fact => fact.evidence).join('；'), factIds: positive.map(fact => fact.id) };
-  if (excluded.length) return { met: false, evidence: excluded.map(fact => fact.evidence).join('；'), factIds: excluded.map(fact => fact.id) };
+  if (node.predicate && positive.length) {
+    if (node.predicate.field === 'fracture_site_count'
+      && positive.some(fact => fact.field === 'fractured_rib_numbers')) {
+      const explicitCounts = positive.filter(fact => fact.field === 'fracture_site_count');
+      const states = explicitCounts.map(fact => comparePredicate(node.predicate,
+        predicateEvidenceValue(node.predicate, fact, facts)));
+      const ribLowerBound = lowerBoundFromFracturedRibNumbers(positive);
+      if (node.predicate.operator === 'gte' && comparePredicate(node.predicate, ribLowerBound) === true) states.push(true);
+      if (!states.length || states.some(state => state === null) || new Set(states).size > 1) {
+        return { met: null, evidence: '', factIds: [] };
+      }
+      return { met: states[0], evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
+        factIds: positive.map(fact => fact.id) };
+    }
+    const states = positive.map(fact => comparePredicate(node.predicate, predicateEvidenceValue(node.predicate, fact, facts)));
+    if (states.some(state => state === null)) return { met: null, evidence: '', factIds: [] };
+    if (node.predicate.field === 'gcs_score') {
+      const statesByEvidence = new Map();
+      for (const [index, fact] of positive.entries()) {
+        const evidence = normalize(String(fact.evidence || ''));
+        if (statesByEvidence.has(evidence) && statesByEvidence.get(evidence) !== states[index]) {
+          return { met: null, evidence: '', factIds: [] };
+        }
+        statesByEvidence.set(evidence, states[index]);
+      }
+      if (states.includes(true)) {
+        const qualifyingFacts = positive.filter((fact, index) => states[index] === true);
+        return { met: true, evidence: uniqueEvidenceText(qualifyingFacts.map(fact => fact.evidence)),
+          factIds: qualifyingFacts.map(fact => fact.id) };
+      }
+    }
+    if (node.predicate.field === 'ear_scalp_wound_ratio' && states.every(state => state === false)) {
+      return { met: null, evidence: '', factIds: [] };
+    }
+    if (['wound_length_cm', 'aggregate_wound_length_cm', 'dental_loss_count'].includes(node.predicate.field)
+      && node.predicate.operator === 'gte') {
+      return { met: states.some(state => state === true), evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
+        factIds: positive.map(fact => fact.id) };
+    }
+    if (new Set(states).size > 1) return { met: null, evidence: '', factIds: [] };
+    return { met: states[0], evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
+      factIds: positive.map(fact => fact.id) };
+  }
+  if (positive.length) return { met: true, evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
+    factIds: positive.map(fact => fact.id) };
+  if (excluded.length) return { met: false, evidence: uniqueEvidenceText(excluded.map(fact => fact.evidence)),
+    factIds: excluded.map(fact => fact.id) };
   return { met: null, evidence: '', factIds: [] };
 }
 
-function combineLogicResults(op, results, eventId = null) {
+function combineLogicResults(op, results, eventId = null, allowSharedFact = false) {
   const states = results.map(result => result.met);
+  const sharedFactIds = results.map(result => new Set(result.factIds || []))
+    .reduce((shared, ids, index) => index === 0 ? ids : new Set([...shared].filter(id => ids.has(id))), new Set());
+  const sharedQuotedEvidence = results.map(result => new Set(String(result.evidence || '').split('；')
+    .map(evidence => normalize(evidence)).filter(Boolean)))
+    .reduce((shared, evidence, index) => index === 0 ? evidence
+      : new Set([...shared].filter(quote => evidence.has(quote))), new Set());
   let met = op === 'all'
     ? states.includes(false) ? false : states.every(state => state === true) ? true : null
     : states.includes(true) ? true : states.every(state => state === false) ? false : null;
-  if (eventId === null && op === 'all' && met === true) met = null;
+  if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
+    && sharedQuotedEvidence.size === 0) met = null;
   const decisive = op === 'all' && met === false ? results.filter(result => result.met === false)
     : op === 'any' && met === true ? results.filter(result => result.met === true)
       : results;
-  return { met, evidence: decisive.map(result => result.evidence).filter(Boolean).join('；'),
+  return { met, evidence: uniqueEvidenceText(decisive.map(result => result.evidence)),
     factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId };
 }
 
@@ -136,22 +1052,80 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   }
   const evaluate = (node, scopedFacts, eventId) => {
     if (node.op === 'condition') return evaluateConditionLeaf(node, scopedFacts);
+    if (node.op === 'not') {
+      if (node.confirmedBy) {
+        const confirmed = evaluateConditionLeaf({ op: 'condition', sourceText: node.sourceText,
+          conditionText: node.conditionText, factMatch: node.confirmedBy }, scopedFacts);
+        if (confirmed.met === true) return confirmed;
+      }
+      const result = evaluate(node.children[0], scopedFacts, eventId);
+      return { ...result, met: result.met === true ? false : result.met === false ? true : null };
+    }
     if (node.op === 'all' || node.op === 'any') {
-      return combineLogicResults(node.op, node.children.map(child => evaluate(child, scopedFacts, eventId)), eventId);
+      return combineLogicResults(node.op, node.children.map(child => evaluate(child, scopedFacts, eventId)), eventId,
+        node.allowSharedFact === true);
     }
     return { met: null, evidence: '', factIds: [] };
   };
   const eventIds = [...new Set(facts.map(fact => fact.eventId).filter(Boolean))].sort();
   const unscopedFacts = facts.filter(fact => !fact.eventId);
+  const dateKeys = fact => {
+    const text = [fact.value, fact.evidence].flatMap(value => Array.isArray(value) ? value : [value])
+      .filter(Boolean).join(' ').normalize('NFKC');
+    return [...text.matchAll(/(?:19|20)\d{2}(?:年\s*\d{1,2}月\s*\d{1,2}日|[-/.]\s*\d{1,2}[-/.]\s*\d{1,2})/gu)]
+      .map(([date]) => {
+        const [year, month, day] = date.match(/\d+/gu).map(Number);
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+      });
+  };
+  const eventIdsByDate = new Map();
+  const hasQuotedSource = fact => fact.source === 'description' && fact.verification === 'quoted'
+    && reliableCertainties.has(fact.certainty);
+  for (const fact of facts.filter(item => item.eventId && hasQuotedSource(item))) {
+    for (const date of dateKeys(fact)) {
+      const owners = eventIdsByDate.get(date) || new Set();
+      owners.add(fact.eventId);
+      eventIdsByDate.set(date, owners);
+    }
+  }
+  const linkedUnscopedFacts = new Map(eventIds.map(eventId => [eventId, []]));
+  const linkedFacts = new Set();
+  for (const fact of unscopedFacts.filter(hasQuotedSource)) {
+    const owners = new Set();
+    let ambiguousDate = false;
+    for (const date of dateKeys(fact)) {
+      const matchingEvents = eventIdsByDate.get(date);
+      if (!matchingEvents) continue;
+      if (matchingEvents.size !== 1) ambiguousDate = true;
+      else owners.add([...matchingEvents][0]);
+    }
+    if (!ambiguousDate && owners.size === 1) {
+      const [eventId] = owners;
+      linkedUnscopedFacts.get(eventId)?.push(fact);
+      linkedFacts.add(fact);
+    }
+  }
+  const remainingUnscopedFacts = unscopedFacts.filter(fact => !linkedFacts.has(fact));
   const scopes = [...eventIds.map(eventId => ({ eventId, facts: facts.filter(fact => fact.eventId === eventId) }))];
   const conditionFields = new Set();
   const collectFields = node => {
-    if (node.op === 'condition') conditionFields.add(node.factMatch?.field || node.predicate?.field);
-    else for (const child of node.children || []) collectFields(child);
+    if (node.op === 'condition') {
+      for (const field of conditionFactFields(node.factMatch, node.predicate)) conditionFields.add(field);
+    }
+    if (node.confirmedBy) {
+      for (const field of conditionFactFields(node.confirmedBy)) conditionFields.add(field);
+    }
+    for (const child of node.children || []) collectFields(child);
   };
   collectFields(conditionLogic.logic);
-  const relevantUnscopedFacts = unscopedFacts.filter(fact => conditionFields.has(fact.field));
-  if (relevantUnscopedFacts.length || scopes.length === 0) scopes.push({ eventId: null, facts: relevantUnscopedFacts });
+  const supportingFactIds = new Set(facts.filter(fact => conditionFields.has(fact.field))
+    .flatMap(fact => fact.derivedFrom || []));
+  const relevantUnscopedFacts = unscopedFacts.filter(fact => conditionFields.has(fact.field)
+    || supportingFactIds.has(fact.id));
+  for (const scope of scopes) scope.facts.push(...(linkedUnscopedFacts.get(scope.eventId) || [])
+    .filter(fact => conditionFields.has(fact.field) || supportingFactIds.has(fact.id)));
+  const remainingRelevantFacts = relevantUnscopedFacts.filter(fact => remainingUnscopedFacts.includes(fact));
+  if (remainingRelevantFacts.length || scopes.length === 0) scopes.push({ eventId: null, facts: remainingRelevantFacts });
   const results = scopes.map(scope => evaluate(conditionLogic.logic, scope.facts, scope.eventId));
   return results.find(result => result.met === true)
     || results.every(result => result.met === false) && results[0]
@@ -183,6 +1157,67 @@ function collectLogicNodes(node, ancestors = [], output = []) {
 
 function evaluateLogicNode(node, facts) {
   return evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
+}
+
+function contradictsVerifiedRibFacts(text, facts) {
+  const reliable = fact => fact.source === 'description' && fact.verification === 'quoted'
+    && reliableCertainties.has(fact.certainty);
+  const ribFacts = facts.filter(fact => ['injury_type', 'anatomical_site', 'laterality',
+    'fractured_rib_numbers', 'fractured_rib_count', 'fracture_site_count'].includes(fact.field) && reliable(fact));
+  const ribEventIds = new Set(ribFacts.map(fact => fact.eventId).filter(Boolean));
+  const lateralityByEvidence = new Map();
+  for (const fact of facts) {
+    if (fact.field !== 'laterality' || !['left', 'right'].includes(fact.value) || !reliable(fact)) continue;
+    const key = JSON.stringify([fact.source, fact.eventId, normalize(fact.evidence)]);
+    lateralityByEvidence.set(key, fact.value);
+  }
+  const ordinalsBySide = new Map([['left', new Set()], ['right', new Set()]]);
+  for (const fact of facts) {
+    if (fact.field !== 'fractured_rib_numbers' || !Array.isArray(fact.value) || !reliable(fact)) continue;
+    const key = JSON.stringify([fact.source, fact.eventId, normalize(fact.evidence)]);
+    const side = lateralityByEvidence.get(key);
+    if (!side) continue;
+    for (const ordinal of fact.value) ordinalsBySide.get(side)?.add(ordinal);
+  }
+  const leftOrdinals = ordinalsBySide.get('left');
+  const rightOrdinals = ordinalsBySide.get('right');
+  const unambiguousEventScope = ribEventIds.size <= 1
+    && ribFacts.every(fact => !fact.eventId || fact.eventId === [...ribEventIds][0]);
+  const hasDisjointOppositeSideOrdinals = leftOrdinals.size > 0 && rightOrdinals.size > 0
+    && [...leftOrdinals].every(ordinal => !rightOrdinals.has(ordinal));
+  const claimsOppositeSideOrdinalConflict = /(?:侧别.{0,32}(?:重叠|矛盾|冲突)|(?:重叠|矛盾|冲突).{0,32}侧别)/u.test(text)
+    && /(?:左侧|左边)/u.test(text) && /(?:右侧|右边)/u.test(text);
+  if (unambiguousEventScope && hasDisjointOppositeSideOrdinals && claimsOppositeSideOrdinalConflict) return true;
+  if (ribEventIds.size !== 1 || ribFacts.some(fact => !fact.eventId)) return false;
+  const hasSiteCount = facts.some(fact => fact.field === 'fracture_site_count' && reliable(fact));
+  const hasRootCount = facts.some(fact => fact.field === 'fractured_rib_count' && reliable(fact));
+  const mentionsSiteCount = /骨折处数|肋骨骨折处数|骨折数量|骨折总数|具体数量/u.test(text);
+  const mentionsRootCount = /骨折肋骨根数|肋骨根数|骨折根数/u.test(text);
+  const statesCountUnknown = /缺失|未(?:明确|提供|记载|确定)|不明确|尚未(?:明确|提供|确认|确定)|无法确定|待核实|需核实|需要核实|待确认|需确认|需要确认|确认(?:是|为|是否)\s*(?:[0-9一二两三四五六七八九十]+\s*处)/u.test(text);
+  if (statesCountUnknown && (hasSiteCount && mentionsSiteCount || hasRootCount && mentionsRootCount)) return true;
+  const hasExplicitNoPriorRibInjury = facts.some(fact => fact.field === 'prior_injury'
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && ['reported', 'observed', 'derived', 'excluded'].includes(fact.certainty)
+    && /(?:既往|陈旧性?|旧伤).{0,20}(?:无|没有|未见|未发现|否认)|(?:无|没有|未见|未发现|否认).{0,20}(?:既往|陈旧性?|旧伤)/u.test(fact.evidence)
+    && /肋骨|骨折/u.test(fact.evidence));
+  const questionsPriorRibCount = /(?:数量|处数).{0,12}(?:是否包含|是否计入).{0,12}(?:陈旧|既往|旧伤)|(?:是否包含|是否计入).{0,12}(?:陈旧|既往|旧伤).{0,12}(?:数量|处数)/u.test(text);
+  if (hasExplicitNoPriorRibInjury && questionsPriorRibCount) return true;
+
+  const sidesByOrdinal = new Map();
+  for (const fact of facts) {
+    if (fact.field !== 'fractured_rib_numbers' || !fact.eventId || !Array.isArray(fact.value) || !reliable(fact)) continue;
+    const key = JSON.stringify([fact.source, fact.eventId, normalize(fact.evidence)]);
+    const side = lateralityByEvidence.get(key);
+    if (!side) continue;
+    for (const ordinal of fact.value) {
+      const ordinalKey = JSON.stringify([fact.eventId, ordinal]);
+      sidesByOrdinal.set(ordinalKey, new Set([...(sidesByOrdinal.get(ordinalKey) || []), side]));
+    }
+  }
+  const hasVerifiedBilateralSameOrdinal = [...sidesByOrdinal.values()].some(sides => sides.has('left') && sides.has('right'));
+  const questionsVerifiedBilateralOrdinal = /(?:明确|确认|核实|是否|待确认|需确认).{0,24}(?:双侧|两侧|左右).{0,16}第\s*(?:[0-9零〇一二两三四五六七八九十]+)\s*肋骨/u.test(text);
+  const questionsSameRib = /(?:侧别不同|同一(?:根|条)?肋骨|同根肋骨).{0,24}(?:需|待|是否|确认|核实)|(?:确认|核实).{0,24}(?:是否为)?同一(?:根|条)?肋骨/u.test(text);
+  return hasVerifiedBilateralSameOrdinal && (questionsSameRib || questionsVerifiedBilateralOrdinal);
 }
 
 function bindExplicitGroups(clause, proposedConditions, facts) {
@@ -235,13 +1270,14 @@ function bindExplicitGroups(clause, proposedConditions, facts) {
   const met = allGroupsBound && !invalid ? root.met : null;
   const displayGroups = groups.length <= 12 ? groups : [logic];
   const displayResults = groups.length <= 12 ? groupResults : [met === null ? { met: null, evidence: '', factIds: [] } : root];
+  const conditions = displayGroups.map((group, index) => ({ condition: logicGroupText(group),
+    evidence: displayResults[index].evidence, factIds: displayResults[index].factIds, met: displayResults[index].met }));
   return {
     invalid,
     met,
     evidence: root.evidence,
     factIds: root.factIds,
-    conditions: displayGroups.map((group, index) => ({ condition: logicGroupText(group),
-      evidence: displayResults[index].evidence, factIds: displayResults[index].factIds, met: displayResults[index].met })),
+    conditions,
   };
 }
 
@@ -297,21 +1333,167 @@ function deterministicRibReferences(clauses, facts, sourceUrl) {
   }).sort((a, b) => a.id.localeCompare(b.id, 'en'));
 }
 
+function deterministicExplicitReferences(clauses, facts, sourceUrl) {
+  return clauses.flatMap(clause => {
+    if (clause.conditionLogic?.annotation !== 'explicit') return [];
+    const evaluated = evaluateConditionLogic(clause.conditionLogic, facts);
+    if (evaluated.met !== true) return [];
+    const groups = logicGroups(clause.conditionLogic.logic);
+    const conditions = groups.map(group => {
+      const result = evaluateLogicNode(group, facts);
+      return { condition: logicGroupText(group), evidence: result.evidence, factIds: result.factIds, met: result.met };
+    });
+    if (conditions.some(condition => condition.met !== true)) return [];
+    return [{ ...clause, sourceUrl, evidence: evaluated.evidence,
+      reasoning: '经来源核验的材料事实满足本地明确标注的条款逻辑条件。', relation: 'supports', conditions }];
+  });
+}
+
+function ungradedShockDiagnosis(facts, sourceText) {
+  return facts.find(fact => fact.field === 'diagnosis'
+    && ['reported', 'observed', 'derived'].includes(fact.certainty)
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && /休克/u.test(`${fact.value} ${fact.evidence}`)
+    && !/(?:既往|曾因|既往史|历史|未见|否认|排除)/u.test(fact.evidence)
+    && /(?:受伤|损伤|外伤|刀伤|刺伤|砍伤|殴打|车祸|交通事故|创伤|伤口)/u.test(sourceText)
+    && !/(?:轻度|中度|重度|代偿期|失代偿期)/u.test(`${fact.value} ${fact.evidence}`));
+}
+
+function deterministicUnresolvedShockReferences(clauses, facts, sourceText, sourceUrl) {
+  const shockFact = ungradedShockDiagnosis(facts, sourceText);
+  if (!shockFact) return [];
+  const severityClauseIds = new Set(['5.12.2.d', '5.12.4.f']);
+  return clauses.filter(clause => severityClauseIds.has(clause.id)).map(clause => ({
+    ...clause,
+    sourceUrl,
+    evidence: shockFact.evidence,
+    reasoning: '材料记载休克诊断，但未明确休克程度；本条暂不用于等级判断。',
+    relation: 'incomplete',
+    conditions: [{ condition: clause.text, evidence: shockFact.evidence, factIds: [shockFact.id], met: null }],
+  }));
+}
+
+function partialAsphyxiaCueFacts(facts, sourceText) {
+  const sourceCue = /(?:额部|面部|颜面|眼周|眼睑).{0,20}针尖.{0,6}出血点/u.test(sourceText)
+    && /颈部.{0,20}(?:条纹环绕|掐痕|勒痕|皮肤淤紫|出血点)/u.test(sourceText);
+  if (!sourceCue) return null;
+  const reliable = fact => ['reported', 'observed', 'derived'].includes(fact.certainty)
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && !/(?:既往|曾因|未见|否认|排除)/u.test(fact.evidence);
+  const petechiae = facts.find(fact => reliable(fact)
+    && /(?:额部|面部|颜面|眼周|眼睑)/u.test(`${fact.value} ${fact.evidence}`)
+    && /针尖.{0,6}出血点/u.test(`${fact.value} ${fact.evidence}`));
+  const neckMark = facts.find(fact => reliable(fact)
+    && /颈部/u.test(`${fact.value} ${fact.evidence}`)
+    && /(?:条纹环绕|掐痕|勒痕|皮肤淤紫|出血点)/u.test(`${fact.value} ${fact.evidence}`));
+  const sourceFact = pattern => {
+    const match = pattern.exec(sourceText);
+    if (!match) return null;
+    const delimiters = ['。', '；', ';', '\n'];
+    const segmentStart = Math.max(...delimiters.map(delimiter => sourceText.lastIndexOf(delimiter, match.index - 1))) + 1;
+    const segmentEnd = Math.min(...delimiters.map(delimiter => {
+      const index = sourceText.indexOf(delimiter, match.index + match[0].length);
+      return index < 0 ? sourceText.length : index;
+    }));
+    const segment = sourceText.slice(segmentStart, segmentEnd);
+    if (/(?:既往|曾因|未见|否认|排除)/u.test(segment)) return null;
+    return { id: '', value: match[0], evidence: match[0] };
+  };
+  const sourcePetechiae = petechiae || sourceFact(/(?:额部|面部|颜面|眼周|眼睑)[^。；;\n]{0,32}?针尖样出血点/u);
+  const sourceNeckMark = neckMark || sourceFact(/颈部[^。；;\n]{0,32}?(?:条纹环绕|掐痕|勒痕|皮肤淤紫|出血点)/u);
+  return sourcePetechiae && sourceNeckMark ? { petechiae: sourcePetechiae, neckMark: sourceNeckMark } : null;
+}
+
+function deterministicUnresolvedAsphyxiaReferences(clauses, facts, sourceText, sourceUrl, references) {
+  if (references.some(reference => reference.id === '5.5.4.h' && reference.relation === 'supports')) return [];
+  const cues = partialAsphyxiaCueFacts(facts, sourceText);
+  if (!cues) return [];
+  const byId = new Map(clauses.map(clause => [clause.id, clause]));
+  const neckClause = byId.get('5.5.4.h');
+  const otherClause = byId.get('5.12.4.g');
+  return [
+    ...(neckClause ? [{ ...neckClause, sourceUrl, evidence: cues.neckMark.evidence,
+      reasoning: '原文记录颈部标记及面/眼部针尖样出血点；是否符合标准所称窒息征象仍需专业核实。',
+      relation: 'incomplete', conditions: [
+        { condition: '颈部损伤', evidence: cues.neckMark.evidence, factIds: cues.neckMark.id ? [cues.neckMark.id] : [], met: true },
+        { condition: '出现窒息征象', evidence: cues.petechiae.evidence, factIds: cues.petechiae.id ? [cues.petechiae.id] : [], met: null },
+      ] }] : []),
+    ...(otherClause ? [{ ...otherClause, sourceUrl, evidence: cues.petechiae.evidence,
+      reasoning: '条款还要求呼吸功能障碍；现有材料不足以确认该条件或窒息征象。',
+      relation: 'incomplete', conditions: [
+        { condition: '呼吸功能障碍', evidence: '', factIds: [], met: null },
+        { condition: '出现窒息征象', evidence: cues.petechiae.evidence, factIds: cues.petechiae.id ? [cues.petechiae.id] : [], met: null },
+      ] }] : []),
+  ].filter(reference => {
+    const existing = references.find(item => item.id === reference.id);
+    return !existing || existing.relation === 'incomplete';
+  });
+}
+
+function includeDerivedParents(facts, factIds) {
+  const factsById = new Map(facts.map(fact => [fact.id, fact]));
+  const selected = new Map();
+  const visit = id => {
+    if (selected.has(id)) return;
+    const fact = factsById.get(id);
+    if (!fact) return;
+    selected.set(id, fact);
+    for (const parentId of fact.derivedFrom || []) visit(parentId);
+  };
+  for (const id of factIds) visit(id);
+  return [...selected.values()];
+}
+
+function includeLinkedEventFacts(facts, factIds) {
+  const selected = includeDerivedParents(facts, factIds);
+  const eventIds = new Set(selected.map(fact => fact.eventId).filter(Boolean));
+  if (!eventIds.size) return selected;
+  const expanded = [...new Map([...selected, ...facts.filter(fact => eventIds.has(fact.eventId))]
+    .map(fact => [fact.id, fact])).values()];
+  return includeDerivedParents(expanded, expanded.map(fact => fact.id));
+}
+
 export function normalizeResult(raw, input, context) {
   const generated = providerResultSchema.parse(raw);
+  const sanitizeModelText = text => {
+    const value = typeof text === 'string' ? text : '';
+    if (/\bF\d+\b/u.test(value)) return '';
+    if (!/(?:\beventId\b|\bfactIds?\b|\bconditionLogic\b|\bschema\b|规范事实数据|映射到条款条件)/iu.test(value)) return value;
+    if (/(?:\beventId\b|事件归属)/iu.test(value)) return '补充原始病历以确认相关事实是否属于同一次外伤事件。';
+    return '补充原始病历以核实相关事实依据。';
+  };
   const { standard } = catalogs[input.assessmentType];
   const allowedClauses = new Map(context.clauses.map(clause => [clause.id, clause]));
   const principles = new Map(catalogs[input.assessmentType].principles.map(item => [item.id,
     { ...item, grade: '', category: '总则与附则' }]));
   const recognizedText = context.recognizedText || '';
   const sourceText = `${input.description}\n${recognizedText}`;
+  const sourceSentences = sourceText.split(/[。！？；;\n]/u);
+  const woundTerm = /创口|伤口|瘢痕|疤痕|裂伤|裂创/u;
+  const sourceHasScalpLocation = sourceSentences.some(sentence => woundTerm.test(sentence)
+    && /头皮|头顶部|额顶部|顶枕部|额颞部|枕部|颞部|发际/u.test(sentence));
+  const sourceHasFaceLocation = sourceSentences.some(sentence => woundTerm.test(sentence)
+    && /面部|颜面|脸部|面颊|颊部|颧部|鼻部|鼻梁|鼻翼|眼睑|眉部|口唇|唇部|下颌/u.test(sentence));
+  const unsupportedHeadFaceWoundAdvice = text => {
+    if (!/(?:创口|伤口|瘢痕|疤痕|裂伤|裂创)/u.test(text)) return false;
+    const adviceHasFace = /面部|颜面|脸部|面颊|颊部|颧部|鼻部|鼻梁|鼻翼|眼睑|眉部|口唇|唇部|下颌/u.test(text);
+    const adviceHasScalp = /头皮|头顶部|额顶部|顶枕部|额颞部|枕部|颞部|发际/u.test(text);
+    return adviceHasFace && sourceHasScalpLocation && !sourceHasFaceLocation
+      || adviceHasScalp && sourceHasFaceLocation && !sourceHasScalpLocation;
+  };
   const allowedIds = new Set([...allowedClauses.keys()].flatMap(id => [id, id.split('.').slice(0, 3).join('.')])
     .concat(catalogs[input.assessmentType].principles.map(item => item.id)));
   const inlineIds = generated.reasoning.normalize('NFKC').match(/[456]\.\d+\.\d+(?:\.[a-z]|\.\d+|[a-z])?\b/g) || [];
   const unknownInlineCitation = inlineIds.some(id => !allowedIds.has(id) && !allowedIds.has(id.replace(/(\d)([a-z])$/, '$1.$2')));
-  const warnings = [...generated.warnings, ...(context.extractionWarnings || [])];
+  const warnings = [];
   const conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
-  const requiresReview = context.requiresReview === true || conflicts.length > 0;
+  const unsupportedDiscrepancyLanguage = /(?:冲突|矛盾|不一致|两种(?:测量|数据)|数据.{0,12}(?:存在差异|不一致))/u;
+  const multipleDatedEvents = hasDistinctDatedInjuryEvents(input.description);
+  const requiresReview = context.requiresReview === true || conflicts.length > 0 || multipleDatedEvents;
+  if (multipleDatedEvents) warnings.push('材料涉及多个日期不同的受伤事件，当前事实未能可靠确定本次评估对象，需先核实事件归属。');
+  if (hasExplicitAndRelativeInjuryDate(input.description)) {
+    warnings.push('材料同时记载具体受伤日期与相对时间，请结合原始病历核实时间线及骨折与本次事件的关联；该提示本身不等同于骨折证据冲突。');
+  }
   const hasValidatedFacts = Array.isArray(context.extractedFacts);
   const missingMaterials = canonicalMissingMaterials([
     ...(hasValidatedFacts ? [] : generated.missingMaterials),
@@ -324,13 +1506,16 @@ export function normalizeResult(raw, input, context) {
   }));
   for (const fact of sourceFacts) {
     const source = fact.source === 'image' ? recognizedText : input.description;
-    if (!includesEvidence(source, fact.evidence)) {
-      warnings.push('部分事实无法在提交材料中回查，已移除，不能作为等级依据。');
-      continue;
-    }
     const sourceRefs = Array.isArray(fact.sourceRefs)
       ? fact.sourceRefs.filter(reference => sourceReferenceMatches(reference, { description: input.description, recognizedText }))
       : undefined;
+    const quotedSourceRefs = Boolean(sourceRefs?.length);
+    const allDerivedSourcesTraceable = fact.field !== 'lip_through_wound_length_cm'
+      || quotedSourceRefs && sourceRefs.length === fact.sourceRefs.length;
+    if (!includesEvidence(source, fact.evidence) && !quotedSourceRefs || !allDerivedSourcesTraceable) {
+      warnings.push('部分事实无法在提交材料中回查，已移除，不能作为等级依据。');
+      continue;
+    }
     if (Array.isArray(fact.sourceRefs) && !sourceRefs.length) {
       warnings.push('事实来源无法对应到原始文本或图片页，已移除，不能作为等级依据。');
       continue;
@@ -339,36 +1524,203 @@ export function normalizeResult(raw, input, context) {
     facts.push({ ...fact, ...(sourceRefs ? { sourceRefs } : {}), finding: fact.finding || `${fact.field}：${Array.isArray(fact.value) ? fact.value.join('、') : String(fact.value ?? '')}`,
       verification: fact.source === 'image' ? 'image_pending' : 'quoted' });
   }
-  let invalidReference = unknownInlineCitation;
+  const contradictedAdvice = text => !requiresReview && contradictsVerifiedRibFacts(text, facts);
+  const hasSourceFractureMention = /骨折|fracture/iu.test(`${input.description} ${recognizedText}`)
+    || facts.some(fact => /骨折|fracture/iu.test(`${fact.value} ${fact.evidence}`));
+  const fractureAdviceSiteGroups = [
+    ['肋骨'], ['鼻骨', '鼻'], ['上颌骨', '下颌骨', '颌骨'], ['骨盆', '耻骨', '髋臼'],
+    ['椎体', '脊柱'], ['锁骨'], ['肩胛骨'], ['胸骨'], ['股骨'], ['胫骨'], ['腓骨'],
+    ['髌骨'], ['肱骨'], ['尺骨'], ['桡骨'], ['掌骨', '手部', '手指'], ['跖骨', '趾骨', '足部'],
+    ['颅骨', '枕骨', '额骨', '顶骨', '颞骨'],
+  ];
+  const sourceFractureText = normalize(facts.filter(fact => fact.source === 'description' && fact.verification === 'quoted'
+    && ['reported', 'observed', 'derived'].includes(fact.certainty)
+    && /骨折|fracture/iu.test(`${fact.value} ${fact.evidence}`))
+    .map(fact => `${fact.value} ${fact.evidence}`).join(' '));
+  const sourceHasFractureSite = group => {
+    if (group.some(site => sourceFractureText.includes(normalize(site)))) return true;
+    const sourceFragments = `${input.description}\n${recognizedText}`.split(/[。！？；;\n]/u).map(normalize);
+    return sourceFragments.some(fragment => {
+      const fractureIndexes = [...fragment.matchAll(/骨折|fracture/giu)].map(match => match.index);
+      return group.some(site => {
+        const normalizedSite = normalize(site);
+        let siteIndex = fragment.indexOf(normalizedSite);
+        while (siteIndex >= 0) {
+          if (fractureIndexes.some(fractureIndex => {
+            if (Math.abs(fractureIndex - siteIndex) > 24) return false;
+            const nearby = fragment.slice(Math.max(0, Math.min(fractureIndex, siteIndex) - 12),
+              Math.min(fragment.length, Math.max(fractureIndex, siteIndex) + 12));
+            return !/(?:未见|未发现|未提示|无|否认|排除|不支持|不考虑|非)/u.test(nearby);
+          })) return true;
+          siteIndex = fragment.indexOf(normalizedSite, siteIndex + normalizedSite.length);
+        }
+        return false;
+      });
+    });
+  };
+  const unsupportedFractureAdvice = text => {
+    if (!/骨折|fracture|影像|X线|CT|MRI/iu.test(text)) return false;
+    const advice = normalize(text);
+    const adviceSiteGroups = fractureAdviceSiteGroups.filter(group => group.some(site => advice.includes(normalize(site))));
+    if (adviceSiteGroups.some(group => !sourceHasFractureSite(group))) return true;
+    return /骨折|fracture/iu.test(text) && !hasSourceFractureMention;
+  };
+  const jawFunctionTerms = /张口|咬合|咀嚼|颞颌|颞下颌/u;
+  const sourceJawEvidence = normalize(`${input.description} ${recognizedText} ${facts.map(fact => `${fact.value} ${fact.evidence}`).join(' ')}`);
+  const hasSourceJawEvidence = /(?:上颌骨|下颌骨|颌骨|颞颌|颞下颌|牙齿|口腔|张口|咬合|咀嚼)/u.test(sourceJawEvidence);
+  const unsupportedJawFunctionAdvice = text => jawFunctionTerms.test(text) && !hasSourceJawEvidence;
+  const modelNarrativeEvidence = normalize(`${sourceText} ${facts.map(fact => `${fact.value} ${fact.evidence}`).join(' ')}`)
+    .replace(/左侧/gu, '左').replace(/右侧/gu, '右').replace(/双侧/gu, '双')
+    .replace(/(?:额骨|顶骨|枕骨|颞骨|蝶骨|筛骨)骨折/gu, match => `${match}颅骨骨折`);
+  const sideSpecificSites = ['耳道', '耳', '眼', '鼻', '肋骨', '肺', '额部', '额叶', '颞部', '颞叶',
+    '顶骨', '枕骨', '上肢', '下肢', '肢体', '手背', '手部', '足部', '肩', '膝', '脊柱', '肾', '脾'];
+  const unsupportedLateralityClaim = text => {
+    const narrative = normalize(text).replace(/左侧/gu, '左').replace(/右侧/gu, '右').replace(/双侧/gu, '双');
+    for (const site of sideSpecificSites) {
+      for (const side of ['左', '右', '双']) {
+        if (narrative.includes(`${side}${site}`) && !modelNarrativeEvidence.includes(`${side}${site}`)) return true;
+      }
+    }
+    return false;
+  };
+  const unsupportedMedicalClaim = text => {
+    const claims = text.match(/(?:脑|颅|神经|血管|肺|胸|腹|肾|脾|肝|心|眼|耳|鼻|颈|脊髓|肢体|骨|硬膜|内脏|外伤)[\p{Script=Han}]{0,10}(?:疾病|病史|病|症|损伤|漏|癫痫|梗死|疝|气胸|血胸|出血|血肿|挫伤|挫裂伤|骨折|断裂|破裂|脱位|积液|撕裂|瘫痪|失语|软化灶|水肿|动脉瘤|积血|受压)/gu) || [];
+    return claims.some(claim => !modelNarrativeEvidence.includes(normalize(claim)));
+  };
+  const unsupportedOmissionClaim = text => {
+    const clinicalEvidenceTerms = ['GCS', '格拉斯哥', '瞳孔', '对光反射', 'Babinski', '巴彬斯基',
+      '浅昏迷', '昏迷', '肌力', '肌张力', '蛛网膜下腔出血', '脑挫裂伤', '硬膜下出血', '耳道出血'];
+    const omissions = text.match(/(?:未提供|未记载|未提及|缺乏|没有提供|未明确)[^，,。；;]{0,20}/gu) || [];
+    return omissions.some(omission => clinicalEvidenceTerms.some(term =>
+      normalize(omission).includes(normalize(term)) && modelNarrativeEvidence.includes(normalize(term))));
+  };
+  const unsupportedMechanismScopeClaim = text => {
+    const narrative = normalize(text);
+    return /(?:化学中毒|毒物中毒|中毒性脑病|氟乙酸盐|氟乙酰胺)/u.test(narrative)
+      && /(?:不属于|不在|超出|不适用|不纳入)/u.test(narrative)
+      && /(?:人体损伤程度鉴定标准|本标准)/u.test(narrative)
+      && /(?:适用范围|适用情形|适用|范围|致伤因素)/u.test(narrative);
+  };
+  const unsupportedModelNarrative = text => unsupportedLateralityClaim(text)
+    || unsupportedMedicalClaim(text) || unsupportedOmissionClaim(text) || unsupportedMechanismScopeClaim(text);
+  warnings.push(...generated.warnings.map(sanitizeModelText).filter(Boolean)
+    .filter(warning => !/^条款\s+\S+\s+的条件组存在重复或未映射文本，未用于等级判断。$/u.test(warning))
+    .filter(warning => !unsupportedModelNarrative(warning))
+    .filter(warning => conflicts.length > 0 || !unsupportedDiscrepancyLanguage.test(warning))
+    .filter(warning => !contradictedAdvice(warning))
+    .filter(warning => !unsupportedFractureAdvice(warning))
+    .filter(warning => !unsupportedJawFunctionAdvice(warning)), ...(context.extractionWarnings || []));
+  const nextSteps = generated.nextSteps.map(sanitizeModelText).filter(Boolean)
+    .filter(step => !unsupportedModelNarrative(step))
+    .filter(step => !contradictedAdvice(step))
+    .filter(step => !unsupportedFractureAdvice(step))
+    .filter(step => !unsupportedJawFunctionAdvice(step));
+  for (let index = missingMaterials.length - 1; index >= 0; index -= 1) {
+    if (contradictedAdvice(missingMaterials[index]) || unsupportedFractureAdvice(missingMaterials[index])
+      || unsupportedJawFunctionAdvice(missingMaterials[index]) || unsupportedMechanismScopeClaim(missingMaterials[index])) {
+      missingMaterials.splice(index, 1);
+    }
+  }
   let invalidRibConditionMapping = false;
   if (unknownInlineCitation) warnings.push('部分自由文本引用不在本次原文依据中，已不采纳其结论。');
   const references = [];
+  const hasSourceLinkedQuote = (quote, factIds = []) => Boolean(quote && includesEvidence(sourceText, quote)
+    && facts.some(fact => fact.evidence && includesEvidence(sourceText, fact.evidence)
+      && (factIds.includes(fact.id) || includesEvidence(quote, fact.evidence) || includesEvidence(fact.evidence, quote))));
+  const hasSourceLinkedConditionFact = conditions => conditions.some(condition =>
+    (condition.factIds || []).some(id => facts.some(fact => fact.id === id && fact.evidence
+      && includesEvidence(sourceText, fact.evidence)))
+    || hasSourceLinkedQuote(condition.evidence, condition.factIds || []));
+  const hasSourceLinkedReference = (conditions, evidence) => hasSourceLinkedConditionFact(conditions)
+    || hasSourceLinkedQuote(evidence);
+  const handSiteTerms = ['一手', '双手', '手一处', '手部', '手掌', '手背', '手指', '小指', '拇指', '食指', '中指', '无名指', '掌骨', '指骨'];
+  const footSiteTerms = ['一足', '双足', '足部', '足背', '足底', '足趾', '趾骨', '拇趾', '跖骨', '跖趾', '5趾', '4趾', '趾'];
+  const anatomicalSiteTerms = ['上颌骨', '下颌骨', '颌骨', '骨盆', '椎体', '脊柱', '锁骨', '肩胛骨', '肋骨',
+    '胸骨', '髋臼', '股骨', '胫骨', '腓骨', '髌骨', '肱骨', '尺骨', '桡骨', '胰头', '胰腺', '十二指肠', '小肠',
+    '睾丸', '阴囊', '阴茎', '尿道', '额部', '额头', '前额', '额顶部', '头额部', '颞部', '颞侧', '颧部', '面颊',
+    ...handSiteTerms, ...footSiteTerms, '下肢', '上肢', '踝关节', '膝关节', '髋关节', '肩关节', '腕关节', '肘关节',
+    '头面部', '面部', '鼻唇沟', '鼻骨', '口唇', '唇部', '上唇', '下唇', '唇红', '唇黏膜', '颅骨', '眼球', '眼', '耳廓', '耳', '鼻', '颈部', '胸部',
+    '腹部', '肺', '脾', '肾', '肝', '心脏', '脑'];
+  const containsSite = (text, terms) => terms.some(term => normalize(text).includes(normalize(term)));
+  const clauseHasVerifiedSiteMismatch = clause => {
+    const clauseText = normalize(clause.text);
+    const factText = facts.map(fact => `${fact.value} ${fact.evidence}`).join(' ');
+    const auricleMorphologyPattern = /(?:耳廓.{0,12}(?:缺损|缺如|缺失|畸形|变形|部分切除)|(?:缺损|缺如|缺失|畸形|变形|部分切除).{0,12}耳廓)/u;
+    if (/耳廓.{0,12}(?:缺损|畸形)|(?:缺损|畸形).{0,12}耳廓/u.test(clauseText)) {
+      const sourceSegments = normalize(`${sourceText} ${factText}`).split(/[，,；;。！？\n]+/u);
+      const hasConfirmedAuricleMorphology = sourceSegments.some(segment => {
+        const morphologyMatch = auricleMorphologyPattern.exec(segment);
+        auricleMorphologyPattern.lastIndex = 0;
+        if (!morphologyMatch) return false;
+        const morphologyIndex = morphologyMatch.index + morphologyMatch[0].search(/缺损|缺如|缺失|畸形|变形|部分切除/u);
+        const prefix = segment.slice(Math.max(0, morphologyIndex - 8), morphologyIndex);
+        return !/(?:无|没有|没见|未见|未发现|未发生|否认|排除|不伴).{0,8}$/u.test(prefix);
+      });
+      if (!hasConfirmedAuricleMorphology) return true;
+    }
+    const clauseHand = containsSite(clauseText, handSiteTerms);
+    const clauseFoot = containsSite(clauseText, footSiteTerms);
+    const factHand = containsSite(factText, handSiteTerms);
+    const factFoot = containsSite(factText, footSiteTerms);
+    if (clauseHand && factFoot && !clauseFoot && !factHand) return true;
+    if (clauseFoot && factHand && !clauseHand && !factFoot) return true;
+    const clauseSites = anatomicalSiteTerms.filter(site => clauseText.includes(normalize(site)));
+    if (!clauseSites.length) return false;
+    const normalizedFactText = normalize(factText);
+    const noseRegion = term => ['鼻梁', '鼻背'].includes(term) ? 'nasal_bridge' : term;
+    const noseTerms = ['鼻尖', '鼻翼', '鼻梁', '鼻背'];
+    const clauseNoseRegions = noseTerms.filter(site => clauseText.includes(normalize(site))).map(noseRegion);
+    const factNoseRegions = noseTerms.filter(site => normalizedFactText.includes(normalize(site))).map(noseRegion);
+    if (clauseNoseRegions.length && factNoseRegions.length
+      && !clauseNoseRegions.some(site => factNoseRegions.includes(site))) return true;
+    const factSites = anatomicalSiteTerms.filter(site => normalizedFactText.includes(normalize(site)));
+    if (factSites.includes('鼻唇沟') && !factSites.includes('面部')) factSites.push('面部');
+    if (factSites.some(site => ['额部', '额头', '前额', '额顶部', '头额部', '颞部', '颞侧', '颧部', '面颊'].includes(site))
+      && !factSites.includes('面部')) factSites.push('面部');
+    if (!factSites.length) return false;
+    return !clauseSites.some(clauseSite => factSites.some(factSite =>
+      clauseSite === factSite || clauseSite.includes(factSite) || factSite.includes(clauseSite)));
+  };
+  const mentionsOnlyOffSiteHandOrFoot = text => {
+    const mentionsHand = containsSite(text, handSiteTerms);
+    const mentionsFoot = containsSite(text, footSiteTerms);
+    const factText = facts.map(fact => `${fact.value} ${fact.evidence}`).join(' ');
+    const factsHaveHand = containsSite(factText, handSiteTerms);
+    const factsHaveFoot = containsSite(factText, footSiteTerms);
+    return mentionsHand && factsHaveFoot && !mentionsFoot && !factsHaveHand
+      || mentionsFoot && factsHaveHand && !mentionsHand && !factsHaveFoot;
+  };
   for (const proposed of generated.references) {
     const clause = allowedClauses.get(proposed.clauseId) || principles.get(proposed.clauseId);
     if (!clause) {
-      invalidReference = true;
       warnings.push(`条款 ${proposed.clauseId} 不在本次官方原文依据中，已移除。`);
+      continue;
+    }
+    if (clause.grade && clauseHasVerifiedSiteMismatch(clause)) {
+      warnings.push('与已核验事实的部位或损伤性质不符的候选条款已移除。');
       continue;
     }
     if (clause.grade && clause.conditionLogic?.annotation === 'opaque') {
       references.push({ ...clause, sourceUrl: standard.sourceUrl,
-        evidence: includesEvidence(sourceText, proposed.evidence) ? proposed.evidence : '',
+        evidence: '',
         reasoning: '本条款的条件逻辑尚未完成安全标注，状态保持未知，不用于当前定级。', relation: 'incomplete',
         conditions: [{ condition: clause.text, evidence: '', factIds: [], met: null }] });
       continue;
     }
     if (clause.grade && clause.conditionLogic?.annotation === 'explicit') {
       const bound = bindExplicitGroups(clause, proposed.conditions, facts);
-      if (bound.invalid) {
-        if (/肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;
-        else {
-          invalidReference = true;
-          warnings.push(`条款 ${clause.id} 的条件组存在重复或未映射文本，未用于等级判断。`);
-        }
+      if (bound.invalid && /肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;
+      if (clause.grade && proposed.relation === 'differential'
+        && !hasSourceLinkedReference(bound.conditions, proposed.evidence)) {
+        warnings.push(`条款 ${clause.id} 没有关联到可回查事实，已移除。`);
+        continue;
+      }
+      if (bound.invalid && !/肋骨骨折/.test(clause.text)) {
+        warnings.push(`条款 ${clause.id} 的条件组存在重复或未映射文本，未用于等级判断。`);
       }
       const confirmed = bound.met === true;
       references.push({ ...clause, sourceUrl: standard.sourceUrl,
-        evidence: includesEvidence(sourceText, proposed.evidence) ? proposed.evidence : bound.evidence,
+        evidence: bound.evidence,
         reasoning: confirmed ? '来源可回查事实满足本地条款的显式逻辑条件。' : '材料原文尚不能完整支持本条逻辑条件，需补充或核对。',
         relation: proposed.relation === 'differential' ? 'differential' : confirmed ? 'supports' : 'incomplete',
         conditions: bound.conditions });
@@ -377,7 +1729,6 @@ export function normalizeResult(raw, input, context) {
     const conditions = proposed.conditions.map(condition => {
       const canonicalCondition = officialCondition(condition.condition, clause.text);
       if (!canonicalCondition && clause.grade) {
-        invalidReference = true;
         warnings.push(`条款 ${clause.id} 的条件描述不在本地条文中，未用于等级判断。`);
       }
       const conditionText = canonicalCondition || condition.condition;
@@ -427,24 +1778,65 @@ export function normalizeResult(raw, input, context) {
         for (const condition of conditions) if (condition.met === false) condition.met = null;
       }
     }
+    if (clause.grade && proposed.relation === 'differential'
+      && !hasSourceLinkedReference(conditions, proposed.evidence)) {
+      warnings.push(`条款 ${clause.id} 没有关联到可回查事实，已移除。`);
+      continue;
+    }
     const aggregateTraceable = includesEvidence(sourceText, proposed.evidence);
     const confirmed = conditionsSatisfyClause(conditions, clause.text);
     if (!aggregateTraceable && proposed.relation === 'supports' && confirmed) {
       warnings.push('部分条款汇总引用未能逐字回查，已用逐项核对的材料原文替代。');
     }
     const relation = proposed.relation === 'differential' ? 'differential' : confirmed ? 'supports' : 'incomplete';
-    references.push({ ...clause, sourceUrl: standard.sourceUrl, evidence: aggregateTraceable ? proposed.evidence : conditions.find(condition => condition.evidence)?.evidence || '',
+    references.push({ ...clause, sourceUrl: standard.sourceUrl,
+      evidence: conditions.map(condition => condition.evidence).filter(Boolean).join('；'),
       reasoning: confirmed ? '可回查事实与本地条文列出的适用条件相符。'
         : '材料原文尚不能完整支持本条条件，需补充或核对，不用于当前定级。',
       relation, conditions });
   }
+  const stableExplicitReferences = !requiresReview
+    ? deterministicExplicitReferences(catalogs[input.assessmentType].clauses, facts, standard.sourceUrl) : [];
+  for (const reference of stableExplicitReferences) {
+    const existingIndex = references.findIndex(item => item.id === reference.id);
+    if (existingIndex >= 0) references.splice(existingIndex, 1, reference);
+    else references.push(reference);
+  }
+  const supportsScalpClause = references.some(reference => reference.id === '5.1.4.a'
+    && reference.relation === 'supports');
+  const measuredWounds = facts.filter(fact => fact.field === 'wound_length_cm'
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && reliableCertainties.has(fact.certainty));
+  const usesDedicatedHeadFaceAuricleSites = measuredWounds.length > 0 && measuredWounds.every(fact =>
+    /(?:头皮|头顶部|额顶部|后枕部|颞枕部|顶枕部|枕骨隆突部|枕项部|顶部|枕部|颞部|发际内|发际线|面部|脸部|额部|前额|额头|眉弓|眉部|颊部|面颊|颧部|鼻部|鼻背|鼻梁|唇部|口唇|上唇|下颌|耳廓)/u.test(fact.evidence));
+  if (supportsScalpClause && usesDedicatedHeadFaceAuricleSites) {
+    for (let index = references.length - 1; index >= 0; index -= 1) {
+      if (references[index].id !== '5.11.3.b' || references[index].relation !== 'supports') continue;
+      const referencedFacts = [...new Set((references[index].conditions || []).flatMap(condition => condition.factIds || []))]
+        .map(id => facts.find(fact => fact.id === id)).filter(Boolean);
+      const lengthFacts = referencedFacts.filter(fact => fact.field === 'wound_length_cm');
+      if (lengthFacts.length && lengthFacts.every(fact =>
+        /(?:头皮|头顶部|额顶部|后枕部|颞枕部|顶枕部|枕骨隆突部|枕项部|顶部|枕部|颞部|发际内|发际线|面部|脸部|额部|前额|额头|眉弓|眉部|颊部|面颊|颧部|鼻部|鼻背|鼻梁|唇部|口唇|上唇|下颌|耳廓)/u.test(fact.evidence))) {
+        references.splice(index, 1);
+      }
+    }
+  }
+  if (input.assessmentType === 'injury' && !requiresReview) {
+    for (const reference of deterministicUnresolvedShockReferences(context.clauses, facts, sourceText, standard.sourceUrl)) {
+      if (!references.some(item => item.id === reference.id)) references.push(reference);
+    }
+    for (const reference of deterministicUnresolvedAsphyxiaReferences(context.clauses, facts, sourceText, standard.sourceUrl, references)) {
+      const existingIndex = references.findIndex(item => item.id === reference.id);
+      if (existingIndex >= 0) references.splice(existingIndex, 1, reference);
+      else references.push(reference);
+    }
+  }
   const hasReliableRibFact = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture'
     && ['reported', 'observed', 'derived'].includes(fact.certainty)
     && fact.source === 'description' && fact.verification === 'quoted');
-  const stableRibReferences = !requiresReview && hasReliableRibFact
+  const stableRibReferences = input.assessmentType === 'injury' && !requiresReview && hasReliableRibFact
     ? deterministicRibReferences(context.clauses, facts, standard.sourceUrl) : [];
   if (invalidRibConditionMapping && !requiresReview && !stableRibReferences.length) {
-    invalidReference = true;
     warnings.push('肋骨条款条件组存在重复或未映射文本，且无法由已核验事实重新评估。');
   }
   if (stableRibReferences.length) {
@@ -455,34 +1847,85 @@ export function normalizeResult(raw, input, context) {
   let grade = generated.grade;
   if (requiresReview) status = 'needs_review';
   const blockingMissingMaterials = !hasValidatedFacts && missingMaterials.length > 0;
-  const supportedReference = references.find(reference => grades[input.assessmentType].includes(reference.grade)
-    && (stableRibReferences.length > 0 || generated.grade == null || generated.grade === reference.grade)
+  let supportedReference = references.filter(reference => grades[input.assessmentType].includes(reference.grade)
     && reference.relation === 'supports' && reference.conditions.length > 0
     && (reference.conditionLogic?.annotation === 'explicit'
-      ? evaluateConditionLogic(reference.conditionLogic, facts.filter(fact => reference.conditions.some(condition => condition.factIds?.includes(fact.id)))).met === true
-      : conditionsSatisfyClause(reference.conditions, reference.text)));
+      ? evaluateConditionLogic(reference.conditionLogic, includeLinkedEventFacts(facts,
+        reference.conditions.flatMap(condition => condition.factIds || []))).met === true
+      : conditionsSatisfyClause(reference.conditions, reference.text)))
+    .sort((left, right) => grades[input.assessmentType].indexOf(left.grade) - grades[input.assessmentType].indexOf(right.grade)
+      || left.id.localeCompare(right.id, 'en'))[0];
+  if (!supportedReference && input.assessmentType === 'injury'
+    && facts.some(fact => fact.field === 'fractured_rib_numbers' && fact.source === 'description'
+      && fact.verification === 'quoted' && reliableCertainties.has(fact.certainty))) {
+    const lowerRibThresholdReference = references.filter(reference => grades.injury.includes(reference.grade)
+      && reference.relation === 'differential' && reference.conditions.length > 0
+      && reference.conditions.every(condition => condition.met === true)
+      && reference.conditions.some(condition => /骨折处数\s*2处以上/u.test(condition.condition)))
+      .sort((left, right) => grades.injury.indexOf(left.grade) - grades.injury.indexOf(right.grade)
+        || left.id.localeCompare(right.id, 'en'))[0] || null;
+    if (lowerRibThresholdReference) {
+      lowerRibThresholdReference.relation = 'supports';
+      supportedReference = lowerRibThresholdReference;
+      warnings.push('现有肋骨骨折事实满足较低处数条款；是否达到更高处数阈值仍需核对。');
+    }
+  }
+  if (supportedReference?.id === '5.11.3.b'
+    && facts.some(fact => fact.field === 'wound_length_cm' && fact.source === 'description' && fact.verification === 'quoted')) {
+    const staleWoundGradeAdvice = text => /(?:若|如果|如).{0,24}(?:创口|伤口|瘢痕).{0,32}(?:长度|符合标准|达到标准).{0,32}(?:出具|评定|鉴定|等级)/u.test(text);
+    const staleLimbSiteAdvice = text => /(?:创口|伤口|瘢痕).{0,32}(?:肢体|四肢).{0,16}(?:部位|归类|条款)/u.test(text)
+      || /(?:背部|躯干).{0,48}(?:肢体|四肢).{0,40}(?:条款|归类|适用)/u.test(text)
+      || /(?:肢体|四肢).{0,48}(?:背部|躯干).{0,40}(?:条款|归类|适用)/u.test(text);
+    for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
+      if (staleWoundGradeAdvice(nextSteps[index]) || staleLimbSiteAdvice(nextSteps[index])) nextSteps.splice(index, 1);
+    }
+    for (let index = warnings.length - 1; index >= 0; index -= 1) {
+      if (staleWoundGradeAdvice(warnings[index]) || staleLimbSiteAdvice(warnings[index])) warnings.splice(index, 1);
+    }
+  }
+  if (supportedReference?.id === '5.1.4.a') {
+    const staleScalpMeasurementAdvice = text => /(?:核实是否存在多处(?:头皮)?(?:创口|瘢痕)|收集并核实所有头皮部位|根据最终确认的累计长度与标准阈值进行比对|(?:累计长度|长度累计).{0,20}(?:尚未确认|待核实|未明确))/u.test(text);
+    for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
+      if (staleScalpMeasurementAdvice(nextSteps[index])) nextSteps.splice(index, 1);
+    }
+    for (let index = warnings.length - 1; index >= 0; index -= 1) {
+      if (staleScalpMeasurementAdvice(warnings[index])) warnings.splice(index, 1);
+    }
+  }
+  const verifiedTympanicDuration = supportedReference?.id === '5.3.4.a'
+    && facts.some(fact => fact.field === 'clinical_finding'
+      && fact.value === '外伤性鼓膜穿孔6周不能自行愈合'
+      && confirmsSixWeekUnhealedTympanicPerforation(fact.evidence));
+  if (verifiedTympanicDuration) {
+    const staleDurationReview = text => /若.{0,16}时间线.{0,16}(?:成立|正确)|(?:确认|核实).{0,48}(?:时间线|天数|6周|六周|42天)|(?:时间线|6周|六周|42天).{0,40}(?:待核实|尚未确认|是否|需(?:要)?核实|取决于)/u.test(text);
+    for (let index = nextSteps.length - 1; index >= 0; index -= 1) {
+      if (staleDurationReview(nextSteps[index])) nextSteps.splice(index, 1);
+    }
+    for (let index = warnings.length - 1; index >= 0; index -= 1) {
+      if (staleDurationReview(warnings[index])) warnings.splice(index, 1);
+    }
+  }
   const explicitAlternativeStandard = /工伤|劳动能力鉴定|保险合同|保险条款/.test(input.description);
   if (!requiresReview && !supportedReference) {
     if (status === 'needs_review') status = 'insufficient';
     if (status === 'not_applicable' && !explicitAlternativeStandard) status = 'insufficient';
   }
-  if (!requiresReview && !invalidReference && !blockingMissingMaterials && facts.length > 0 && supportedReference) {
+  if (!requiresReview && !blockingMissingMaterials && facts.length > 0 && supportedReference) {
     status = 'preliminary';
     grade = supportedReference.grade;
     for (let index = references.length - 1; index >= 0; index -= 1) {
       if (references[index].grade && (references[index].relation !== 'supports' || references[index].grade !== grade)) references.splice(index, 1);
     }
   } else if (status === 'preliminary') {
-    if (!supportedReference || !grades[input.assessmentType].includes(grade) || invalidReference || blockingMissingMaterials) {
+    if (!supportedReference || !grades[input.assessmentType].includes(grade) || blockingMissingMaterials) {
       status = 'insufficient';
       missingMaterials.push('补充能够支持所涉标准完整条件的材料，由专业人员核对后再评估。');
       warnings.push('当前材料或条款依据不足，未保留模型给出的等级。');
     }
   }
-  if (input.assessmentType === 'disability' && input.treatmentStatus === 'ongoing' && status === 'preliminary') {
+  if (input.assessmentType === 'disability' && input.treatmentStatus !== 'stable' && status === 'preliminary') {
     status = 'insufficient';
-    missingMaterials.push('原发损伤及相关并发症治疗终结或临床效果稳定后的复查与功能评定资料。');
-    warnings.push('治疗尚未终结，依据该标准第4.2条，暂不输出伤残等级。');
+    warnings.push('鉴定时机尚未确认原发损伤及相关并发症治疗终结或临床效果稳定；依据该标准第4.2条，暂不输出伤残等级。');
   }
   if (status !== 'preliminary') grade = null;
   if (status === 'needs_review') {
@@ -492,6 +1935,29 @@ export function normalizeResult(raw, input, context) {
         reference.relation = 'incomplete';
         reference.reasoning = '关键事实存在冲突或待核实内容，本条不用于等级判断。';
       }
+    }
+  }
+  const verifiedSupportedClauseIds = new Set(references
+    .filter(reference => reference.relation === 'supports' && reference.grade)
+    .map(reference => reference.id));
+  const verifiedSupportedConditions = references
+    .filter(reference => reference.relation === 'supports' && reference.grade)
+    .flatMap(reference => (reference.conditions || [])
+      .filter(condition => condition.met === true)
+      .map(condition => condition.condition))
+    .filter(condition => typeof condition === 'string' && condition.length > 1);
+  const unavailableClauseWarning = /(?:条款|标准|定级|分级).{0,24}(?:未包含|未涵盖|未收录|未映射|没有)|(?:无法匹配|无法适用).{0,24}(?:条款|标准|定级|分级)/u;
+  for (let index = warnings.length - 1; index >= 0; index -= 1) {
+    const warning = warnings[index];
+    const warningClauseId = warning.match(/条款\s+(\S+?)\s+的条件组存在重复或未映射文本/)?.[1];
+    const warningClauseRetained = warningClauseId && references.some(reference => reference.id === warningClauseId);
+    const contradictsSupportedCondition = unavailableClauseWarning.test(warning)
+      && verifiedSupportedConditions.some(condition => warning.includes(condition));
+    const contradictsSupportedClauseId = unavailableClauseWarning.test(warning)
+      && [...verifiedSupportedClauseIds].some(id => warning.includes(id));
+    if (warningClauseId && (!warningClauseRetained || verifiedSupportedClauseIds.has(warningClauseId))
+      || contradictsSupportedCondition || contradictsSupportedClauseId) {
+      warnings.splice(index, 1);
     }
   }
   if (hasValidatedFacts) {
@@ -516,10 +1982,41 @@ export function normalizeResult(raw, input, context) {
         missingMaterials.push('骨折处数未在原文中明确记载，需核实');
       }
       if (excludedOnlyFacts) missingMaterials.splice(0, missingMaterials.length);
-      if (input.assessmentType === 'disability' && input.treatmentStatus === 'ongoing') {
-        missingMaterials.push('原发损伤及相关并发症治疗终结或临床效果稳定后的复查与功能评定资料。');
-      }
       if (missingMaterials.length === 0) missingMaterials.push('补充与适用条款相关的客观材料。');
+    }
+  }
+  const unresolvedShock = input.assessmentType === 'injury' && status === 'insufficient'
+    && Boolean(ungradedShockDiagnosis(facts, sourceText))
+    && references.some(reference => ['5.12.2.d', '5.12.4.f'].includes(reference.id));
+  const unresolvedAsphyxia = input.assessmentType === 'injury' && status === 'insufficient'
+    && Boolean(partialAsphyxiaCueFacts(facts, sourceText))
+    && references.some(reference => ['5.5.4.h', '5.12.4.g'].includes(reference.id)
+      && reference.relation === 'incomplete');
+  if (unresolvedShock) {
+    missingMaterials.splice(0, missingMaterials.length,
+      '休克严重程度未明确；需结合连续血压、脉搏、失血量及补液或输血等救治记录综合核实。');
+    if (!nextSteps.some(step => /休克.{0,20}(?:严重程度|分度)/u.test(step))) {
+      nextSteps.push('补充休克分度相关的连续血压、脉搏、失血量及补液或输血记录，由专业人员综合核定。');
+    }
+  }
+  if (unresolvedAsphyxia) {
+    missingMaterials.splice(0, missingMaterials.length,
+      '核实附录B.6.3所述窒息征象是否成立，并补充呼吸功能是否受损的检查或诊疗记录。');
+    if (!nextSteps.some(step => /窒息征象|呼吸功能/u.test(step))) {
+      nextSteps.push('补充颈部、面眼部体征及呼吸功能评估记录，由专业人员核对窒息征象和呼吸功能条件。');
+    }
+  }
+  if (input.assessmentType === 'disability' && input.treatmentStatus !== 'stable' && status !== 'preliminary') {
+    const timingMaterial = '确认原发损伤及相关并发症已治疗终结或临床效果稳定，并提供相应记录。';
+    if (!missingMaterials.some(item => /治疗终结|临床效果稳定/.test(item))) missingMaterials.push(timingMaterial);
+    if (!warnings.some(item => item.includes('第4.2条'))) {
+      warnings.push('鉴定时机尚未确认原发损伤及相关并发症治疗终结或临床效果稳定；依据该标准第4.2条，暂不输出伤残等级。');
+    }
+  }
+  for (const list of [warnings, nextSteps, missingMaterials]) {
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      if (unsupportedFractureAdvice(list[index]) || unsupportedJawFunctionAdvice(list[index])
+        || unsupportedHeadFaceWoundAdvice(list[index])) list.splice(index, 1);
     }
   }
   const hasRibFacts = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture');
@@ -527,12 +2024,13 @@ export function normalizeResult(raw, input, context) {
     ['injury_type', 'anatomical_site', 'laterality', 'fractured_rib_numbers', 'fractured_rib_count', 'fracture_site_count'].includes(fact.field)
       && /肋骨/.test(fact.evidence));
   const hasRibReferences = references.some(reference => /肋骨骨折/.test(reference.text));
-  if (status === 'insufficient' && !requiresReview && hasRibFacts && hasRibReferences) {
+  if (input.assessmentType === 'injury' && status === 'insufficient' && !requiresReview && hasRibFacts && hasRibReferences) {
     const stableReferences = deterministicRibReferences(context.clauses, facts, standard.sourceUrl);
     if (stableReferences.length) references.splice(0, references.length,
       ...(hasOnlySourceBackedRibFacts ? [] : references.filter(reference => !/肋骨骨折/.test(reference.text))),
       ...stableReferences);
   }
+  references.splice(0, references.length, ...deduplicateClauseReferences(references));
   references.sort((a, b) => Number(!a.grade) - Number(!b.grade) || a.id.localeCompare(b.id, 'en'));
   for (const reference of references) {
     if (reference.conditionLogic?.annotation !== 'explicit') {
@@ -540,6 +2038,33 @@ export function normalizeResult(raw, input, context) {
     }
   }
   if (recognizedText) warnings.push('图片识别内容可能存在遗漏或误读，请核对原报告后使用。');
+  for (const list of [nextSteps, warnings, missingMaterials]) {
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      if (mentionsOnlyOffSiteHandOrFoot(list[index])) list.splice(index, 1);
+    }
+  }
+  const supportedClauseIds = new Set(references.filter(reference => reference.relation === 'supports'
+    && reference.grade && reference.grade === grade).map(reference => reference.id));
+  const unsupportedFreeTextConclusion = text => {
+    if (/身份标识|身份资料|身份证(?:号)?|个人身份信息|个人身份资料|(?:受检者|被鉴定人|患者|受伤人|受伤者|伤者)(?:姓名|身份信息|身份标识)/u.test(text)) return true;
+    if (/未映射|不在本次官方原文依据/u.test(text)) return false;
+    const citedClauses = text.match(/[456]\.\d+\.\d+(?:\.[a-z]|\.\d+|[a-z])?\b/giu) || [];
+    if (citedClauses.some(id => !supportedClauseIds.has(id.toLowerCase()))) return true;
+    const claimedGrades = text.match(/轻微伤|轻伤[一二三]级|重伤[一二三]级|[一二三四五六七八九十]+级伤残/gu) || [];
+    if (grade) return claimedGrades.some(claim => claim !== grade);
+    return claimedGrades.length > 0
+      && !/(?:未|不能|无法|暂无法|不应|未能|不支持).{0,24}(?:满足|认定|定级|匹配|评估|成立|适用|结论)/u.test(text);
+  };
+  for (const list of [nextSteps, warnings, missingMaterials]) {
+    for (let index = list.length - 1; index >= 0; index -= 1) {
+      if (unsupportedFreeTextConclusion(list[index])) list.splice(index, 1);
+    }
+  }
+  for (let index = missingMaterials.length - 1; index >= 0; index -= 1) {
+    if (contradictedAdvice(missingMaterials[index]) || unsupportedFractureAdvice(missingMaterials[index])
+      || unsupportedJawFunctionAdvice(missingMaterials[index])
+      || unsupportedMechanismScopeClaim(missingMaterials[index])) missingMaterials.splice(index, 1);
+  }
   const stableSummary = status === 'needs_review'
     ? '材料中存在需要复核的冲突或不确定事实，暂不输出等级。'
     : status === 'insufficient' ? '现有材料不足以形成可靠的等级评估。'
@@ -553,12 +2078,15 @@ export function normalizeResult(raw, input, context) {
       : status === 'preliminary' && supportedReference
         ? `经来源核验的材料事实与本地条款 ${supportedReference.id}（${supportedReference.text}）列出的适用条件相符。此结果仅为辅助评估，仍需专业人员结合完整材料复核。`
         : generated.reasoning;
+  const serializedFacts = facts.map(fact => fact.eventId && /^U[1-9]\d{0,2}$/u.test(fact.eventId)
+    ? { ...fact, eventId: null } : fact);
   return resultSchema.parse({
     ...generated, schemaVersion: 2, assessmentType: input.assessmentType, status, grade,
+    nextSteps,
     summary: stableSummary,
-    reasoning: status !== generated.status || unknownInlineCitation || requiresReview || status === 'preliminary' && Boolean(supportedReference)
+    reasoning: status === 'insufficient' || status !== generated.status || unknownInlineCitation || requiresReview || status === 'preliminary' && Boolean(supportedReference)
       ? stableReasoning : generated.reasoning,
-    facts, conflicts, requiresReview, references, warnings: [...new Set(warnings)].slice(-20), missingMaterials: [...new Set(missingMaterials)].slice(-20),
+    facts: serializedFacts, conflicts, requiresReview, references, warnings: [...new Set(warnings)].slice(-20), missingMaterials: [...new Set(missingMaterials)].slice(-20),
     standard, recognizedText, createdAt: new Date().toISOString(), requestId: context.requestId, model: context.model,
   });
 }

@@ -47,10 +47,8 @@ export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetr
       ? [{ ...messages[0], content: `${formatInstruction}\n\n${messages[0].content}` }, ...messages.slice(1)]
       : [{ role: 'system', content: formatInstruction }, ...messages];
     const payload = { model, messages: instructedMessages, response_format: format, max_tokens: config.maxTokens };
-    if (/^kimi-k2\.[56]$/.test(model)) {
-      payload.thinking = { type: config.thinking };
-      if (Number.isFinite(config.temperature)) payload.temperature = config.temperature;
-    }
+    if (/^kimi-k2\.[56]$/.test(model)) payload.thinking = { type: config.thinking };
+    if (Number.isFinite(config.temperature)) payload.temperature = config.temperature;
     const init = { method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.apiKey}` },
       body: JSON.stringify(payload), signal };
@@ -88,7 +86,7 @@ export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetr
       throw new ServiceError(502, 'UPSTREAM_FORMAT', '分析服务返回了无法识别的响应，请稍后重试。');
     }
     const choice = body.choices?.[0];
-    if (choice?.finish_reason === 'length') throw new ServiceError(502, 'OUTPUT_TRUNCATED', '分析回复未完成，请精简材料或分批上传报告后重试。');
+    if (choice?.finish_reason === 'length') throw new ServiceError(502, 'OUTPUT_TRUNCATED', '分析回复未完成，本次未形成有效结论；请稍后重试。');
     const content = choice?.message?.content;
     if (typeof content !== 'string' || !content.trim()) throw new ServiceError(502, 'EMPTY_RESULT', '未收到完整的分析结果，请重试。');
     try {

@@ -9,9 +9,11 @@ export function reportText(result) {
     ...(result.requiresReview && conflicts.length === 0 ? ['存在待复核事实。'] : []),
     '', '材料事实', ...result.facts.map(fact => {
       const sourceSummary = sourceReferenceSummary(fact);
+      const derivedFacts = (fact.derivedFrom || []).map(id => result.facts.find(candidate => candidate.id === id)).filter(Boolean);
       return [
         `${fact.finding}（${certainties[fact.certainty] || '待核实'}）`,
         `材料原文：${fact.evidence}${fact.source === 'image' ? '（图片识别，待核对）' : ''}`,
+        ...(derivedFacts.length ? [`规则推导依据：${derivedFacts.map(parent => `${parent.finding}：${parent.evidence}`).join('；')}`] : []),
         ...(sourceSummary ? [`材料来源：${sourceSummary}`] : []),
       ].join('\n');
     }),

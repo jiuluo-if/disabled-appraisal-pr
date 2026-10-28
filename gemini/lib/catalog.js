@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import MiniSearch from 'minisearch';
+import { normalizeImplantedProsthesisDamageFacts, normalizeNeckAsphyxiaFacts } from './facts.js';
 
 const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 const tokenize = value => [...segmenter.segment(value.normalize('NFKC'))]
@@ -11,18 +12,51 @@ const rawCatalogs = Object.fromEntries(['injury', 'disability'].map(type => {
 }));
 
 const clauseLogicMetadata = JSON.parse(fs.readFileSync(new URL('../data/clause-logic-v1.json', import.meta.url), 'utf8'));
+const injuryShockDiagnosisPattern = /(?:失血性|低血容量性|创伤性)休克|(?:诊断|确诊|病历记载|出现|发生).{0,10}休克/u;
+const facePetechiaeCue = /(?:额部|面部|颜面|眼周|眼睑).{0,20}针尖.{0,6}出血点/u;
+const neckMarkCue = /颈部.{0,20}(?:条纹环绕|掐痕|勒痕|皮肤淤紫|出血点)/u;
+const facialWoundCue = /(?:(?:面部|脸部|颜面|额部|眉弓|眉部|眼睑|上睑|下睑|面颊|颧部|鼻部|鼻翼|口唇|唇部|下颌)[^。；;\n]{0,36}(?:创口|伤口|裂口|裂创|裂伤|瘢痕)|(?:创口|伤口|裂口|裂创|裂伤|瘢痕)[^。；;\n]{0,36}(?:面部|脸部|颜面|额部|眉弓|眉部|眼睑|上睑|下睑|面颊|颧部|鼻部|鼻翼|口唇|唇部|下颌))/u;
+
+const supplementalClauseMatchers = {
+  injury: [
+    { id: '5.2.2.d', pattern: /(?:(?:一侧|左|右)(?:侧)?眼(?:球)?(?:已|已经)摘除|(?:一侧|左|右)(?:侧)?眼球缺失|一侧眼球萎缩|(?:行|实施|接受)(?:了)?(?:一侧|单侧|左|右)(?:侧)?眼球摘除术)/u },
+    { id: '5.6.2.b', pattern: /心包(?:膜)?[^，,。！？；;\n]{0,24}?(?:破裂|破口|裂口|裂伤|撕裂|裂开|破损|刺破|穿孔)/u },
+    { id: '5.7.2.b', pattern: /(?:十二指肠|乙状结肠|小肠|大肠|结肠|直肠|胃壁|胃|胆囊|胆总管|胆管|胆道|肠)[^，,。！？；;\n]{0,24}?(?:全层[^，,。！？；;\n]{0,8}(?:破裂|裂口|裂伤|破口|撕裂)|(?:破裂|裂口|裂伤|破口|撕裂)[^，,。！？；;\n]{0,8}全层)/u },
+    { id: '5.12.2.d', pattern: injuryShockDiagnosisPattern },
+    { id: '5.12.4.f', pattern: injuryShockDiagnosisPattern },
+  ],
+};
 
 const normalizeClauseText = value => value.normalize('NFKC').replace(/\s+/g, '');
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function validateLogicNode(node, clauseText, annotation) {
   if (!isRecord(node) || typeof node.op !== 'string') throw new TypeError('条款逻辑节点格式无效');
+  if (node.allowSharedFact != null && (node.op !== 'all' || typeof node.allowSharedFact !== 'boolean')) {
+    throw new TypeError('allowSharedFact 只能是 all 组中的布尔值');
+  }
+  if (node.confirmedBy != null) {
+    const { field, valueIncludes, evidenceAliases } = node.confirmedBy;
+    if (node.op !== 'not' || !isRecord(node.confirmedBy) || typeof field !== 'string'
+      || !/^[a-z][a-z0-9_]{0,63}$/.test(field) || field !== 'diagnosis'
+      || !Array.isArray(valueIncludes) || !valueIncludes.length
+      || valueIncludes.some(value => typeof value !== 'string' || !value.trim())
+      || !Array.isArray(evidenceAliases) || !evidenceAliases.length
+      || evidenceAliases.some(alias => typeof alias !== 'string' || !alias.trim())) {
+      throw new TypeError('confirmedBy 必须是 not 节点中带来源别名的诊断匹配');
+    }
+  }
   if (node.sourceText != null && (typeof node.sourceText !== 'string' || !node.sourceText.trim()
     || !normalizeClauseText(clauseText).includes(normalizeClauseText(node.sourceText)))) {
     throw new TypeError('条款逻辑 sourceText 不在官方原文中');
   }
   if (node.op === 'all' || node.op === 'any') {
     if (!Array.isArray(node.children) || node.children.length < 2) throw new TypeError('条款逻辑组至少需要两个子节点');
+    for (const child of node.children) validateLogicNode(child, clauseText, annotation);
+    return;
+  }
+  if (node.op === 'not') {
+    if (!Array.isArray(node.children) || node.children.length !== 1) throw new TypeError('not 节点必须恰有一个子节点');
     for (const child of node.children) validateLogicNode(child, clauseText, annotation);
     return;
   }
@@ -33,10 +67,28 @@ function validateLogicNode(node, clauseText, annotation) {
   const hasPredicate = isRecord(node.predicate);
   if (hasFactMatch === hasPredicate) throw new TypeError('显式条件必须且只能配置 factMatch 或 predicate');
   if (hasFactMatch) {
+    const exactValues = node.factMatch.values;
+    const includedValues = node.factMatch.valueIncludes;
+    const compatibleFields = node.factMatch.fields;
+    const hasExactValues = Array.isArray(exactValues) && exactValues.length > 0;
+    const hasIncludedValues = Array.isArray(includedValues) && includedValues.length > 0;
     if (typeof node.factMatch.field !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(node.factMatch.field)
-      || !Array.isArray(node.factMatch.values) || node.factMatch.values.length === 0
-      || node.factMatch.values.some(value => value === null || typeof value === 'object')) {
+      || compatibleFields != null && (!Array.isArray(compatibleFields) || compatibleFields.length === 0
+        || compatibleFields.some(field => typeof field !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(field)
+          || field === node.factMatch.field) || new Set(compatibleFields).size !== compatibleFields.length)
+      || !hasExactValues && !hasIncludedValues
+      || hasExactValues && exactValues.some(value => value === null || typeof value === 'object')
+      || hasIncludedValues && includedValues.some(value => typeof value !== 'string' || !value.trim())
+      || hasIncludedValues && !['diagnosis', 'symptom', 'treatment', 'imaging_finding', 'clinical_finding',
+        'functional_impairment'].includes(node.factMatch.field)
+      || node.factMatch.evidenceAliases != null && (!Array.isArray(node.factMatch.evidenceAliases)
+        || node.factMatch.evidenceAliases.some(alias => typeof alias !== 'string' || !alias.trim()))) {
       throw new TypeError('条款 factMatch 字段或值无效');
+    }
+    if (node.factMatch.field === 'clinical_finding' && hasExactValues
+      && exactValues.some(value => typeof value !== 'string'
+        || !normalizeClauseText(value).includes(normalizeClauseText(node.sourceText)))) {
+      throw new TypeError('clinical_finding matcher 必须包含官方 sourceText');
     }
   }
   if (hasPredicate) {
@@ -44,7 +96,13 @@ function validateLogicNode(node, clauseText, annotation) {
     if (typeof field !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(field)
       || !['eq', 'gt', 'gte', 'lt', 'lte'].includes(operator)
       || typeof value !== 'number' || !Number.isFinite(value)
-      || unit != null && typeof unit !== 'string') throw new TypeError('条款 predicate 无效');
+      || unit != null && typeof unit !== 'string'
+      || node.predicate.evidenceGroups != null && (!Array.isArray(node.predicate.evidenceGroups)
+        || node.predicate.evidenceGroups.length === 0
+        || node.predicate.evidenceGroups.some(group => !Array.isArray(group) || group.length === 0
+          || group.some(alias => typeof alias !== 'string' || !alias.trim())))) {
+      throw new TypeError('条款 predicate 无效');
+    }
   }
 }
 
@@ -57,9 +115,16 @@ export function applyClauseLogicMetadata(catalogs, metadata) {
     const knownIds = new Set(catalogs[type].clauses.map(clause => clause.id));
     for (const [id, entry] of Object.entries(metadata.clauses[type])) {
       if (!knownIds.has(id)) throw new TypeError(`未知条款 ID：${id}`);
-      if (!isRecord(entry) || entry.annotation !== 'explicit' || !entry.logic) throw new TypeError(`条款 ${id} 元数据标记无效`);
+      if (!isRecord(entry) || !['explicit', 'opaque'].includes(entry.annotation) || !entry.logic) throw new TypeError(`条款 ${id} 元数据标记无效`);
       const clause = catalogs[type].clauses.find(item => item.id === id);
+      if (entry.annotation === 'opaque' && (typeof entry.reason !== 'string' || !entry.reason.trim())) {
+        throw new TypeError(`条款 ${id} 的 opaque 标记必须记录具体原因`);
+      }
       validateLogicNode(entry.logic, clause.text, entry.annotation);
+      if (entry.annotation === 'opaque' && (entry.logic.op !== 'condition'
+        || normalizeClauseText(entry.logic.sourceText) !== normalizeClauseText(clause.text))) {
+        throw new TypeError(`条款 ${id} 的 opaque 原文锚点必须覆盖完整条文`);
+      }
       const displayGroups = entry.logic.op === 'all' ? entry.logic.children : [entry.logic];
       if (displayGroups.some(group => ![group.conditionText, group.sourceText]
         .some(text => typeof text === 'string' && text.trim()))) {
@@ -73,6 +138,7 @@ export function applyClauseLogicMetadata(catalogs, metadata) {
       const explicit = metadata.clauses[type]?.[clause.id];
       return { ...clause, conditionLogic: explicit || {
         annotation: 'opaque',
+        reason: '当前目录未配置经校核的条件树或逐条保留原因。',
         logic: { op: 'condition', sourceText: clause.text, conditionText: clause.text },
       } };
     }),
@@ -87,10 +153,23 @@ const indexes = Object.fromEntries(Object.entries(catalogs).map(([type, catalog]
   return [type, index];
 }));
 
-export function retrieveClauses(type, description, limit = 28) {
+export function retrieveClauses(type, description, limit = 40) {
   const catalog = catalogs[type];
   const matches = indexes[type].search(description, { combineWith: 'OR', boost: { text: 2 } });
   const ids = new Set(matches.slice(0, limit).map(match => match.id));
+  for (const matcher of supplementalClauseMatchers[type] || []) {
+    if (matcher.pattern.test(description)) ids.add(matcher.id);
+  }
+  if (type === 'injury' && facialWoundCue.test(description)) {
+    ids.add('5.2.3.a');
+    ids.add('5.2.4.a');
+  }
+  if (type === 'injury' && normalizeNeckAsphyxiaFacts(description).length) ids.add('5.5.4.h');
+  if (type === 'injury' && facePetechiaeCue.test(description) && neckMarkCue.test(description)) {
+    ids.add('5.5.4.h');
+    ids.add('5.12.4.g');
+  }
+  if (type === 'injury' && normalizeImplantedProsthesisDamageFacts(description).length) ids.add('5.12.4.l');
   return catalog.clauses.filter(clause => ids.has(clause.id));
 }
 
