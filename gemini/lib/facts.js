@@ -1295,6 +1295,41 @@ export function hasExplicitOrbitalFractureEnophthalmosLink(inputText) {
   return orbitalFracture.test(text) && causalLink.test(text);
 }
 
+export function limbLengthDifferenceCauseAnchor(inputText) {
+  const text = normalizeInput(inputText);
+  const cause = '(?:本次|此次|当前)(?:交通)?(?:事故|外伤|受伤|损伤|[^。；;\\n]{1,8}骨折)';
+  const limbDifference = '(?:双|两)(?:上|下)肢(?:相对)?(?:长度|长短)(?:相差|差值|差距|差异)';
+  const direct = new RegExp(`(?<cause>${cause})(?:(?!骨折)[^。；;\\n]){0,16}(?:致|导致|造成|引起|所致)(?:(?!骨折)[^。；;\\n]){0,16}${limbDifference}`, 'u').exec(text);
+  const reverse = new RegExp(`${limbDifference}[^。；;\\n]{0,28}(?:由|因|系)(?<cause>${cause})`, 'u').exec(text);
+  const matchedCause = direct?.groups?.cause || reverse?.groups?.cause || null;
+  return matchedCause?.replace(/^(?:本次|此次|当前)(?:交通)?/u, '') || null;
+}
+
+export function hasExplicitLimbLengthDifferenceLink(inputText) {
+  return Boolean(limbLengthDifferenceCauseAnchor(inputText));
+}
+
+function normalizeLimbLengthDifferenceFacts(inputText) {
+  const text = normalizeInput(inputText);
+  const findings = [];
+  for (const clauseMatch of text.matchAll(/[^。；;\n]+/gu)) {
+    const clause = clauseMatch[0];
+    const clauseOffset = clauseMatch.index;
+    const measurements = [...clause.matchAll(/(?:双|两)(?:上|下)肢(?:相对)?(?:长度|长短)(?:相差|差值|差距|差异)\s*(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
+    if (measurements.length !== 1 || !hasExplicitLimbLengthDifferenceLink(clause)) continue;
+    const measurement = measurements[0];
+    const start = clauseOffset + measurement.index;
+    const end = start + measurement[0].length;
+    if (certaintyFor(text, clauseOffset, end) !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
+    const amount = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+    const centimetres = /^(?:mm|毫米)$/u.test(measurement[2]) ? amount / 10 : amount;
+    if (!Number.isFinite(centimetres) || centimetres < 0) continue;
+    findings.push({ id: `LLD${start}`, field: 'limb_length_difference_cm', value: centimetres,
+      certainty: 'derived', source_type: 'user_text', source_excerpt: clause.trim() });
+  }
+  return findings;
+}
+
 function normalizeOrbitalWallEnophthalmosFacts(inputText) {
   const text = normalizeInput(inputText);
   const findings = [];
@@ -3755,6 +3790,7 @@ function factFinding(field, value, certainty) {
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
     orbital_enophthalmos_cm: '眼球内陷深度（厘米）',
+    limb_length_difference_cm: '双侧肢体长度差（厘米）',
     functional_impairment: '功能情况', prior_injury: '既往损伤',
     wound_length_cm: '创口或瘢痕长度（厘米）',
     aggregate_wound_length_cm: '多处创口累计长度（厘米）',
@@ -4349,6 +4385,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...(source === 'description' ? normalizeImplantedProsthesisDamageFacts(sourceText) : []),
       ...normalizeOrbitalWallFractureFacts(sourceText),
       ...normalizeOrbitalWallEnophthalmosFacts(sourceText),
+      ...normalizeLimbLengthDifferenceFacts(sourceText),
       ...woundLengthFacts, ...normalizeScalpWoundAggregateFacts(sourceText, woundLengthFacts),
       ...normalizeFacialWoundAggregateFacts(sourceText, woundLengthFacts),
       ...normalizeAuricleWoundAggregateFacts(sourceText, woundLengthFacts),
@@ -4363,7 +4400,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeSurfaceScarAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
         'treatment', 'anatomical_site', 'laterality', 'injury_cause', 'orbital_wall_enophthalmos',
-        'orbital_enophthalmos_cm'].includes(fact.field)
+        'orbital_enophthalmos_cm', 'limb_length_difference_cm'].includes(fact.field)
         || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')
         || fact.field.startsWith('scalp_')
         || fact.field === 'surface_scar_area_cm2'
@@ -4375,6 +4412,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field === 'distinct_orbital_wall_fracture_count'
         || fact.field === 'orbital_wall_enophthalmos'
         || fact.field === 'orbital_enophthalmos_cm'
+        || fact.field === 'limb_length_difference_cm'
         || fact.field === 'aggregate_wound_length_cm'
         || fact.field === 'dental_loss_count'
         || fact.field === 'cross_region_wound_ratio'
@@ -4445,6 +4483,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       || fact.field === 'distinct_orbital_wall_fracture_count'
       || fact.field === 'orbital_wall_enophthalmos'
       || fact.field === 'orbital_enophthalmos_cm'
+      || fact.field === 'limb_length_difference_cm'
       || fact.field === 'aggregate_wound_length_cm'
       || fact.field === 'dental_loss_count'
       || fact.field === 'cross_region_wound_ratio'
@@ -4541,7 +4580,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (field === 'lip_wound_length_cm') continue;
     if (field === 'lip_through_wound_length_cm') continue;
     if (field === 'distinct_orbital_wall_fracture_count' || field === 'orbital_wall_enophthalmos'
-      || field === 'orbital_enophthalmos_cm') {
+      || field === 'orbital_enophthalmos_cm' || field === 'limb_length_difference_cm') {
       if (!deterministicFacts.some(fact => fact.source === source && fact.field === field && fact.value === value)) {
         invalidEvidence = true;
       }
@@ -4837,6 +4876,31 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     const target = addFact(normalized, sourceFact.id || null);
     if (sourceFact.id && !target.rawIds?.includes(sourceFact.id)) target.rawIds = [...(target.rawIds || []), sourceFact.id];
     mapRawIdToRelatedRibFacts(sourceFact.id, source, fullEvidence, certainty, eventId || null);
+  }
+
+  for (const fact of facts) {
+    if (fact.field !== 'limb_length_difference_cm' || fact.source !== 'description' || fact.eventId) continue;
+    const factClause = sourceClause(sourceTexts.description, fact.evidence) || fact.evidence;
+    const causeAnchor = limbLengthDifferenceCauseAnchor(factClause);
+    if (!causeAnchor) continue;
+    const eventIds = new Set(facts.filter(anchor => {
+      if (anchor === fact || anchor.source !== 'description' || !anchor.eventId
+        || !['reported', 'observed', 'derived'].includes(anchor.certainty)
+        || (sourceClause(sourceTexts.description, anchor.evidence) || anchor.evidence) !== factClause) return false;
+      if (['age_at_injury_years', 'injury_date'].includes(anchor.field)) return true;
+      if (['injury_type', 'diagnosis', 'imaging_finding'].includes(anchor.field)) {
+        const anchorText = `${stableJson(anchor.value ?? '')} ${String(anchor.evidence || '')}`;
+        return normalizeInput(anchorText).includes(normalizeInput(causeAnchor));
+      }
+      if (anchor.field !== 'clinical_finding' || typeof anchor.value !== 'string') return false;
+      if (normalizeInput(anchor.value).includes(normalizeInput(causeAnchor))) return true;
+      const measurements = [...normalizeInput(anchor.value).matchAll(/(?:双|两)(?:上|下)肢(?:相对)?(?:长度|长短)(?:相差|差值|差距|差异)\s*(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
+      if (measurements.length !== 1) return false;
+      const amount = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+      const centimetres = /^(?:mm|毫米)$/u.test(measurements[0][2]) ? amount / 10 : amount;
+      return centimetres === fact.value;
+    }).map(anchor => anchor.eventId));
+    if (eventIds.size === 1) fact.eventId = [...eventIds][0];
   }
 
   const deduplicatedFacts = new Map();

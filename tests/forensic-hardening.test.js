@@ -193,9 +193,10 @@ test('disability orbital enophthalmos thresholds use measured sequela values', (
 
 test('unscoped clause evidence cannot support a grade beside explicitly scoped event facts', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.7.6.1');
-  const value = clause.conditionLogic.logic.factMatch.values[0];
-  const unscoped = { id: 'L1', field: 'clinical_finding', value, certainty: 'reported',
-    source: 'description', verification: 'quoted', evidence: value };
+  const value = clause.conditionLogic.logic.predicate.value;
+  const evidence = '本次损伤导致双下肢长度相差8cm';
+  const unscoped = { id: 'L1', field: 'limb_length_difference_cm', value, certainty: 'derived',
+    source: 'description', verification: 'quoted', evidence };
   const scoped = { id: 'E1', eventId: 'E1', field: 'injury_type', value: 'rib_fracture',
     certainty: 'reported', source: 'description', verification: 'quoted',
     evidence: '本次交通事故致肋骨骨折' };
@@ -204,11 +205,11 @@ test('unscoped clause evidence cannot support a grade beside explicitly scoped e
   const linked = { ...unscoped, eventId: 'E1' };
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [linked, scoped]).met, true);
 
-  const description = `合成资料，非真实病例。${value}。本次交通事故致肋骨骨折。`;
+  const description = `合成资料，非真实病例。${evidence}。另有本次交通事故致肋骨骨折的记录。`;
   const makeResult = (facts, requestId) => normalizeResult({ ...providerFixture('disability'),
     status: 'preliminary', grade: clause.grade,
-    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: value, reasoning: '',
-      conditions: [{ condition: clause.text, evidence: value, factIds: ['L1'], met: true }] }] },
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence, reasoning: '',
+      conditions: [{ condition: clause.text, evidence, factIds: ['L1'], met: true }] }] },
   { ...inputs.disability, description }, { clauses: [clause], requestId,
     model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false,
     factMissingMaterials: [] });
@@ -217,6 +218,91 @@ test('unscoped clause evidence cannot support a grade beside explicitly scoped e
   assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
   const linkedResult = makeResult([linked, scoped], 'linked-clause-fact-event-gate');
   assert.equal(linkedResult.grade, clause.grade);
+});
+
+test('limb length discrepancy thresholds bind only to directly linked current injuries and matching regions', () => {
+  const lowerEight = catalogs.disability.clauses.find(item => item.id === '5.7.6.1');
+  const upperEight = catalogs.disability.clauses.find(item => item.id === '5.8.6.6');
+  const description = '合成资料，非真实病例。本次骨盆骨折导致双下肢长度相差8cm。';
+  const facts = normalizeExtractedFacts(emptyExtraction, { description }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  const discrepancy = facts.find(fact => fact.field === 'limb_length_difference_cm');
+
+  assert.equal(discrepancy?.value, 8);
+  assert.ok(retrieveClauses('disability', description, 0, facts).some(item => item.id === lowerEight.id));
+  assert.equal(evaluateConditionLogic(lowerEight.conditionLogic, facts).met, true);
+  assert.notEqual(evaluateConditionLogic(upperEight.conditionLogic, facts).met, true);
+
+  const thresholdCases = [
+    ['下', '8cm', '5.7.6.1', 8], ['上', '8cm', '5.8.6.6', 8],
+    ['下', '6cm', '5.8.6.7', 6], ['上', '6cm', '5.9.6.7', 6],
+    ['下', '4cm', '5.9.6.8', 4], ['上', '4cm', '5.10.6.9', 4],
+    ['下', '2cm', '5.10.6.10', 2], ['下', '八厘米', '5.7.6.1', 8],
+    ['下', '80毫米', '5.7.6.1', 8],
+  ];
+  for (const [limb, measurement, clauseId, expectedValue] of thresholdCases) {
+    const text = `合成资料，非真实病例。本次损伤导致双${limb}肢长度相差${measurement}。`;
+    const normalizedFacts = normalizeExtractedFacts(emptyExtraction, { description: text }).facts
+      .map(fact => ({ ...fact, verification: 'quoted' }));
+    const targetClause = catalogs.disability.clauses.find(item => item.id === clauseId);
+    assert.equal(normalizedFacts.find(fact => fact.field === 'limb_length_difference_cm')?.value, expectedValue, text);
+    assert.equal(evaluateConditionLogic(targetClause.conditionLogic, normalizedFacts).met, true, text);
+  }
+  const belowEight = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。本次损伤导致双下肢长度相差7.9cm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(evaluateConditionLogic(lowerEight.conditionLogic, belowEight).met, true);
+  const inclusiveBoundary = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。本次损伤导致双下肢长度相差8cm以上。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(lowerEight.conditionLogic, inclusiveBoundary).met, true);
+  const lowerBoundBelowThreshold = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。本次损伤导致双下肢长度相差7cm以上。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(evaluateConditionLogic(lowerEight.conditionLogic, lowerBoundBelowThreshold).met, true);
+  const equivalentWording = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。本次损伤导致双下肢长度差异8cm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(equivalentWording.find(fact => fact.field === 'limb_length_difference_cm')?.value, 8);
+  assert.equal(evaluateConditionLogic(lowerEight.conditionLogic, equivalentWording).met, true);
+
+  const linkedExtraction = normalizeExtractedFacts({ facts: [{ id: 'L1', eventId: 'E1', field: 'clinical_finding',
+    value: '双下肢长度相差8cm', certainty: 'reported', source: 'description',
+    evidence: '本次骨盆骨折导致双下肢长度相差8cm' }], missingMaterials: [], conflicts: [], requiresReview: false },
+  { description });
+  assert.equal(linkedExtraction.facts.find(fact => fact.field === 'limb_length_difference_cm')?.eventId, 'E1');
+  const diagnosisAnchoredExtraction = normalizeExtractedFacts({ facts: [{ id: 'D1', eventId: 'E1', field: 'injury_type',
+    value: 'pelvic_fracture', certainty: 'reported', source: 'description', evidence: '本次骨盆骨折' }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(diagnosisAnchoredExtraction.facts.find(fact => fact.field === 'limb_length_difference_cm')?.eventId, 'E1');
+  const ambiguousExtraction = normalizeExtractedFacts({ facts: ['E1', 'E2'].map(eventId => ({ id: 'L' + eventId,
+    eventId, field: 'clinical_finding', value: '双下肢长度相差8cm', certainty: 'reported',
+    source: 'description', evidence: '本次骨盆骨折导致双下肢长度相差8cm' })),
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  assert.equal(ambiguousExtraction.facts.find(fact => fact.field === 'limb_length_difference_cm')?.eventId, undefined);
+
+  const pelvicClause = catalogs.injury.clauses.find(item => item.id === '5.8.2.a');
+  const pelvicDescription = '合成资料，非真实病例。本次骨盆骨折畸形愈合导致双下肢相对长度相差5cm。';
+  const pelvicFacts = normalizeExtractedFacts({ facts: [{ id: 'P1', eventId: 'E1', field: 'clinical_finding',
+    value: '骨盆骨折畸形愈合', certainty: 'reported', source: 'description', evidence: '本次骨盆骨折畸形愈合' }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description: pelvicDescription }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(pelvicFacts.find(fact => fact.field === 'limb_length_difference_cm')?.eventId, 'E1');
+  assert.equal(evaluateConditionLogic(pelvicClause.conditionLogic, pelvicFacts).met, true);
+
+  for (const text of [
+    '合成资料，非真实病例。本次骨盆骨折后双下肢长度相差8cm。',
+    '合成资料，非真实病例。既往骨盆骨折导致双下肢长度相差8cm。',
+    '合成资料，非真实病例。本次肋骨骨折，另记双下肢长度相差8cm。',
+  ]) {
+    const unlinked = normalizeExtractedFacts(emptyExtraction, { description: text }).facts;
+    assert.equal(unlinked.some(fact => fact.field === 'limb_length_difference_cm'), false, text);
+  }
+  const modelInventedDescription = '合成资料，非真实病例。本次骨盆骨折后双下肢长度相差8cm。';
+  const modelInvented = normalizeExtractedFacts({ facts: [{ id: 'M1', field: 'limb_length_difference_cm',
+    value: 8, certainty: 'reported', source: 'description', evidence: modelInventedDescription }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description: modelInventedDescription });
+  assert.equal(modelInvented.facts.some(fact => fact.field === 'limb_length_difference_cm'), false);
 });
 
 test('rib ordinal lists do not create fracture-site counts', () => {

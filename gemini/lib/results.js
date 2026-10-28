@@ -3,7 +3,7 @@ import { catalogs } from './catalog.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
-  parseNumber, quotedDentalDefectCount,
+  hasExplicitLimbLengthDifferenceLink, parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches } from './facts.js';
 
 const grades = {
@@ -205,6 +205,19 @@ function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     const amount = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
     const centimetres = /^(?:mm|毫米)$/u.test(measurements[0][2]) ? amount / 10 : amount;
     return Number.isFinite(centimetres) && centimetres === fact.value && centimetres >= 0 ? centimetres : null;
+  }
+  if (predicate.field === 'limb_length_difference_cm') {
+    const evidence = normalize(String(fact.evidence || ''));
+    const measurements = [...evidence.matchAll(/(?:双|两)(?:上|下)肢(?:相对)?(?:长度|长短)(?:相差|差值|差距|差异)\s*(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
+    const allLengthMeasurements = [...evidence.matchAll(/(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米|mm|毫米)/gu)];
+    if (measurements.length !== 1 || allLengthMeasurements.length !== 1
+      || !hasExplicitLimbLengthDifferenceLink(evidence)
+      || /(?:未达|低于|小于|不足|不超过|少于|以下|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未见|未发现|否认|排除)/u.test(evidence)) return null;
+    const amount = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    const centimetres = /^(?:mm|毫米)$/u.test(measurements[0][2]) ? amount / 10 : amount;
+    const lowerBound = /(?:至少|不低于|不小于|大于|超过|以上)/u.test(evidence);
+    return Number.isFinite(centimetres) && centimetres === fact.value && centimetres >= 0
+      && !(lowerBound && predicate.operator === 'gte' && centimetres < predicate.value) ? centimetres : null;
   }
   if (predicate.field === 'gcs_score') {
     const evidence = normalize(String(fact.evidence || ''));
