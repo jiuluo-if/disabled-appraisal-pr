@@ -25335,15 +25335,36 @@
       "5.10.4.1": {
         "annotation": "explicit",
         "logic": {
-          "op": "condition",
+          "op": "all",
           "sourceText": "腹壁疝，难以手术修补",
           "conditionText": "腹壁疝，难以手术修补",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "腹壁疝，难以手术修补"
-            ]
-          }
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "腹壁疝，难以手术修补",
+              "conditionText": "腹壁疝，难以手术修补",
+              "factMatch": {
+                "field": "clinical_finding",
+                "values": ["腹壁疝，难以手术修补"]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "腹壁疝",
+              "conditionText": "本次事件导致腹壁疝",
+              "factMatch": {
+                "field": "clinical_finding",
+                "values": [
+                  "因本次事故所致腹壁疝",
+                  "因本次外伤所致腹壁疝",
+                  "本次事故导致腹壁疝",
+                  "本次外伤导致腹壁疝",
+                  "腹壁疝系本次事故所致",
+                  "腹壁疝系本次外伤所致"
+                ]
+              }
+            }
+          ]
         }
       },
       "5.10.4.2": {

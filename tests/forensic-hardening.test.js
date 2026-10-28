@@ -628,14 +628,28 @@ test('all, any, and not apply three-valued truth tables without treating unknown
   }
 });
 
-test('surgical difficulty is not treated as a performed-procedure requirement', () => {
+test('surgical difficulty requires a same-event causal link without requiring a performed operation', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.10.4.1');
   const conclusion = '腹壁疝，难以手术修补';
-  const evidence = `因本次事故所致${conclusion}`;
-  const fact = { id: 'H1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
-    certainty: 'reported', source: 'description', verification: 'quoted', evidence };
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [fact]).met, true);
-  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [{ ...fact, certainty: 'uncertain' }]).met, true);
+  const conditionFact = { id: 'H1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: conclusion };
+  const analyze = (facts, description, requestId) => normalizeResult({ ...providerFixture('disability'),
+    status: 'preliminary', grade: clause.grade, facts: [], references: [{ clauseId: clause.id, relation: 'supports',
+      evidence: conclusion, reasoning: '', conditions: [{ condition: clause.text, evidence: conclusion,
+        factIds: facts.map(fact => fact.id), met: true }] }] }, { ...inputs.disability, description },
+  { clauses: [clause], requestId, model: 'test-model', extractedFacts: facts, conflicts: [],
+    requiresReview: false, factMissingMaterials: [] });
+  const missingCause = analyze([conditionFact], `合成资料，非真实病例。${conclusion}。`, 'hernia-cause-missing');
+  assert.equal(missingCause.grade, null);
+
+  const causeFact = { id: 'H2', eventId: 'E1', field: 'clinical_finding', value: '因本次事故所致腹壁疝',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '因本次事故所致腹壁疝' };
+  const explicitlyLinked = analyze([conditionFact, causeFact],
+    `合成资料，非真实病例。因本次事故所致腹壁疝。${conclusion}。`, 'hernia-cause-same-event');
+  assert.equal(explicitlyLinked.grade, clause.grade);
+  const crossEvent = analyze([conditionFact, { ...causeFact, eventId: 'E2' }],
+    `合成资料，非真实病例。${conclusion}。另次事件因本次事故所致腹壁疝。`, 'hernia-cause-cross-event');
+  assert.equal(crossEvent.grade, null);
 });
 
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
