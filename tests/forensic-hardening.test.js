@@ -493,6 +493,48 @@ test('unrelated head evidence cannot be displayed as support for an uncertain ri
   assert.ok(reference?.conditions.every(condition => condition.evidence === '' && condition.factIds.length === 0));
 });
 
+test('rib-disability grades bind model summaries to actual root-count and malunion facts', () => {
+  const clauses = ['5.10.3.7', '5.8.3.6', '5.9.3.11']
+    .map(id => catalogs.disability.clauses.find(clause => clause.id === id));
+  const headEvidence = '合成资料，非真实病例。本次事故另有头部软组织损伤。';
+  const description = `${headEvidence}本次事故后CT明确共12根肋骨骨折；复查确认后遗6处畸形愈合。`;
+  const modelReferences = facts => clauses.map(clause => ({ clauseId: clause.id, relation: 'supports',
+    evidence: headEvidence, reasoning: '', conditions: [{ condition: clause.text, evidence: headEvidence,
+      factIds: facts.map(fact => fact.id), met: true }] }));
+  const uncertainFacts = [
+    { id: 'HEAD', eventId: 'E1', field: 'clinical_finding', value: '头部软组织损伤', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: headEvidence },
+    { id: 'RIB', eventId: 'E1', field: 'injury_type', value: 'rib_fracture', certainty: 'uncertain',
+      source: 'description', verification: 'quoted', evidence: '右侧肋骨骨折可疑' },
+  ];
+  const rejected = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: '十级伤残',
+    facts: [], references: modelReferences(uncertainFacts) }, { ...inputs.disability, description }, {
+    clauses, requestId: 'unrelated-evidence-rib-disability-reject', model: 'test-model',
+    extractedFacts: uncertainFacts, conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(rejected.grade, null);
+  assert.ok(rejected.references.every(reference => reference.relation !== 'supports' && reference.evidence === ''));
+
+  const supportedFacts = [
+    { id: 'RIB12', eventId: 'E1', field: 'fractured_rib_count', value: 12, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '本次事故后CT明确共12根肋骨骨折' },
+    { id: 'MAL6', eventId: 'E1', field: 'clinical_finding', value: '后遗6处畸形愈合', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '复查确认后遗6处畸形愈合' },
+    uncertainFacts[0],
+  ];
+  const supported = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: '十级伤残',
+    facts: [], references: modelReferences(supportedFacts) }, { ...inputs.disability, description, treatmentStatus: 'stable' }, {
+    clauses, requestId: 'rib-disability-evidence-rebound-positive', model: 'test-model',
+    extractedFacts: supportedFacts, conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  const reference = supported.references.find(item => item.id === '5.8.3.6');
+  assert.equal(supported.grade, '八级伤残');
+  assert.equal(reference?.relation, 'supports');
+  assert.match(reference?.evidence || '', /12根肋骨骨折/);
+  assert.match(reference?.evidence || '', /6处畸形愈合/);
+  assert.doesNotMatch(reference?.evidence || '', /头部软组织损伤/);
+});
+
 test('postoperative sutured chest wounds are not counted as original traumatic wound lengths', () => {
   const description = '合成资料，非真实病例。左胸另有约2.5cm长刀刺创口；受伤后行胸腹探查和心室修补术。术后活体检验另见胸部正中约20.0cm纵行缝合创口。';
   const result = normalizeExtractedFacts(emptyExtraction, { description });
