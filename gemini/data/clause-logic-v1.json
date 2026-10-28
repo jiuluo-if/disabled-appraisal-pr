@@ -23308,11 +23308,12 @@
               "sourceText": "面部块状瘢痕形成，单块面积达7.0cm2",
               "conditionText": "面部块状瘢痕形成，单块面积达7.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕形成，单块面积达7.0cm2"
-                ]
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 7,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["块状", "块状瘢痕"], ["单块", "单个"]]
               }
             },
             {
@@ -23320,11 +23321,12 @@
               "sourceText": "多块累计面积达9.0cm2",
               "conditionText": "多块累计面积达9.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "多块累计面积达9.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 9,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["块状", "块状瘢痕"], ["多块", "多个"], ["累计", "总面积", "合计"]]
               }
             }
           ]
@@ -23503,11 +23505,12 @@
               "sourceText": "面部块状增生性瘢痕形成",
               "conditionText": "面部块状增生性瘢痕形成，累计面积达15.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状增生性瘢痕形成，累计面积达15.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 15,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["块状", "块状瘢痕"], ["增生性"], ["累计", "总面积", "合计"]]
               }
             },
             {
@@ -23520,11 +23523,12 @@
                   "sourceText": "单块面积达7.0cm2",
                   "conditionText": "面部中心区块状增生性瘢痕形成，单块面积达7.0cm2",
                   "ageAdjustment": "disability_standard_6_11",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部中心区块状增生性瘢痕形成，单块面积达7.0cm2"
-                    ]
+                  "predicate": {
+                    "field": "surface_scar_area_cm2",
+                    "operator": "gte",
+                    "value": 7,
+                    "unit": "cm2",
+                    "evidenceGroups": [["面部中心区", "中心区"], ["块状", "块状瘢痕"], ["增生性"], ["单块", "单个"]]
                   }
                 },
                 {
@@ -23532,11 +23536,12 @@
                   "sourceText": "多块累计面积达9.0cm2",
                   "conditionText": "面部中心区块状增生性瘢痕形成，多块累计面积达9.0cm2",
                   "ageAdjustment": "disability_standard_6_11",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部中心区块状增生性瘢痕形成，多块累计面积达9.0cm2"
-                    ]
+                  "predicate": {
+                    "field": "aggregate_surface_scar_area_cm2",
+                    "operator": "gte",
+                    "value": 9,
+                    "unit": "cm2",
+                    "evidenceGroups": [["面部中心区", "中心区"], ["块状", "块状瘢痕"], ["增生性"], ["多块", "多个"], ["累计", "总面积", "合计"]]
                   }
                 }
               ]
@@ -24734,11 +24739,12 @@
               "sourceText": "单块面积达3.0cm2",
               "conditionText": "面部块状瘢痕形成，单块面积达3.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕形成，单块面积达3.0cm2"
-                ]
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 3,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["块状", "块状瘢痕"], ["单块", "单个"]]
               }
             },
             {
@@ -24746,11 +24752,12 @@
               "sourceText": "多块累计面积达5.0cm2",
               "conditionText": "面部块状瘢痕形成，多块累计面积达5.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕形成，多块累计面积达5.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 5,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["块状", "块状瘢痕"], ["多块", "多个"], ["累计", "总面积", "合计"]]
               }
             }
           ]

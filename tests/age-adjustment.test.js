@@ -880,6 +880,45 @@ test('injury 6.18 length and area thresholds cannot be supported by unstructured
   assert.deepEqual(unsafe, []);
 });
 
+test('disability 6.11 block-scar areas use verified injury and assessment ages', () => {
+  const assess = (id, age, finding, includeAge = true) => {
+    const description = `本次事故后${includeAge ? `受伤时年龄${age}周岁，评残时年龄${age}周岁，` : ''}${finding}`;
+    const sourceFacts = includeAge ? [ageFact(age), assessmentAgeFact(age)] : [];
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [],
+      conflicts: [], requiresReview: false }, { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.disability.clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.8.2.5', 6, '面部中心区块状增生性瘢痕单块面积3.5cm2。'), true);
+  assert.notEqual(assess('5.8.2.5', 6, '面部中心区块状增生性瘢痕单块面积3.49cm2。'), true);
+  assert.equal(assess('5.8.2.5', 6, '面部块状增生性瘢痕累计面积7.5cm2。'), true);
+  assert.equal(assess('5.8.2.5', 6, '面部中心区块状增生性瘢痕多块累计面积4.5cm2。'), true);
+  assert.notEqual(assess('5.8.2.5', 6, '面部中心区块状增生性瘢痕多块累计面积4.49cm2。'), true);
+  assert.equal(assess('5.9.2.5', 6, '面部块状瘢痕单块面积3.5cm2。'), true);
+  assert.notEqual(assess('5.9.2.5', 6, '面部块状瘢痕单块面积3.49cm2。'), true);
+  assert.equal(assess('5.9.2.5', 6, '面部多块块状瘢痕累计面积4.5cm2。'), true);
+  assert.equal(assess('5.10.2.5', 7, '面部块状瘢痕单块面积2.4cm2。'), true);
+  assert.notEqual(assess('5.10.2.5', 7, '面部块状瘢痕单块面积2.39cm2。'), true);
+  assert.equal(assess('5.10.2.5', 7, '面部多块块状瘢痕累计面积4cm2。'), true);
+  assert.notEqual(assess('5.10.2.5', 7, '面部多块块状瘢痕累计面积3.99cm2。'), true);
+  assert.equal(assess('5.10.2.5', 15, '面部块状瘢痕单块面积3cm2。'), true);
+  assert.notEqual(assess('5.9.2.5', 6, '面部块状瘢痕单块面积3.5cm2。', false), true);
+
+  const unstructured = [];
+  for (const id of ['5.8.2.5', '5.9.2.5', '5.10.2.5']) {
+    const walk = node => {
+      if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
+        && /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米)/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
+        unstructured.push(`${id}: ${node.conditionText || node.sourceText}`);
+      }
+      for (const child of node.children || []) walk(child);
+    };
+    walk(catalogs.disability.clauses.find(item => item.id === id).conditionLogic.logic);
+  }
+  assert.deepEqual(unstructured, []);
+});
+
 test('neck wound and scratch length thresholds use injury standard 6.18', () => {
   const assess = (id, age, evidence) => {
     const description = `本次事故后受伤时年龄${age}周岁，${evidence}`;
