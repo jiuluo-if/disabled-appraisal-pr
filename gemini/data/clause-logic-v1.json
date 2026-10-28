@@ -1926,30 +1926,34 @@
       },
       "5.11.2.c": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "撕脱伤面积100.0cm2以上",
           "conditionText": "撕脱伤面积100.0cm2以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "撕脱伤面积100.0cm2以上"
-            ]
-          }
+          "predicate": {
+            "field": "skin_avulsion_area_cm2",
+            "operator": "gte",
+            "value": 100,
+            "unit": "cm2"
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.11.2.d": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "皮肤缺损30.0cm2以上",
           "conditionText": "皮肤缺损30.0cm2以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "皮肤缺损30.0cm2以上"
-            ]
-          }
+          "predicate": {
+            "field": "skin_defect_area_cm2",
+            "operator": "gte",
+            "value": 30,
+            "unit": "cm2"
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.11.3.a": {
@@ -1971,30 +1975,34 @@
       },
       "5.11.3.c": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "撕脱伤面积50.0cm2以上",
           "conditionText": "撕脱伤面积50.0cm2以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "撕脱伤面积50.0cm2以上"
-            ]
-          }
+          "predicate": {
+            "field": "skin_avulsion_area_cm2",
+            "operator": "gte",
+            "value": 50,
+            "unit": "cm2"
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.11.3.d": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "皮肤缺损6.0cm2以上",
           "conditionText": "皮肤缺损6.0cm2以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "皮肤缺损6.0cm2以上"
-            ]
-          }
+          "predicate": {
+            "field": "skin_defect_area_cm2",
+            "operator": "gte",
+            "value": 6,
+            "unit": "cm2"
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.1.2.b": {
@@ -5899,6 +5907,7 @@
       },
       "5.11.4.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "擦伤面积20.0cm2以上或者挫伤面积15.0cm2以上",
@@ -5908,23 +5917,25 @@
               "op": "condition",
               "sourceText": "擦伤面积20.0cm2以上",
               "conditionText": "擦伤面积20.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "擦伤面积20.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "skin_abrasion_area_cm2",
+                "operator": "gte",
+                "value": 20,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "挫伤面积15.0cm2以上",
               "conditionText": "挫伤面积15.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "挫伤面积15.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "skin_contusion_area_cm2",
+                "operator": "gte",
+                "value": 15,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
@@ -6907,6 +6918,7 @@
       },
       "5.1.5.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "头皮擦伤面积5.0cm2以上；头皮挫伤；头皮下血肿",
@@ -6916,12 +6928,13 @@
               "op": "condition",
               "sourceText": "头皮擦伤面积5.0cm2以上",
               "conditionText": "头皮擦伤面积5.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "头皮擦伤面积5.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "scalp_abrasion_area_cm2",
+                "operator": "gte",
+                "value": 5,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",

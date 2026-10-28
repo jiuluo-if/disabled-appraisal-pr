@@ -3582,6 +3582,11 @@ function factFinding(field, value, certainty) {
     burn_area_body_superficial_second_degree_cm2: '体表浅II度烧烫伤面积（平方厘米）',
     scalp_defect_area_cm2: '头皮皮肤缺损面积（平方厘米）',
     scalp_avulsion_area_cm2: '头皮撕脱伤面积（平方厘米）',
+    skin_avulsion_area_cm2: '皮肤撕脱伤面积（平方厘米）',
+    skin_defect_area_cm2: '皮肤缺损面积（平方厘米）',
+    skin_abrasion_area_cm2: '皮肤擦伤面积（平方厘米）',
+    skin_contusion_area_cm2: '皮肤挫伤面积（平方厘米）',
+    scalp_abrasion_area_cm2: '头皮擦伤面积（平方厘米）',
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
@@ -3975,6 +3980,45 @@ function normalizeScalpSurfaceAreaFacts(inputText) {
   return facts;
 }
 
+function normalizeSkinSurfaceAreaFacts(inputText) {
+  const text = normalizeInput(inputText || '');
+  const facts = [];
+  const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  const descriptors = [
+    { field: 'skin_avulsion_area_cm2', pattern: /撕脱(?:伤|创)?/u },
+    { field: 'skin_defect_area_cm2', pattern: /(?:皮肤(?:组织)?|头皮)缺损/u },
+    { field: 'skin_abrasion_area_cm2', pattern: /擦伤/u },
+    { field: 'skin_contusion_area_cm2', pattern: /挫伤/u },
+  ];
+  const excludedContext = /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未达|低于|小于|不足|不超过|少于|超过|大于|至少|未见|未发现|否认|排除|无|既往|陈旧|术前|术后|手术切口|供皮区|植皮|移植|切除)/u;
+  for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
+    const segments = sentence[0].split(/[，,；;]|或者|或/u).map(value => value.trim()).filter(Boolean);
+    for (const [segmentIndex, clause] of segments.entries()) {
+      const measurements = [...clause.matchAll(new RegExp(`${amount}\\s*(?:cm\\s*2|平方厘米)`, 'giu'))];
+      const matches = descriptors.filter(item => item.pattern.test(clause));
+      if (measurements.length !== 1 || matches.length !== 1 || !/面积/u.test(clause)
+        || excludedContext.test(clause)
+        || new RegExp(`(?:${amount})\\s*(?:-|–|—|至|到)\\s*$`, 'u')
+          .test(clause.slice(0, measurements[0].index))) continue;
+      const descriptor = matches[0];
+      if (descriptor.field === 'skin_defect_area_cm2' && !/(?:皮肤(?:组织)?|头皮)缺损/u.test(clause)) continue;
+      const measurement = measurements[0];
+      const value = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+      if (!Number.isFinite(value) || value < 0) continue;
+      const parserIndex = sentence.index + segmentIndex;
+      const excerpt = clause.slice(-MAX_FACT_EVIDENCE_CHARS);
+      facts.push({ id: `SKINAREA${parserIndex}`, field: descriptor.field, value,
+        certainty: certaintyFor(clause, 0, clause.length), source_type: 'user_text', source_excerpt: excerpt });
+      if (descriptor.field === 'skin_abrasion_area_cm2'
+        && /(?:头皮|头顶部|额顶部|颞顶部|颞枕部|顶枕部|枕顶部|枕部)/u.test(clause)) {
+        facts.push({ id: `SCALPABRASION${parserIndex}`, field: 'scalp_abrasion_area_cm2', value,
+          certainty: certaintyFor(clause, 0, clause.length), source_type: 'user_text', source_excerpt: excerpt });
+      }
+    }
+  }
+  return facts;
+}
+
 function normalizeExtractedFacts(value, { description = '', recognizedText = '' } = {}) {
   const parsed = factExtractionSchema.parse(normalizeFactExtractionResponse(value));
   const rawFactIds = new Set(parsed.facts.map(fact => fact.id).filter(Boolean));
@@ -4117,6 +4161,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeBurnTbsaFacts(sourceText),
       ...normalizeLocalBurnAreaFacts(sourceText),
       ...normalizeScalpSurfaceAreaFacts(sourceText),
+      ...normalizeSkinSurfaceAreaFacts(sourceText),
       ...normalizeCheekPenetratingWoundFacts(sourceText),
       ...normalizeSharedSuffixBoneFractureFacts(sourceText),
       ...normalizeBrainCompressionEvidenceFacts(sourceText),
@@ -4182,10 +4227,13 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const sameClauseBodySurfaceEventId = fact => {
     if (fact.field !== 'contusion_tbsa_percent' && !fact.field.startsWith('burn_tbsa_')
       && !fact.field.startsWith('burn_area_') && !fact.field.startsWith('scalp_')
+      && !fact.field.startsWith('skin_')
       || fact.source !== 'description' || fact.eventId) return null;
     const contextFor = text => fact.field.startsWith('burn_area_') || fact.field.startsWith('scalp_')
+      || fact.field.startsWith('skin_')
       ? sourceSentence(sourceTexts.description, text) : sourceClause(sourceTexts.description, text);
     const factClause = contextFor(fact.evidence) || fact.evidence;
+    if (fact.field.startsWith('skin_') && !hasSingleExplicitInjuryEvent(factClause)) return null;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
       && (contextFor(modelFact.evidence) || normalizeInput(modelFact.evidence)) === factClause)
@@ -4318,6 +4366,22 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const injuryType = field === 'scalp_defect_area_cm2' ? /缺损/u.test(fullEvidence) : /撕脱(?:伤|创)?/u.test(fullEvidence);
       if (!deterministicMatch || typeof value !== 'number' || !scalpSite || !injuryType || !/面积/u.test(fullEvidence)
         || !evidenceHasMeasurement(fullEvidence, value, /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm2|平方厘米)/gu)) {
+        invalidEvidence = true;
+        continue;
+      }
+    }
+    if (field.startsWith('skin_') || field === 'scalp_abrasion_area_cm2') {
+      const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
+        && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
+      const descriptor = field.includes('avulsion') ? /撕脱(?:伤|创)?/u
+        : field.includes('defect') ? /(?:皮肤(?:组织)?|头皮)缺损/u
+          : field.includes('abrasion') ? /擦伤/u : /挫伤/u;
+      if (!deterministicMatch || typeof value !== 'number' || !descriptor.test(fullEvidence)
+        || !/面积/u.test(fullEvidence)
+        || !evidenceHasMeasurement(fullEvidence, value,
+          /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm2|平方厘米)/gu)
+        || field === 'scalp_abrasion_area_cm2'
+          && !/(?:头皮|头顶部|额顶部|颞顶部|颞枕部|顶枕部|枕顶部|枕部)/u.test(fullEvidence)) {
         invalidEvidence = true;
         continue;
       }

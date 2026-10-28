@@ -442,3 +442,87 @@ test('scalp skin-defect and avulsion area thresholds use injury standard 6.18', 
   assert.equal(extract('本次事故后，未见头皮皮肤缺损面积10平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
   assert.equal(extract('本次事故后，背部皮肤缺损面积20平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
 });
+
+test('body-surface avulsion area uses the injury 6.18 age band for skin-damage clauses', () => {
+  const assess = (id, age, finding) => {
+    const description = `本次事故后受伤时年龄${age}周岁，${finding}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.injury.clauses.find(item => item.id === id);
+    const fact = facts.find(item => item.field.startsWith('skin_') || item.field === 'scalp_abrasion_area_cm2');
+    assert.ok(fact, `${id} should have a deterministic area fact`);
+    assert.match(fact.finding, /(?:撕脱伤|缺损|擦伤|挫伤).*面积/u);
+    assert.equal(fact.eventId, facts.find(item => item.field === 'age_at_injury_years')?.eventId);
+    assert.ok(retrieveClauses('injury', '无关候选词', 0, facts).some(item => item.id === id));
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.11.2.c', 6, '背部皮肤撕脱伤面积累计50平方厘米。'), true);
+  assert.equal(assess('5.11.2.c', 7, '背部皮肤撕脱伤面积累计60平方厘米。'), true);
+  assert.equal(assess('5.11.2.c', 11, '背部皮肤撕脱伤面积累计80平方厘米。'), true);
+  assert.equal(assess('5.11.2.c', 15, '背部皮肤撕脱伤面积累计100平方厘米。'), true);
+  assert.equal(assess('5.11.2.d', 11, '皮肤缺损面积累计24平方厘米。'), true);
+  assert.equal(assess('5.11.3.c', 7, '背部皮肤撕脱伤面积累计30平方厘米。'), true);
+  assert.equal(assess('5.11.3.d', 6, '皮肤缺损面积累计3平方厘米。'), true);
+  assert.equal(assess('5.11.4.a', 6, '擦伤面积累计10平方厘米。'), true);
+  assert.equal(assess('5.11.4.a', 6, '挫伤面积累计7.5平方厘米。'), true);
+  const mixedSurfaceFindings = '本次事故后背部皮肤擦伤面积累计10平方厘米，左上肢皮肤挫伤面积累计7.5平方厘米。';
+  const mixedSurfaceFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: `受伤时年龄6周岁，${mixedSurfaceFindings}` }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.ok(mixedSurfaceFacts.some(fact => fact.field === 'skin_abrasion_area_cm2' && fact.value === 10));
+  assert.ok(mixedSurfaceFacts.some(fact => fact.field === 'skin_contusion_area_cm2' && fact.value === 7.5));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.4.a').conditionLogic,
+    mixedSurfaceFacts).met, true);
+  assert.equal(assess('5.1.5.b', 6, '头皮擦伤面积累计2.5平方厘米。'), true);
+  assert.equal(assess('5.11.2.c', 6, '背部皮肤撕脱伤面积累计49.99平方厘米。'), false);
+
+  const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  const noAge = extract('本次事故后背部皮肤撕脱伤面积累计75平方厘米。');
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.2.c').conditionLogic,
+    noAge).met, null);
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.2.c').conditionLogic,
+    extract('本次事故后背部皮肤撕脱伤面积累计40平方厘米。')).met, false);
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.2.c').conditionLogic,
+    extract('本次事故后背部皮肤撕脱伤面积累计100平方厘米。')).met, true);
+  for (const description of [
+    '本次事故后背部皮肤撕脱伤面积约50平方厘米。',
+    '本次事故后背部皮肤撕脱伤面积30至50平方厘米。',
+    '本次事故后背部皮肤撕脱伤面积疑似50平方厘米。',
+    '本次事故后未见背部皮肤撕脱伤面积50平方厘米。',
+    '既往背部皮肤撕脱伤面积累计50平方厘米。',
+  ]) {
+    assert.equal(extract(description).some(fact => fact.field.startsWith('skin_')), false, description);
+  }
+  assert.ok(extract('本次事故后皮肤缺损面积50平方厘米。')
+    .some(fact => fact.field === 'skin_defect_area_cm2'));
+
+  const scalpDefectDescription = '本次事故后受伤时年龄6周岁，头皮缺损面积累计15平方厘米。';
+  const scalpDefectFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: scalpDefectDescription }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.ok(scalpDefectFacts.some(fact => fact.field === 'skin_defect_area_cm2' && fact.evidence.includes('头皮')));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.2.d').conditionLogic,
+    scalpDefectFacts).met, true);
+
+  const separateEventDescription = '2019年受伤时年龄6周岁；2025年本次事故后背部皮肤撕脱伤面积累计75平方厘米。';
+  const separateEventFacts = normalizeExtractedFacts({ facts: [ageFact(6, '受伤时年龄6周岁', 'E1')],
+    missingMaterials: [], conflicts: [], requiresReview: false }, { description: separateEventDescription })
+    .facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(separateEventFacts.find(fact => fact.field === 'skin_avulsion_area_cm2')?.eventId, 'E1');
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.2.c').conditionLogic,
+    separateEventFacts).met, null);
+
+  const unknownAgeDescription = '本次事故后背部皮肤撕脱伤面积累计75平方厘米。';
+  const unknownAgeFacts = extract(unknownAgeDescription);
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.11.2.c');
+  const area = unknownAgeFacts.find(fact => fact.field === 'skin_avulsion_area_cm2');
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: '轻伤一级', facts: [], references: [{
+    clauseId: clause.id, evidence: area.evidence, reasoning: '模型认为条件满足。', relation: 'supports',
+    conditions: [{ condition: clause.text, evidence: area.evidence, factIds: [area.id], met: true }],
+  }] }, { ...inputs.injury, description: unknownAgeDescription }, {
+    clauses: [clause], requestId: 'skin-area-age-review', model: 'test-model', extractedFacts: unknownAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+});
