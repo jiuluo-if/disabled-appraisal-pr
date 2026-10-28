@@ -575,6 +575,34 @@ test('mandibular body defect without a fracture cannot satisfy the jaw-fracture 
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [fracture]).met, true);
 });
 
+test('alveolar defect needs an independently source-counted four-tooth loss', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.2.26');
+  const conclusion = '牙槽骨部分缺损，合并牙齿缺失或者折断4枚以上';
+  const bundledDescription = `合成资料，非真实病例。结论记载“${conclusion}”。`;
+  const bundledFact = { id: 'A1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: conclusion };
+  const bundled = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: conclusion, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: conclusion, factIds: ['A1'], met: true }] }] },
+  { ...inputs.disability, description: bundledDescription }, { clauses: [clause], requestId: 'alveolar-four-tooth-bundle',
+    model: 'test-model', extractedFacts: [bundledFact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(bundled.grade, null);
+
+  const description = '合成资料，非真实病例。CT示牙槽骨部分缺损；检查记载4枚牙齿缺失。';
+  const facts = normalizeExtractedFacts({ facts: [
+    { id: 'A2', eventId: 'E1', field: 'diagnosis', value: '牙槽骨部分缺损', certainty: 'reported',
+      source: 'description', evidence: 'CT示牙槽骨部分缺损' },
+    { id: 'A3', eventId: 'E1', field: 'dental_loss_count', value: 4, certainty: 'reported',
+      source: 'description', evidence: '检查记载4枚牙齿缺失' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'dental_loss_count' ? { ...fact, eventId: 'E2' } : fact)).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'dental_loss_count' ? { ...fact, value: 3, evidence: '检查记载3枚牙齿缺失' } : fact)).met, true);
+});
+
 test('not nodes preserve unknown and do not merge exclusion facts across events', () => {
   const findNot = node => node.op === 'not' ? node : (node.children || []).map(findNot).find(Boolean);
   const necrosisClause = catalogs.injury.clauses.find(item => item.id === '5.9.3.g');

@@ -25189,15 +25189,34 @@
               }
             },
             {
-              "op": "condition",
-              "sourceText": "牙槽骨部分缺损",
+              "op": "all",
+              "sourceText": "牙槽骨部分缺损，合并牙齿缺失或者折断4枚以上",
               "conditionText": "牙槽骨部分缺损，合并牙齿缺失或者折断4枚以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "牙槽骨部分缺损，合并牙齿缺失或者折断4枚以上"
-                ]
-              }
+              "children": [
+                {
+                  "op": "condition",
+                  "sourceText": "牙槽骨部分缺损",
+                  "conditionText": "牙槽骨部分缺损",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "fields": ["imaging_finding", "clinical_finding"],
+                    "values": ["牙槽骨部分缺损"],
+                    "evidenceAliases": ["牙槽骨部分缺损"]
+                  }
+                },
+                {
+                  "op": "condition",
+                  "sourceText": "牙齿缺失或者折断4枚以上",
+                  "conditionText": "牙齿缺失或折断至少4枚",
+                  "predicate": {
+                    "field": "dental_loss_count",
+                    "operator": "gte",
+                    "value": 4,
+                    "unit": "枚",
+                    "evidenceGroups": [["牙齿", "牙"], ["缺失", "折断", "折裂", "脱落"]]
+                  }
+                }
+              ]
             }
           ]
         }
