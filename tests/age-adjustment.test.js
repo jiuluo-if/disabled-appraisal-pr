@@ -714,6 +714,8 @@ test('facial wound-length thresholds use injury standard 6.18', () => {
   assert.equal(assess('5.2.3.a', 7, '多处皮肤创口累计长度6厘米。'), true);
   assert.equal(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。'), true);
   assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.24厘米。'), true);
+  assert.equal(assess('5.2.4.a', 6, '瘢痕长2.25厘米。'), true);
+  assert.notEqual(assess('5.2.4.a', 6, '瘢痕长2.24厘米。'), true);
   assert.equal(assess('5.2.4.a', 7, '多处皮肤创口累计长度3.6厘米。'), true);
   assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。', '左上臂'), true);
 
@@ -826,6 +828,56 @@ test('explicit cumulative scar length stays aggregate and cannot prove a single 
     .map(fact => ({ ...fact, verification: 'quoted' }));
   assert.notEqual(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.8.4.f').conditionLogic,
     incomplete).met, true);
+
+  const earDescription = '本次事故后受伤时年龄6周岁，耳廓多个瘢痕累计长度3cm。';
+  const earFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [],
+    requiresReview: false }, { description: earDescription }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.2.4.l').conditionLogic,
+    earFacts).met, true);
+
+  const generalDescription = '本次事故后受伤时年龄6周岁，多个瘢痕累计长度7.5cm。';
+  const generalFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [],
+    requiresReview: false }, { description: generalDescription }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.11.3.b').conditionLogic,
+    generalFacts).met, true);
+});
+
+test('facial scratch length thresholds use injury standard 6.18 and require age when the result can change', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.5.c');
+  const assess = (age, length, includeAge = true) => {
+    const description = `本次事故后${includeAge ? `受伤时年龄${age}周岁，` : ''}面部划伤长${length}cm。`;
+    const sourceFacts = includeAge ? [ageFact(age)] : [];
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess(6, 2), true);
+  assert.notEqual(assess(6, 1.99), true);
+  assert.equal(assess(7, 2.4), true);
+  assert.notEqual(assess(7, 2.39), true);
+  assert.equal(assess(11, 3.2), true);
+  assert.notEqual(assess(11, 3.19), true);
+  assert.equal(assess(15, 4), true);
+  assert.notEqual(assess(15, 3.99), true);
+  assert.notEqual(assess(6, 2, false), true);
+});
+
+test('injury 6.18 length and area thresholds cannot be supported by unstructured conclusion facts', () => {
+  const unsafe = [];
+  for (const clause of catalogs.injury.clauses) {
+    if (clause.conditionLogic?.ageAdjustment !== 'injury_standard_6_18') continue;
+    const walk = node => {
+      if (!node) return;
+      if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
+        && /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米|厘米|cm)/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
+        unsafe.push(`${clause.id}: ${node.conditionText || node.sourceText}`);
+      }
+      for (const child of node.children || []) walk(child);
+    };
+    walk(clause.conditionLogic.logic);
+  }
+  assert.deepEqual(unsafe, []);
 });
 
 test('neck wound and scratch length thresholds use injury standard 6.18', () => {
