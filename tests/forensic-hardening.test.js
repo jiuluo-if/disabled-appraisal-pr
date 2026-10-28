@@ -454,6 +454,24 @@ test('one quoted composite nerve conclusion cannot independently prove nerve lev
   assert.match(reference?.reasoning || '', /客观检查确认残留肌力等级达到阈值/u);
 });
 
+test('one quoted vertebral surgery conclusion cannot replace level counting and operative linkage', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.8.6.2');
+  const conclusion = '三个以上椎体骨折，经手术治疗后';
+  const description = `合成资料，非真实病例。本次事故造成${conclusion}。`;
+  const facts = [{ id: 'V1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: description }];
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: description, factIds: ['V1'], met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'vertebral-count-surgery-composite-alone',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.grade, null);
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.match(reference?.reasoning || '', /至少3个独立椎体骨折部位及与这些骨折对应的手术治疗/u);
+});
+
 test('single-leaf compound organ and function clauses do not grade from one complete conclusion', async t => {
   const cases = [
     { assessmentType: 'injury', id: '5.4.5.a', reason: /眼球损伤和视功能影响/u },
