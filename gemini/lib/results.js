@@ -2009,7 +2009,9 @@ export function normalizeResult(raw, input, context) {
     if (clause.grade && clause.conditionLogic?.annotation === 'opaque') {
       references.push({ ...clause, sourceUrl: standard.sourceUrl,
         evidence: '',
-        reasoning: '本条款的条件逻辑尚未完成安全标注，状态保持未知，不用于当前定级。', relation: 'incomplete',
+        reasoning: clause.conditionLogic.reason
+          ? `${clause.conditionLogic.reason} 状态保持未知，不用于当前定级。`
+          : '本条款的条件逻辑尚未完成安全标注，状态保持未知，不用于当前定级。', relation: 'incomplete',
         conditions: [{ condition: clause.text, evidence: '', factIds: [], met: null }] });
       continue;
     }

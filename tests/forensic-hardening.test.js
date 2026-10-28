@@ -135,7 +135,9 @@ test('a model cannot turn thumb opposition and grip measurements into hand-funct
 
   assert.equal(extracted.facts.some(fact => fact.value === clause.conditionLogic.logic.conditionText), false);
   assert.equal(result.grade, null);
-  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.notEqual(reference?.relation, 'supports');
 });
 
 test('digit-separation descriptions surface a system-review warning without suppressing a supported head clause', () => {
@@ -304,6 +306,26 @@ test('facial linear scar clause checks width, total length, and central-zone len
       ? { ...fact, value: 2.99, evidence: '面部中心区条状瘢痕长度2.99cm' } : fact)).met, true);
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
     facts.map(fact => fact.field === 'facial_center_scar_length_cm' ? { ...fact, eventId: 'E2' } : fact)).met, true);
+});
+
+test('one quoted composite vertebral-process conclusion cannot independently prove count and functional effect', () => {
+  const conclusion = '四处以上横突、棘突或者椎弓根骨折，影响功能';
+  const description = `合成资料，非真实病例。病历结论记载“${conclusion}”。`;
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.6.3');
+  const extraction = normalizeExtractedFacts({ facts: [{ id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: conclusion, certainty: 'reported', source: 'description', evidence: conclusion }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: conclusion, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: conclusion, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'vertebral-process-composite-alone',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.grade, null);
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.match(reference?.reasoning || '', /骨折处数及其与功能受影响的同事件关联/u);
 });
 
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
