@@ -5,7 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import { createApp } from './lib/app.js';
-import { loadProviderConfig } from './lib/config.js';
+import { loadProviderConfig, resolveServerHost } from './lib/config.js';
 
 dotenv.config({ path: path.join(path.dirname(fileURLToPath(import.meta.url)), '.env'), quiet: true });
 const integer = (name, fallback, minimum, maximum) => {
@@ -17,8 +17,7 @@ const integer = (name, fallback, minimum, maximum) => {
 try {
   const config = loadProviderConfig(process.env);
   const localHost = config.localHttp;
-  const host = process.env.HOST || (localHost ? '127.0.0.1' : '0.0.0.0');
-  if (localHost && !['127.0.0.1', '::1', 'localhost'].includes(host)) throw new Error('LOCAL_HTTP requires a loopback HOST');
+  const host = resolveServerHost(process.env);
   const server = localHost
     ? http.createServer(createApp(config))
     : https.createServer({

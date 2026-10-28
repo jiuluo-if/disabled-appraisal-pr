@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { loadProviderConfig } from '../gemini/lib/config.js';
+import { loadProviderConfig, resolveServerHost } from '../gemini/lib/config.js';
 import { CLIENT_ANALYSIS_TIMEOUT_MS, MAX_REQUEST_TIMEOUT_MS, MAX_UPLOAD_REQUEST_TIMEOUT_MS } from '../gemini/lib/request-timeouts.js';
 
 test('browser analysis timeout leaves room for the maximum backend request timeout', () => {
@@ -91,5 +91,14 @@ test('production systemd units run without root and keep application files read-
     assert.match(unit, /^ProtectSystem=strict$/mu);
     assert.match(unit, /^ProtectHome=true$/mu);
     assert.doesNotMatch(unit, /^User=root$/mu);
+  }
+});
+
+test('assessment backend defaults to loopback and rejects direct external binds', () => {
+  assert.equal(resolveServerHost({ NODE_ENV: 'production' }), '127.0.0.1');
+  assert.equal(resolveServerHost({ HOST: '::1', NODE_ENV: 'production' }), '::1');
+  assert.equal(resolveServerHost({ HOST: 'localhost', LOCAL_HTTP: 'true' }), 'localhost');
+  for (const HOST of ['0.0.0.0', '::', '192.0.2.10']) {
+    assert.throws(() => resolveServerHost({ HOST, NODE_ENV: 'production' }), /loopback/u);
   }
 });

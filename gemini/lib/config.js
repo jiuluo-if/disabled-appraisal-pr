@@ -5,6 +5,13 @@ const DEFAULT_CACHE_TTL_MS = 900_000;
 const DEFAULT_CACHE_CAPACITY = 200;
 const DEFAULT_CORS_ORIGINS = ['https://analyst.lintsing.net', 'https://appraise.lintsing.net'];
 const LOCAL_CORS_ORIGINS = ['http://127.0.0.1:5300', 'http://localhost:5300'];
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1', 'localhost']);
+
+export function resolveServerHost(env = process.env) {
+  const host = String(env.HOST || '127.0.0.1').trim().toLowerCase();
+  if (!LOOPBACK_HOSTS.has(host)) throw new Error('HOST must be a loopback address behind the local reverse proxy');
+  return host;
+}
 
 function integer(env, name, fallback, minimum, maximum) {
   const raw = env[name];

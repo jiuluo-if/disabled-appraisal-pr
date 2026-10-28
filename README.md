@@ -151,7 +151,9 @@ more are limited to two simultaneous requests per IP and eight service-wide;
 the byte threshold and caps can be tuned with `ANALYSIS_BODY_CONCURRENCY_*`.
 The API key
 authentication and provider quotas remain unchanged. The backend trusts forwarded client IPs only from loopback proxies,
-matching this Nginx upstream. The proxy accepts request bodies up to 50 MB,
+matching this Nginx upstream. The backend listener defaults to `127.0.0.1` and
+rejects non-loopback `HOST` values; Nginx remains the public API entry point.
+The proxy accepts request bodies up to 50 MB,
 matching the backend JSON parser. It keeps Nginx's default client body idle timeout
 and uses 325-second upstream proxy timeouts so the
 300-second analysis limit fits within the proxy window. The Node request timeout
