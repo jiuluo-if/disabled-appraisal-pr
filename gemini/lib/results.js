@@ -2,7 +2,8 @@ import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
-  isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts, parseNumber, quotedDentalDefectCount,
+  hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
+  parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches } from './facts.js';
 
 const grades = {
@@ -195,6 +196,16 @@ function explicitlySeparateBrainFindings(positiveFact, excludedFact) {
 
 function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
   if (!Number.isFinite(fact.value)) return null;
+  if (predicate.field === 'orbital_enophthalmos_cm') {
+    const evidence = normalize(String(fact.evidence || ''));
+    const measurements = [...evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
+    if (measurements.length !== 1
+      || !hasExplicitOrbitalFractureEnophthalmosLink(evidence)
+      || /(?:未达|低于|小于|不足|不超过|少于|超过|大于|至少|以上|以下|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未见|未发现|否认|排除)/u.test(evidence)) return null;
+    const amount = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    const centimetres = /^(?:mm|毫米)$/u.test(measurements[0][2]) ? amount / 10 : amount;
+    return Number.isFinite(centimetres) && centimetres === fact.value && centimetres >= 0 ? centimetres : null;
+  }
   if (predicate.field === 'gcs_score') {
     const evidence = normalize(String(fact.evidence || ''));
     const score = /(?:GCS|格拉斯哥昏迷评分)\s*(?:评分|分数)?\s*[:：=]?\s*(1[0-5]|[3-9])\s*分?/iu.exec(evidence);

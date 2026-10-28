@@ -1288,17 +1288,31 @@ function normalizeSharedSuffixBoneFractureFacts(inputText) {
   return findings;
 }
 
+export function hasExplicitOrbitalFractureEnophthalmosLink(inputText) {
+  const text = normalizeInput(inputText);
+  const orbitalFracture = /(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?\s*骨折/u;
+  const causalLink = /(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折(?:(?!骨折)[^。；;]){0,20}(?:致|导致|造成|引起|所致)(?:(?!骨折)[^。；;]){0,12}(?:眼球)?内陷|(?:眼球)?内陷(?:(?!骨折)[^。；;]){0,20}(?:由|因|系)(?:(?!骨折)[^。；;]){0,8}(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折/u;
+  return orbitalFracture.test(text) && causalLink.test(text);
+}
+
 function normalizeOrbitalWallEnophthalmosFacts(inputText) {
   const text = normalizeInput(inputText);
   const findings = [];
   for (const clauseMatch of text.matchAll(/[^。；;\n]+/gu)) {
     const clause = clauseMatch[0];
     const clauseOffset = clauseMatch.index;
-    if (!/(?:眶(?:内侧壁|内壁|下壁|底|上壁|外侧壁)|眶壁)\s*骨折/u.test(clause)) continue;
-    const causalLink = /骨折[^。；;]{0,20}(?:致|导致|造成|引起|所致)[^。；;]{0,12}(?:眼球)?内陷|(?:眼球)?内陷[^。；;]{0,20}(?:由|因|系)[^。；;]{0,8}眶(?:内侧壁|内壁|下壁|底|上壁|外侧壁|壁)骨折/u;
-    if (!causalLink.test(clause)) continue;
+    if (!hasExplicitOrbitalFractureEnophthalmosLink(clause)) continue;
+    const fractureSide = /(?:左|右|双侧|两侧)(?=侧?眼?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?\s*骨折)/u.exec(clause)?.[0] || null;
+    const enophthalmosSide = /(?:左|右|双侧|两侧)(?=侧?眼球?内陷)/u.exec(clause)?.[0] || null;
+    const sideOf = side => /^(?:左)$/u.test(side || '') ? 'left'
+      : /^(?:右)$/u.test(side || '') ? 'right'
+        : side ? 'bilateral' : null;
+    const fractureLaterality = sideOf(fractureSide);
+    const eyeLaterality = sideOf(enophthalmosSide);
+    if (fractureLaterality && eyeLaterality && fractureLaterality !== 'bilateral'
+      && eyeLaterality !== 'bilateral' && fractureLaterality !== eyeLaterality) continue;
     const boundary = Math.max(0, clauseOffset);
-    for (const measurement of clause.matchAll(/(?:眼球)?内陷(?:约|为|达|测得)?\s*(\d+(?:\.\d+)?)\s*(cm|厘米|mm|毫米)/gu)) {
+    for (const measurement of clause.matchAll(/(?:眼球)?内陷(?:约|为|达|测得)?\s*(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)) {
       const start = clauseOffset + measurement.index;
       const end = start + measurement[0].length;
       const preceding = clause.slice(0, measurement.index);
@@ -1307,11 +1321,15 @@ function normalizeOrbitalWallEnophthalmosFacts(inputText) {
       if (historicalCues.length && (!currentCues.length
         || historicalCues.at(-1).index > currentCues.at(-1).index)) continue;
       if (certaintyFor(text, boundary, end) !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
-      const amount = Number(measurement[1]);
+      const amount = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
       const centimetres = /^(?:mm|毫米)$/u.test(measurement[2]) ? amount / 10 : amount;
-      if (!Number.isFinite(centimetres) || centimetres < 0.2) continue;
-      findings.push({ id: `OE${start}`, field: 'orbital_wall_enophthalmos', value: true,
+      if (!Number.isFinite(centimetres) || centimetres < 0) continue;
+      findings.push({ id: `OEN${start}`, field: 'orbital_enophthalmos_cm', value: centimetres,
         certainty: 'derived', source_type: 'user_text', source_excerpt: clause.trim() });
+      if (centimetres >= 0.2) {
+        findings.push({ id: `OE${start}`, field: 'orbital_wall_enophthalmos', value: true,
+          certainty: 'derived', source_type: 'user_text', source_excerpt: clause.trim() });
+      }
     }
   }
   return findings;
@@ -3736,6 +3754,7 @@ function factFinding(field, value, certainty) {
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
+    orbital_enophthalmos_cm: '眼球内陷深度（厘米）',
     functional_impairment: '功能情况', prior_injury: '既往损伤',
     wound_length_cm: '创口或瘢痕长度（厘米）',
     aggregate_wound_length_cm: '多处创口累计长度（厘米）',
@@ -4343,7 +4362,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeFacialSkinAbnormalityAreaFacts(sourceText),
       ...normalizeSurfaceScarAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
-        'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(fact.field)
+        'treatment', 'anatomical_site', 'laterality', 'injury_cause', 'orbital_wall_enophthalmos',
+        'orbital_enophthalmos_cm'].includes(fact.field)
         || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')
         || fact.field.startsWith('scalp_')
         || fact.field === 'surface_scar_area_cm2'
@@ -4354,6 +4374,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.id?.startsWith('BF')
         || fact.field === 'distinct_orbital_wall_fracture_count'
         || fact.field === 'orbital_wall_enophthalmos'
+        || fact.field === 'orbital_enophthalmos_cm'
         || fact.field === 'aggregate_wound_length_cm'
         || fact.field === 'dental_loss_count'
         || fact.field === 'cross_region_wound_ratio'
@@ -4423,6 +4444,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     let evidence = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
       || fact.field === 'distinct_orbital_wall_fracture_count'
       || fact.field === 'orbital_wall_enophthalmos'
+      || fact.field === 'orbital_enophthalmos_cm'
       || fact.field === 'aggregate_wound_length_cm'
       || fact.field === 'dental_loss_count'
       || fact.field === 'cross_region_wound_ratio'
@@ -4518,7 +4540,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     }
     if (field === 'lip_wound_length_cm') continue;
     if (field === 'lip_through_wound_length_cm') continue;
-    if (field === 'distinct_orbital_wall_fracture_count' || field === 'orbital_wall_enophthalmos') {
+    if (field === 'distinct_orbital_wall_fracture_count' || field === 'orbital_wall_enophthalmos'
+      || field === 'orbital_enophthalmos_cm') {
       if (!deterministicFacts.some(fact => fact.source === source && fact.field === field && fact.value === value)) {
         invalidEvidence = true;
       }

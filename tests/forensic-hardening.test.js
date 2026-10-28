@@ -99,6 +99,59 @@ test('a following negated condition does not negate the preceding wound measurem
     && fact.certainty === 'reported'));
 });
 
+test('orbital enophthalmos measurements bind to the correct threshold and fracture side', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.2.h');
+  const atThresholdDescription = '合成资料，非真实病例。CT示左眼眶骨折致左眼球内陷5mm。';
+  const atThreshold = normalizeExtractedFacts(emptyExtraction, {
+    description: atThresholdDescription,
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const belowThreshold = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。CT示左眼眶骨折致左眼球内陷4.9mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const mismatchedSide = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。CT示左眼眶骨折致右眼球内陷5mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const unrelatedFractureCause = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。CT示左眼眶骨折，另有肋骨骨折致左眼球内陷5mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+
+  assert.equal(atThreshold.find(fact => fact.field === 'orbital_enophthalmos_cm')?.value, 0.5);
+  assert.ok(retrieveClauses('injury', atThresholdDescription, 0, atThreshold)
+    .some(item => item.id === clause.id));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, atThreshold).met, true);
+  const acceptedModelSupport = normalizeResult({ ...providerFixture('injury'), status: 'preliminary',
+    grade: clause.grade, facts: [], references: [{ clauseId: clause.id, relation: 'supports',
+      evidence: atThresholdDescription, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: atThresholdDescription, factIds: atThreshold.map(fact => fact.id), met: true }] }] },
+  { ...inputs.injury, description: atThresholdDescription }, { clauses: [clause], requestId: 'orbital-enophthalmos-at-threshold',
+    model: 'test-model', extractedFacts: atThreshold, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(acceptedModelSupport.grade, clause.grade);
+  assert.equal(acceptedModelSupport.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, belowThreshold).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, mismatchedSide).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, unrelatedFractureCause).met, true);
+
+  const chineseNumber = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。CT示左眼眶下壁骨折致左眼球内陷五毫米。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(chineseNumber.find(fact => fact.field === 'orbital_enophthalmos_cm')?.value, 0.5);
+
+  const moderateClause = catalogs.injury.clauses.find(item => item.id === '5.2.3.g');
+  const moderateMeasurement = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。CT示左眼眶下壁骨折致左眼球内陷2mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(moderateClause.conditionLogic, moderateMeasurement).met, true);
+
+  const evidence = '合成资料，非真实病例。CT示左眼眶下壁骨折致左眼球内陷1.9mm。';
+  const rejectedModelSupport = normalizeResult({ ...providerFixture('injury'), status: 'preliminary',
+    grade: clause.grade, facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence, reasoning: '',
+      conditions: [{ condition: clause.text, evidence, factIds: belowThreshold.map(fact => fact.id), met: true }] }] },
+  { ...inputs.injury, description: evidence }, { clauses: [clause], requestId: 'orbital-enophthalmos-below-threshold',
+    model: 'test-model', extractedFacts: belowThreshold, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(rejectedModelSupport.grade, null);
+  assert.notEqual(rejectedModelSupport.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('rib ordinal lists do not create fracture-site counts', () => {
   const snapshot = normalizeExtractedFacts(emptyExtraction, {
     description: '左侧第3至第6肋骨骨折。',
