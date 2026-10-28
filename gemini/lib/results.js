@@ -4,7 +4,7 @@ import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, 
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
   hasExplicitLimbLengthDifferenceLink, parseNumber, quotedDentalDefectCount,
-  sourceReferenceMatches } from './facts.js';
+  sourceReferenceMatches, hasSameEyeInjuryContext } from './facts.js';
 
 const grades = {
   injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
@@ -703,8 +703,7 @@ function canonicalClinicalFindingEvidence(value, evidence, linkedToCurrentEvent 
   if (value === '一眼矫正视力减退至0.5以下') {
     const acuity = evidence.match(/(右|左)眼[^，,。；;\n]{0,8}?矫正视力\s*(?:为|[:：])?\s*(\d+(?:\.\d+)?)(?![\d.])/u);
     if (!acuity || Number(acuity[2]) > 0.5) return false;
-    const side = acuity[1];
-    return new RegExp(`(?:${side}眼[^。；;\\n]{0,24}(?:外伤|受伤)后|(?:外伤|受伤)后[^。；;\\n]{0,24}${side}眼)`, 'u').test(evidence);
+    return hasSameEyeInjuryContext(acuity[1], evidence.slice(0, evidence.indexOf(acuity[0]) + acuity[0].length));
   }
   if (value === '外伤性鼓膜穿孔6周不能自行愈合') return confirmsSixWeekUnhealedTympanicPerforation(evidence);
   if (value === '置入式假体装置损坏' || value === '置入式假体装置需要手术修复') {

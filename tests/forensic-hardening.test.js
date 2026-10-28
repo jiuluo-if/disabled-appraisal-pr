@@ -90,6 +90,22 @@ test('heart and pericardial repair procedure names do not prove rupture without 
   assert.equal(evaluateConditionLogic(clause.conditionLogic, deterministicFacts).met, true);
 });
 
+test('corrected visual acuity is bound to the injured eye rather than the next eye mentioned', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.4.4.f');
+  const wrongEyeDescription = '合成资料，非真实病例。右眼本次外伤后复查，左眼矫正视力0.4，右眼矫正视力1.0。';
+  const wrongEyeFacts = normalizeExtractedFacts(emptyExtraction, { description: wrongEyeDescription }).facts;
+  assert.equal(wrongEyeFacts.some(fact => fact.field === 'clinical_finding'
+    && fact.value === '一眼矫正视力减退至0.5以下'), false);
+  const modelClaim = { id: 'F1', field: 'clinical_finding', value: '一眼矫正视力减退至0.5以下',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: wrongEyeDescription };
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [modelClaim]).met, true);
+
+  const sameEyeDescription = '合成资料，非真实病例。右眼本次外伤后复查，右眼矫正视力0.5，左眼视力1.0。';
+  const sameEyeFacts = normalizeExtractedFacts(emptyExtraction, { description: sameEyeDescription }).facts;
+  assert.ok(sameEyeFacts.some(fact => fact.field === 'clinical_finding'
+    && fact.value === '一眼矫正视力减退至0.5以下'));
+});
+
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '检查见颞叶软化灶，诊断继发性癫痫。',

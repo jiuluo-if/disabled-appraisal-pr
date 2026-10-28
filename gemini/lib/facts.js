@@ -25,6 +25,20 @@ function normalizeInput(value = '') {
     .trim();
 }
 
+export function hasSameEyeInjuryContext(side, evidence) {
+  if (!['左', '右'].includes(side)) return false;
+  const text = normalizeInput(evidence);
+  const injuryCues = [...text.matchAll(/(?:外伤|受伤)(前|后)/gu)];
+  const injuryCue = injuryCues.at(-1);
+  if (!injuryCue || injuryCue[1] !== '后') return false;
+  const beforeCue = text.slice(Math.max(0, injuryCue.index - 24), injuryCue.index);
+  const adjacentEye = beforeCue.match(/(?:左|右)眼[^。！？；;\n]{0,12}$/u)?.[0];
+  if (adjacentEye?.startsWith(`${side}眼`)) return true;
+  const afterCue = text.slice(injuryCue.index + injuryCue[0].length,
+    injuryCue.index + injuryCue[0].length + 24);
+  return new RegExp(`^(?:[^。！？；;\\n]{0,8}(?:伤及|累及|波及|致|导致)[^。！？；;\\n]{0,4}${side}眼|[^。！？；;\\n]{0,4}${side}眼(?:受伤|损伤|受累))`, 'u').test(afterCue);
+}
+
 function explicitNegationCoversTerm(text, term) {
   const normalizedText = normalizeInput(text);
   const normalizedTerm = normalizeInput(term);
@@ -446,10 +460,9 @@ function normalizeClinicalFindingFacts(inputText) {
     for (const acuity of clause.matchAll(correctedAcuityPattern)) {
       const side = acuity[1];
       const acuityValue = Number(acuity[2]);
-      const sameEyePostInjury = new RegExp(`(?:${side}眼[^。；;\\n]{0,24}(?:外伤|受伤)后|(?:外伤|受伤)后[^。；;\\n]{0,24}${side}眼)`, 'u');
       const start = clauseOffset + acuity.index;
       const end = start + acuity[0].length;
-      if (acuityValue <= 0.5 && sameEyePostInjury.test(clause.slice(0, acuity.index + acuity[0].length))
+      if (acuityValue <= 0.5 && hasSameEyeInjuryContext(side, clause.slice(0, acuity.index + acuity[0].length))
         && certaintyFor(clause, acuity.index, acuity.index + acuity[0].length) === 'reported'
         && !hasNonCurrentClinicalContext(text, start, end)) {
         const evidenceStart = Math.max(0, acuity.index - 64);
