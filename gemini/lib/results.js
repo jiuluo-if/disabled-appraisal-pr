@@ -744,13 +744,19 @@ function hasExplicitCurrentEventCausalProcedureLink(evidence, expectedOrgan) {
   const text = normalize(String(evidence || ''));
   const procedure = /(?:接受|施行|实施|进行|行|手术|切除|修补|摘除|清除|引流|缝合|固定|修复)/u;
   const causalPhrases = [
-    /因[^，,。；;\n]{0,24}(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,24}(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
-    /(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,20}(?:导致|造成|引起|所致)[^，,。；;\n]{0,20}(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
+    /因[^，,。；;\n]{0,24}(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,24}[，,]?\s*(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
+    /(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,20}(?:导致|造成|引起|所致)[^，,。；;\n]{0,20}[，,]?\s*(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
   ];
   return causalPhrases.some(pattern => {
     const match = pattern.exec(text);
-    return Boolean(match && procedure.test(match[0])
-      && clinicalOrgan({ evidence: match[0] }) === expectedOrgan);
+    if (!match) return false;
+    const action = /(?:接受|施行|实施|进行|行)/u.exec(match[0]);
+    if (!action) return false;
+    const indication = match[0].slice(0, action.index);
+    const operation = match[0].slice(action.index + action[0].length);
+    const indicationOrgan = clinicalOrgan({ evidence: indication });
+    return procedure.test(operation) && clinicalOrgan({ evidence: operation }) === expectedOrgan
+      && (!indicationOrgan || indicationOrgan === expectedOrgan);
   });
 }
 
@@ -774,7 +780,7 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
     .test(node.conditionText || '');
   const factOrgan = clinicalOrgan(fact);
   let explicitlyIndicatedSurgery = false;
-  const explicitIndication = procedureText.match(/(?:因|由于|针对|为治疗|用于治疗)([^，,。；;\n]{1,28}?)(?=(?:行|接受|实施|进行|施行|予以))/u);
+  const explicitIndication = procedureText.match(/(?:因|由于|针对|为治疗|用于治疗)([^，,。；;\n]{1,28}?)(?=[，,]?\s*(?:行|接受|实施|进行|施行|予以))/u);
   if (explicitIndication) {
     const indication = { evidence: explicitIndication[1], value: '' };
     const indicationText = normalize(indication.evidence);
@@ -872,6 +878,11 @@ function clinicalOrgan(fact) {
   if (/顶叶/u.test(text)) return 'parietal_brain_lobe';
   if (/枕叶/u.test(text)) return 'occipital_brain_lobe';
   if (/脑叶/u.test(text)) return 'brain_lobe';
+  if (/心包/u.test(text)) return 'pericardium';
+  if (/(?:心脏|心肌|心房|心室)/u.test(text)) return 'heart';
+  if (/(?:大血管|主动脉|肺动脉|腔静脉|冠状动脉|颈动脉|锁骨下动脉|髂动脉|股动脉|股静脉)/u.test(text)) {
+    return 'great_vessel';
+  }
   if (/肾/u.test(text)) return 'kidney';
   if (/肝/u.test(text)) return 'liver';
   if (/脾/u.test(text)) return 'spleen';
@@ -905,6 +916,7 @@ function compatibleLaterality(left, right) {
       parietal_brain_lobe: /顶叶/u,
       occipital_brain_lobe: /枕叶/u,
       thoracic_cage: /(?:胸廓|胸壁|肋骨)/u,
+      great_vessel: /(?:主动脉|肺动脉|腔静脉|冠状动脉|颈动脉|锁骨下动脉|髂动脉|股动脉|股静脉|大血管)/u,
     }[clinicalOrgan(fact)];
     if (!sitePattern) return null;
     const sides = new Set();

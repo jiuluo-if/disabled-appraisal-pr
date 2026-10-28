@@ -57,6 +57,10 @@ test('5.1.2.m binds completed surgery to the same-event traumatic hydrocephalus 
   ];
   assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
 
+  const commaSeparatedIndication = facts.map(fact => fact.id === 'F2' ? { ...fact,
+    evidence: '因外伤性脑积水，行脑室腹腔分流术' } : fact);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, commaSeparatedIndication).met, true);
+
   const planned = facts.map(fact => fact.id === 'F2' ? { ...fact,
     value: '拟行脑室腹腔分流术', evidence: '因外伤性脑积水拟行脑室腹腔分流术' } : fact);
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, planned).met, true);
@@ -167,10 +171,34 @@ test('source-quoted postoperative states satisfy their own criterion without req
   const unrelatedPostoperativeFinding = [
     { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '心脏修补术后', certainty: 'reported',
       source: 'description', verification: 'quoted', evidence: '心脏修补术后' },
-    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '心悸', certainty: 'reported',
+    { id: 'F2', eventId: 'E1', field: 'symptom', value: '心悸', certainty: 'reported',
       source: 'description', verification: 'quoted', evidence: '心脏手术后出现心悸' },
   ];
   assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic, unrelatedPostoperativeFinding).met, true);
+
+  const heartRepair = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '心脏修补术后',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '因本次事故导致心脏损伤行心脏修补术后' };
+  const heartInjury = { id: 'F2', eventId: 'E1', field: 'diagnosis', value: '心脏损伤', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '本次事故导致心脏损伤' };
+  assert.equal(evaluateConditionLogic(heartClause.conditionLogic, [heartRepair, heartInjury]).met, true);
+  assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic,
+    [{ ...heartRepair, evidence: '本次事故后行心脏修补术后' }, { ...heartInjury, eventId: 'E2' }]).met, true);
+  assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic,
+    [{ ...heartRepair, evidence: '因本次事故导致肾损伤行心脏修补术后' },
+      { ...heartInjury, value: '肾损伤', evidence: '本次事故导致肾损伤' }]).met, true);
+
+  const vesselRepair = { id: 'F3', eventId: 'E1', field: 'clinical_finding', value: '大血管修补术后',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '因本次事故导致主动脉损伤行大血管修补术后' };
+  const vesselInjury = { id: 'F4', eventId: 'E1', field: 'diagnosis', value: '主动脉损伤', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '本次事故导致主动脉损伤' };
+  assert.equal(evaluateConditionLogic(heartClause.conditionLogic, [vesselRepair, vesselInjury]).met, true);
+  assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic,
+    [{ ...vesselRepair, evidence: '本次事故后行大血管修补术后' }, { ...vesselInjury, eventId: 'E2' }]).met, true);
+  assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic,
+    [{ ...vesselRepair, evidence: '因本次事故导致肾损伤行大血管修补术后' },
+      { ...vesselInjury, value: '肾损伤', evidence: '本次事故导致肾损伤' }]).met, true);
 });
 
 test('heart and pericardial repair procedure names do not prove rupture without direct lesion evidence', () => {
