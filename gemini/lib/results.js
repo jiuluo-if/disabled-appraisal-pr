@@ -1321,8 +1321,17 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     }
   }
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
+  const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
+    && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
+  const cardiacRuptureValue = cardiacRuptureCondition
+    ? node.factMatch.values.find(value => ['心脏破裂', '心包破裂'].includes(value)) : null;
+  const parserQuotedCardiacFact = fact => Boolean(cardiacRuptureValue && fact.source === 'description'
+    && fact.sourceRefs?.some(reference => reference.source === fact.source
+      && includesEvidence(reference.evidence, fact.evidence))
+    && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
   const candidates = facts.filter(fact => acceptedFields.has(fact.field)
-    && fact.source === 'description' && fact.verification === 'quoted');
+    && fact.source === 'description'
+    && (fact.verification === 'quoted' || parserQuotedCardiacFact(fact)));
   const relevant = candidates.filter(fact => {
     if (isIntracranialCondition(node) && isSpinalEpiduralHematomaFact(fact)) return false;
     if (predicate?.field === 'aggregate_wound_length_cm'
@@ -1358,14 +1367,13 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const ribFractureEvidence = node.factMatch.field === 'injury_type'
         && node.factMatch.values.includes('rib_fracture') && normalize(node.sourceText) === normalize('肋骨骨折')
         && /肋骨/.test(fact.evidence) && /骨折/.test(fact.evidence) && !historicalEvidence;
-      const cardiacRuptureCondition = node.factMatch.field === 'clinical_finding'
-        && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
-      const cardiacRuptureValue = cardiacRuptureCondition
-        ? node.factMatch.values.find(value => ['心脏破裂', '心包破裂'].includes(value)) : null;
       const canonicalEvidence = node.factMatch.field === 'clinical_finding'
-        && fact.source === 'description' && fact.verification === 'quoted'
-        && (canonicalClinicalFindingEvidence(fact.value, fact.evidence, Boolean(fact.eventId))
-          || cardiacRuptureValue && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
+        && fact.source === 'description'
+        && (fact.verification === 'quoted'
+          && canonicalClinicalFindingEvidence(fact.value, fact.evidence, Boolean(fact.eventId))
+          || parserQuotedCardiacFact(fact)
+          || fact.verification === 'quoted' && cardiacRuptureValue
+            && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
       const evidenceMatches = cardiacRuptureCondition ? canonicalEvidence
         : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence;
       const currentProcedureLink = !requiresCurrentProcedureLink(node)

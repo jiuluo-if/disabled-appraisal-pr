@@ -81,6 +81,11 @@ test('heart and pericardial repair procedure names do not prove rupture without 
   const directPericardial = evaluate('心包破裂', pericardialEvidence, 'direct-pericardial-wall-injury');
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [directPericardial.fact]).met, true);
   assert.equal(directPericardial.result.grade, clause.grade);
+
+  const deterministicFacts = normalizeExtractedFacts(emptyExtraction, { description: pericardialEvidence }).facts;
+  assert.ok(deterministicFacts.some(fact => fact.field === 'clinical_finding'
+    && fact.value === '心包破裂' && fact.sourceRefs?.some(reference => reference.source === 'description')));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, deterministicFacts).met, true);
 });
 
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
@@ -477,6 +482,14 @@ test('postoperative sutured chest wounds are not counted as original traumatic w
 
   assert.ok(lengths.some(fact => fact.value === 2.5));
   assert.equal(lengths.some(fact => fact.value === 20), false);
+
+  const sectionHeadingStyle = '合成资料，非真实病例。手术沿胸部正中切口长约20.0cm，切开皮肤、皮下组织。㈡活体检验：\n伤者神清，胸部正中见20.0cm纵行缝合创口。';
+  const sectionFacts = normalizeExtractedFacts(emptyExtraction, { description: sectionHeadingStyle }).facts;
+  assert.equal(sectionFacts.some(fact => fact.field === 'wound_length_cm' && fact.value === 20), false);
+
+  const separateEvent = '既往因其他疾病手术沿胸部正中切口长约20cm。此次外伤后法医检查：胸部正中见20cm缝合创口。';
+  const separateEventFacts = normalizeExtractedFacts(emptyExtraction, { description: separateEvent }).facts;
+  assert.ok(separateEventFacts.some(fact => fact.field === 'wound_length_cm' && fact.value === 20));
 });
 
 test('pulmonary contusion and an unrelated operation do not prove lung rupture requiring surgery', () => {

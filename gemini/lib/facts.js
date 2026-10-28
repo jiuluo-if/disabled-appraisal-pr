@@ -1523,6 +1523,31 @@ function isOperativeIncisionLengthAtOffset(text, measurementOffset) {
     new RegExp(`${operativeProcedure}[^。；;\\n]{0,32}?(?<measurement>${amount}\\s*(?:cm|厘米))[^。；;\\n]{0,12}?${incisionTerm}`, 'gu'),
     new RegExp(`${operativeProcedure}[^。；;\\n]{0,24}?${incisionTerm}[^。；;\\n]{0,12}?(?<measurement>${amount}\\s*(?:cm|厘米))`, 'gu'),
   ];
+  const priorExaminationHeading = text.slice(Math.max(0, clauseStart - 64), clauseStart);
+  const examinationSection = /(?:活体检验|法医临床检查结果|法医检验|检验所见|法医检查)/u.test(beforeMeasurement)
+    || /(?:活体检验|法医临床检查结果|法医检验|检验所见|法医检查)[：:]?\s*$/u.test(priorExaminationHeading);
+  if (examinationSection && suturedWound) {
+    const currentMeasurement = [...text.matchAll(new RegExp(`${amount}\\s*(?:cm|厘米)`, 'gu'))]
+      .find(match => measurementOffset >= match.index && measurementOffset < match.index + match[0].length);
+    const currentSite = currentMeasurement ? woundMeasurementSiteAt(text, currentMeasurement.index) : null;
+    if (currentMeasurement && currentSite) {
+      const currentValueText = currentMeasurement[0].match(/^(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)/u)?.[0];
+      const currentValue = /^\d/u.test(currentValueText || '') ? Number(currentValueText) : parseNumber(currentValueText);
+      const priorText = text.slice(0, clauseStart);
+      const incisionMeasurement = /(?<amount>\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm|厘米)/gu;
+      const priorSurgicalIncision = priorText.split(/[。！？；;\n\r]+/u).some(section => {
+        if (!new RegExp(operativeProcedure, 'u').test(section)
+          || !new RegExp(incisionTerm, 'u').test(section) || !section.includes(currentSite)
+          || /既往|既有|陈旧|旧伤|此前|曾经|曾有|历史上|另一次(?:事故|外伤|受伤|手术)|不同事件/u.test(section)) return false;
+        return [...section.matchAll(incisionMeasurement)].some(match => {
+          const amountText = match.groups.amount;
+          const priorValue = /^\d/u.test(amountText) ? Number(amountText) : parseNumber(amountText);
+          return priorValue === currentValue;
+        });
+      });
+      if (priorSurgicalIncision) return true;
+    }
+  }
   const nearby = text.slice(Math.max(0, measurementOffset - 24), Math.min(text.length, measurementOffset + 40));
   const explicitlySurgicalScar = /(?:手术|开颅|开胸|剖胸|开腹|剖腹)[^。；;\n]{0,18}(?:切口|瘢痕|疤痕)/u.test(nearby)
     && /(?:瘢痕|疤痕)/u.test(nearby);
@@ -1568,7 +1593,7 @@ function isSkinScratchLengthAtOffset(text, measurementOffset) {
 
 function woundMeasurementSiteAt(text, position) {
   const prefix = text.slice(Math.max(0, position - 36), position);
-  const pattern = /(?:双侧|两侧|左侧|右侧|左|右)?(上下唇|上唇|下唇|口唇|唇部|耳廓内|耳廓外|耳廓|耳背|耳屏|耳垂|耳前|耳后|鼻背|鼻梁|鼻翼|鼻部|鼻|面部|脸部|额部|颧部|眼睑|眼眶|眼|颈部|颈|外阴|阴茎|阴囊|头皮|会阴|腹部|胸部|背部)/gu;
+  const pattern = /(?:双侧|两侧|左侧|右侧|左|右)?(上下唇|上唇|下唇|口唇|唇部|耳廓内|耳廓外|耳廓|耳背|耳屏|耳垂|耳前|耳后|鼻背|鼻梁|鼻翼|鼻部|鼻|面部|脸部|额部|颧部|眼睑|眼眶|眼|颈部|颈|外阴|阴茎|阴囊|头皮|会阴|胸部正中|前胸正中|胸骨正中|腹部正中|上腹正中|下腹正中|腹部|胸部|背部)/gu;
   const matches = [...prefix.matchAll(pattern)];
   return matches.at(-1)?.[1] || null;
 }
