@@ -557,6 +557,24 @@ test('surgery after an event requires an explicit causal statement or same-event
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [unrelatedOperation]).met, true);
 });
 
+test('mandibular body defect without a fracture cannot satisfy the jaw-fracture clause', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.4.t');
+  const defect = '下颌骨体缺损';
+  const defectDescription = `合成资料，非真实病例。CT示${defect}。`;
+  const defectFact = { id: 'M1', eventId: 'E1', field: 'diagnosis', value: defect, certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: `CT示${defect}` };
+  const unsupported = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: defectFact.evidence, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: defectFact.evidence, factIds: ['M1'], met: true }] }] },
+  { ...inputs.injury, description: defectDescription }, { clauses: [clause], requestId: 'mandibular-defect-is-not-fracture',
+    model: 'test-model', extractedFacts: [defectFact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(unsupported.grade, null);
+  assert.notEqual(unsupported.references.find(item => item.id === clause.id)?.relation, 'supports');
+  const fracture = { ...defectFact, value: '下颌骨体骨折', evidence: 'CT示下颌骨体骨折' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [fracture]).met, true);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
