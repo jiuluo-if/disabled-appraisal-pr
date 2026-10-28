@@ -8373,17 +8373,12 @@
         }
       },
       "5.6.3.a": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条款同时要求心脏挫伤、心包积血及二者之间的损伤因果关系。单条完整结论不足以分别核验诊断和影像/手术证据；当前缺少可验证的因果关联结构，需复核同一事件中的心脏损伤、心包积血记录及因果依据。",
         "logic": {
           "op": "condition",
-          "sourceText": "心脏挫伤致心包积血",
-          "conditionText": "心脏挫伤致心包积血",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "心脏挫伤致心包积血"
-            ]
-          }
+          "sourceText": "心脏挫伤致心包积血。",
+          "conditionText": "心脏挫伤致心包积血。"
         }
       },
       "5.6.4.h": {
@@ -8429,17 +8424,12 @@
         }
       },
       "5.7.2.i": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条款要求肾损伤、肾性高血压诊断及损伤因果关系成立，并需排除既往高血压等混杂因素。当前结构无法分别核验这些事实与病因关联；需复核同一事件的肾脏损伤资料、高血压诊断及伤前病史。",
         "logic": {
           "op": "condition",
-          "sourceText": "肾损伤致肾性高血压",
-          "conditionText": "肾损伤致肾性高血压",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "肾损伤致肾性高血压"
-            ]
-          }
+          "sourceText": "肾损伤致肾性高血压。",
+          "conditionText": "肾损伤致肾性高血压。"
         }
       },
       "5.7.3.e": {
@@ -8457,17 +8447,12 @@
         }
       },
       "5.8.2.g": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条款要求尿道损伤、重度狭窄的明确诊断或客观检查，以及二者之间的损伤因果关系。当前结构不能独立核验狭窄程度及事件关联，需复核同一事件的尿道损伤资料、狭窄检查结果与因果依据。",
         "logic": {
           "op": "condition",
-          "sourceText": "尿道损伤致重度狭窄",
-          "conditionText": "尿道损伤致重度狭窄",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "尿道损伤致重度狭窄"
-            ]
-          }
+          "sourceText": "尿道损伤致重度狭窄。",
+          "conditionText": "尿道损伤致重度狭窄。"
         }
       },
       "5.9.2.j": {
