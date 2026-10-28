@@ -434,6 +434,36 @@ test('ordinary identical requests reuse validated results; forceReanalysis bypas
   });
 });
 
+test('analysis cache isolates every normalized assessment input and ignores only forceReanalysis', async () => {
+  const cache = createAnalysisCache({ ttlMs: 1000, capacity: 20 });
+  const base = {
+    assessmentType: 'injury', description: 'same clinical facts', images: [],
+    injuryDate: '2020-01-01', treatmentStatus: 'unknown', forceReanalysis: false,
+  };
+  const variants = [
+    { ...base, assessmentType: 'disability' },
+    { ...base, description: 'different clinical facts' },
+    { ...base, images: [{ mimeType: 'image/png', data: 'YQ==', name: 'page.png' }] },
+    { ...base, injuryDate: '2020-01-02' },
+    { ...base, treatmentStatus: 'stable' },
+  ];
+  let calls = 0;
+  const produce = async () => ({ value: ++calls });
+
+  const first = await cache.run(base, 'first', produce);
+  for (const [index, variant] of variants.entries()) {
+    const result = await cache.run(variant, `variant-${index}`, produce);
+    assert.notEqual(result.value, first.value);
+  }
+  assert.equal(calls, 1 + variants.length);
+
+  const forced = await cache.run({ ...base, forceReanalysis: true }, 'forced', produce);
+  assert.equal(calls, 2 + variants.length);
+  assert.equal(forced.value, calls);
+  assert.equal((await cache.run(base, 'after-forced', produce)).value, forced.value);
+  assert.equal(calls, 2 + variants.length);
+});
+
 test('zero cache configuration causes every repeated analysis to call the provider again', async () => {
   const calls = [];
   const provider = { async complete(request) {
