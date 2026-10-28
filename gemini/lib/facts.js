@@ -1361,6 +1361,20 @@ function nearestLengthLesionCue(text, measurementOffset) {
 }
 
 function isOperativeIncisionLengthAtOffset(text, measurementOffset) {
+  const clauseStart = Math.max(text.lastIndexOf('。', measurementOffset - 1), text.lastIndexOf('；', measurementOffset - 1),
+    text.lastIndexOf(';', measurementOffset - 1), text.lastIndexOf('\n', measurementOffset - 1)) + 1;
+  const clauseEndCandidates = ['。', '；', ';', '\n'].map(delimiter => {
+    const index = text.indexOf(delimiter, measurementOffset);
+    return index < 0 ? text.length : index;
+  });
+  const clause = text.slice(clauseStart, Math.min(...clauseEndCandidates));
+  const localOffset = measurementOffset - clauseStart;
+  const beforeMeasurement = clause.slice(0, localOffset);
+  const afterMeasurement = clause.slice(localOffset);
+  const postoperativeExamination = /术后[^。；;\n]{0,64}(?:活体检验|法医检验|检验|检查|复查)/u.test(beforeMeasurement);
+  const suturedWound = /(?:缝合|缝闭)[^。；;\n]{0,8}(?:手术)?(?:切口|创口|伤口)/u.test(afterMeasurement);
+  if (postoperativeExamination && suturedWound) return true;
+
   const amount = '(?:\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
   const dimension = `${amount}\\s*(?:cm|厘米)?\\s*[×xX*]\\s*${amount}\\s*(?:cm|厘米)?`;
   const measuredWoundList = new RegExp(

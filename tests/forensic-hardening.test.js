@@ -81,6 +81,15 @@ test('unrelated head evidence cannot be displayed as support for an uncertain ri
   assert.ok(reference?.conditions.every(condition => condition.evidence === '' && condition.factIds.length === 0));
 });
 
+test('postoperative sutured chest wounds are not counted as original traumatic wound lengths', () => {
+  const description = '合成资料，非真实病例。左胸另有约2.5cm长刀刺创口；受伤后行胸腹探查和心室修补术。术后活体检验另见胸部正中约20.0cm纵行缝合创口。';
+  const result = normalizeExtractedFacts(emptyExtraction, { description });
+  const lengths = result.facts.filter(fact => fact.field === 'wound_length_cm');
+
+  assert.ok(lengths.some(fact => fact.value === 2.5));
+  assert.equal(lengths.some(fact => fact.value === 20), false);
+});
+
 test('pulmonary contusion and an unrelated operation do not prove lung rupture requiring surgery', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.f');
   const facts = [
