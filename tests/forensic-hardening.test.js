@@ -534,6 +534,9 @@ test('surgery after an event requires an explicit causal statement or same-event
   const explicitlyCausedOperation = { ...operation,
     evidence: '因2025年3月21日本次事故接受一侧肾切除术后' };
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [explicitlyCausedOperation]).met, true);
+  const unrelatedOperation = { ...explicitlyCausedOperation,
+    evidence: '因本次事故造成腹部挫伤，本次事故后行一侧肾切除术后' };
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [unrelatedOperation]).met, true);
 });
 
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {

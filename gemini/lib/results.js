@@ -714,13 +714,19 @@ function hasExplicitCurrentEventLink(evidence) {
   return false;
 }
 
-function hasExplicitCurrentEventCausalProcedureLink(evidence) {
+function hasExplicitCurrentEventCausalProcedureLink(evidence, expectedOrgan) {
+  if (!expectedOrgan) return false;
   const text = normalize(String(evidence || ''));
   const procedure = /(?:接受|施行|实施|进行|行|手术|切除|修补|摘除|清除|引流|缝合|固定|修复)/u;
-  const causeBeforeProcedure = text.match(/因.{0,32}(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^。；;\n]{0,40}/u);
-  if (causeBeforeProcedure && procedure.test(causeBeforeProcedure[0])) return true;
-  const eventCausedInjury = text.match(/(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^。；;\n]{0,28}(?:导致|造成|引起|所致)[^。；;\n]{0,40}/u);
-  return Boolean(eventCausedInjury && procedure.test(eventCausedInjury[0]));
+  const causalPhrases = [
+    /因[^，,。；;\n]{0,24}(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,24}(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
+    /(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)[^，,。；;\n]{0,20}(?:导致|造成|引起|所致)[^，,。；;\n]{0,20}(?:接受|施行|实施|进行|行)[^。；;\n]{0,24}/u,
+  ];
+  return causalPhrases.some(pattern => {
+    const match = pattern.exec(text);
+    return Boolean(match && procedure.test(match[0])
+      && clinicalOrgan({ evidence: match[0] }) === expectedOrgan);
+  });
 }
 
 function hasCurrentInjuryEventCue(evidence) {
@@ -750,14 +756,15 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
       && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
       && clinicalOrgan(anchor) === factOrgan && compatibleLaterality(anchor, fact)
       && sharedClinicalInjuryPhrase(anchor, indication));
-    if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence)) return false;
+    if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)) return false;
   }
   const sameEventOrganSideConflict = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
     && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
     && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
     && factOrgan && clinicalOrgan(anchor) === factOrgan && !compatibleLaterality(anchor, fact));
   if (sameEventOrganSideConflict) return false;
-  if (hasExplicitCurrentEventLink(fact.evidence) && hasExplicitCurrentEventCausalProcedureLink(fact.evidence)
+  if (hasExplicitCurrentEventLink(fact.evidence)
+    && hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)
     && !requiresOrganAnchor
     && (!configuredOperationOrgans.size || configuredOperationOrgans.has(factOrgan))) return true;
   if (!fact.eventId || /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u
