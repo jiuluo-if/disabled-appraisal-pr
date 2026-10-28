@@ -328,6 +328,27 @@ test('one quoted composite vertebral-process conclusion cannot independently pro
   assert.match(reference?.reasoning || '', /骨折处数及其与功能受影响的同事件关联/u);
 });
 
+test('one quoted composite knee conclusion cannot independently prove injuries, surgery, and residual function impact', () => {
+  const conclusion = '一侧膝关节交叉韧带、半月板伴侧副韧带撕裂伤经手术治疗后，影响功能';
+  const description = `合成资料，非真实病例。出院诊断记载“${conclusion}”。`;
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.6.6');
+  const extraction = normalizeExtractedFacts({ facts: [{ id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: conclusion, certainty: 'reported', source: 'description', evidence: conclusion }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: conclusion, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: conclusion, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'knee-composite-conclusion-alone',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.grade, null);
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.match(reference?.reasoning || '', /交叉韧带损伤、半月板损伤及侧副韧带撕裂/u);
+  assert.match(reference?.reasoning || '', /手术记录和稳定后的功能评估/u);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
