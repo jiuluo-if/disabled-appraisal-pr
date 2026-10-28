@@ -391,6 +391,26 @@ test('one quoted composite osteomyelitis conclusion cannot independently prove f
   assert.match(reference?.reasoning || '', /开放性骨折、并发慢性骨髓炎、大块死骨形成及持续超过1年不愈/u);
 });
 
+test('one quoted composite hand conclusion cannot independently prove finger loss and metacarpal defect', () => {
+  const conclusion = '一手小指完全缺失并第5掌骨部分缺损';
+  const description = `合成资料，非真实病例。鉴定意见记载“${conclusion}”。`;
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.6.15');
+  const extraction = normalizeExtractedFacts({ facts: [{ id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: conclusion, certainty: 'reported', source: 'description', evidence: conclusion }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: conclusion, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: conclusion, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'hand-composite-conclusion-alone',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.grade, null);
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.match(reference?.reasoning || '', /同一手的侧别、第五掌骨部分缺损以及小指完全缺失/u);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');

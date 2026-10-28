@@ -25773,11 +25773,12 @@
         }
       },
       "5.10.6.15": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条文“一手小指完全缺失并第5掌骨部分缺损；”要求同一手的侧别、第五掌骨部分缺损以及小指完全缺失同时成立，并需区分本次损伤、既往状态与手术造成的解剖改变。当前事实结构不能可靠核验两个解剖要件及其同手、同事件关系；单条结论不得替代原始影像、手术记录和损伤前资料的人工核对。",
         "logic": {
           "op": "condition",
-          "sourceText": "一手小指完全缺失并第5掌骨部分缺损",
-          "conditionText": "一手小指完全缺失并第5掌骨部分缺损",
+          "sourceText": "一手小指完全缺失并第5掌骨部分缺损；",
+          "conditionText": "一手小指完全缺失并第5掌骨部分缺损；",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
