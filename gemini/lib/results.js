@@ -895,8 +895,11 @@ function sharedClinicalInjuryPhrase(left, right) {
 }
 
 function requiresCurrentProcedureLink(node) {
+  const conditionText = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
   const procedurePattern = /手术|切除术?|修补术?|摘除术|清除|引流|缝合|修复术|修复手术/u;
-  return procedurePattern.test(`${node.sourceText || ''} ${node.conditionText || ''}`)
+  const nonPerformedProcedure = /(?:难以|难于|不能|无法|不宜|不适宜|不适合|未予|未行|未接受|尚未|拟|计划|建议)[^。；;]{0,12}(?:手术|切除|修补|摘除|清除|引流|缝合|修复)|(?:手术|切除|修补|摘除|清除|引流|缝合|修复)[^。；;]{0,12}(?:困难|难以|不能|无法|不宜|不适宜)/u;
+  if (nonPerformedProcedure.test(conditionText)) return false;
+  return procedurePattern.test(conditionText)
     || (node.factMatch?.values || []).some(value => typeof value === 'string' && procedurePattern.test(value));
 }
 

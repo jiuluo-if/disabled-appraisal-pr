@@ -628,6 +628,16 @@ test('all, any, and not apply three-valued truth tables without treating unknown
   }
 });
 
+test('surgical difficulty is not treated as a performed-procedure requirement', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.4.1');
+  const conclusion = '腹壁疝，难以手术修补';
+  const evidence = `因本次事故所致${conclusion}`;
+  const fact = { id: 'H1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [fact]).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [{ ...fact, certainty: 'uncertain' }]).met, true);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
