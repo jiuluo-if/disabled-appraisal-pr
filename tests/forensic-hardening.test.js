@@ -138,6 +138,31 @@ test('a model cannot turn thumb opposition and grip measurements into hand-funct
   assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
 });
 
+test('digit-separation descriptions surface a system-review warning without suppressing a supported head clause', () => {
+  const headEvidence = 'CT明确记载左颅骨凹陷性骨折';
+  const description = `合成资料，非真实病例。${headEvidence}。手术记录示左手示指近指间关节囊破裂、仅掌尺侧皮肤相连；中指近节指骨骨折、远端仅在指蹼处皮肤相连。`;
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.3.c');
+  const fact = { id: 'F1', eventId: 'E1', field: 'injury_type', value: 'skull_depressed_fracture',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: headEvidence };
+  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, relation: 'supports', evidence: headEvidence, reasoning: '',
+    conditions: [{ condition: clause.text, evidence: headEvidence, factIds: ['F1'], met: true }],
+  }] };
+  const assess = value => normalizeResult(raw, { ...inputs.injury, description: value }, {
+    clauses: [clause], requestId: 'digit-separation-system-review', model: 'test-model',
+    extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  const result = assess(description);
+
+  assert.equal(result.grade, clause.grade);
+  assert.equal(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.ok(result.warnings.some(warning => warning.includes('系统未能可靠归一每指的离断状态和关节平面')));
+  assert.equal(assess(`合成资料，非真实病例。${headEvidence}。左手中指中节指骨骨折。`)
+    .warnings.some(warning => warning.includes('系统未能可靠归一每指的离断状态和关节平面')), false);
+  assert.equal(assess(`合成资料，非真实病例。${headEvidence}。既往史：左手示指离断。`)
+    .warnings.some(warning => warning.includes('系统未能可靠归一每指的离断状态和关节平面')), false);
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];

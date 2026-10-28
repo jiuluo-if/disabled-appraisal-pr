@@ -822,6 +822,20 @@ function requiresCurrentProcedureLink(node) {
     || (node.factMatch?.values || []).some(value => typeof value === 'string' && procedurePattern.test(value));
 }
 
+function hasUnresolvedHandDigitSeparation(sourceText, assessmentType, references) {
+  if (assessmentType !== 'injury'
+    || references.some(reference => ['5.10.2.d', '5.10.2.e', '5.10.2.f'].includes(reference.id)
+      && reference.relation === 'supports')) return false;
+  return sourceText.split(/[。！？；;\n]/u).some(segment => {
+    const namesDigit = /(?:拇指|示指|食指|中指|环指|无名指|小指|第\s*[一二三四五六七八九十\d]+\s*指)/u.test(segment);
+    const describesSeparation = /(?:离断|离体|缺失|缺如|断离|仅[^，,；;]{0,16}(?:皮肤|皮下组织)(?:相连|连接)|(?:皮肤|皮下组织)(?:桥|相连|连接))/u.test(segment);
+    const explicitlyNegative = /(?:未见|未发现|排除|否认|不伴)[^，,；;]{0,12}(?:离断|离体|缺失|缺如)/u.test(segment);
+    const historicalOnly = /(?:既往|历史|陈旧|曾经|曾行|此前|术前)/u.test(segment)
+      && !/(?:本次|此次|当前|受伤后|事故后)/u.test(segment);
+    return namesDigit && describesSeparation && !explicitlyNegative && !historicalOnly;
+  });
+}
+
 function evidenceLabelsFindingAsHistorical(evidence, sourceText) {
   const normalizedEvidence = normalize(evidence);
   const finding = normalize(sourceText);
@@ -2252,6 +2266,9 @@ export function normalizeResult(raw, input, context) {
     }
   }
   if (recognizedText) warnings.push('图片识别内容可能存在遗漏或误读，请核对原报告后使用。');
+  if (hasUnresolvedHandDigitSeparation(sourceText, input.assessmentType, references)) {
+    warnings.push('材料描述了手指离断或仅有皮肤、软组织相连，但系统未能可靠归一每指的离断状态和关节平面；请人工对照原始影像与手术记录核验，系统不会据此自动满足手指离断条件。');
+  }
   for (const list of [nextSteps, warnings, missingMaterials]) {
     for (let index = list.length - 1; index >= 0; index -= 1) {
       if (mentionsOnlyOffSiteHandOrFoot(list[index])) list.splice(index, 1);
