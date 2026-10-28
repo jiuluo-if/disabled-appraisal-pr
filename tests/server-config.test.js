@@ -77,3 +77,19 @@ test('Kimi remains available only when selected explicitly', () => {
   assert.equal(config.apiUrl, 'https://api.moonshot.cn/v1/chat/completions');
   assert.equal(config.apiKey, 'kimi-test-key');
 });
+
+test('production systemd units run without root and keep application files read-only', () => {
+  const units = [
+    readFileSync(new URL('../deploy/systemd/gemini.service', import.meta.url), 'utf8'),
+    readFileSync(new URL('../deploy/systemd/assessment-health.service', import.meta.url), 'utf8'),
+  ];
+  for (const unit of units) {
+    assert.match(unit, /^User=assessment$/mu);
+    assert.match(unit, /^Group=assessment$/mu);
+    assert.match(unit, /^NoNewPrivileges=true$/mu);
+    assert.match(unit, /^PrivateTmp=true$/mu);
+    assert.match(unit, /^ProtectSystem=strict$/mu);
+    assert.match(unit, /^ProtectHome=true$/mu);
+    assert.doesNotMatch(unit, /^User=root$/mu);
+  }
+});

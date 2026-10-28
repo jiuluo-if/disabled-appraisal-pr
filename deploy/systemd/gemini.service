@@ -5,7 +5,13 @@ After=network-online.target
 
 [Service]
 Type=simple
-User=root
+User=assessment
+Group=assessment
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0027
 WorkingDirectory=/www/wwwroot/gemini
 Environment=NODE_ENV=production
 EnvironmentFile=/www/wwwroot/gemini/.env

@@ -164,6 +164,11 @@ The 315-second upload and 300-second analysis windows are the configured maxima;
 to receive the request body followed by up to 180 seconds of analysis.
 
 ```sh
+getent group assessment >/dev/null || sudo groupadd --system assessment
+id -u assessment >/dev/null 2>&1 || sudo useradd --system --no-create-home --gid assessment --home-dir /nonexistent --shell /usr/sbin/nologin assessment
+sudo chown -R root:assessment /www/wwwroot/gemini
+sudo chmod -R g+rX,o-rwx /www/wwwroot/gemini
+sudo chmod 640 /www/wwwroot/gemini/.env /www/wwwroot/gemini/gemini.lintsing.net.key /www/wwwroot/gemini/gemini.lintsing.net.pem
 /www/server/nginx/sbin/nginx -t -c /www/server/nginx/conf/nginx.conf
 /www/server/nginx/sbin/nginx -s reload -c /www/server/nginx/conf/nginx.conf
 sudo install -m 644 deploy/systemd/gemini.service /etc/systemd/system/gemini.service
@@ -172,7 +177,13 @@ sudo systemctl enable --now gemini.service
 sudo systemctl restart gemini.service
 ```
 
-The unit uses `/usr/bin/node` and requires `/www/wwwroot/gemini/.env`.
+The units run as the dedicated non-login `assessment` account. The account and
+group setup is idempotent. Ensure that it can read and traverse the deployment
+code, `.env`, and the TLS key/certificate paths selected by `SSL_KEY_PATH` and
+`SSL_CERT_PATH`; keep those files private to root and the service group. If
+certificate paths are outside the deployment directory, grant only that group
+read access and directory traversal. The units use `/usr/bin/node` and the
+backend requires `/www/wwwroot/gemini/.env`.
 Back up the previous code, dependency lockfile, configuration and certificates
 before deploying. Test the new backend before switching the frontend.
 

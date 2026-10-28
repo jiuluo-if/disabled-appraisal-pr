@@ -5,6 +5,13 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+User=assessment
+Group=assessment
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+UMask=0027
 ExecStart=/usr/bin/node /www/wwwroot/gemini/healthcheck.mjs
 Environment=CERT_WARN_DAYS=21
 TimeoutStartSec=25
