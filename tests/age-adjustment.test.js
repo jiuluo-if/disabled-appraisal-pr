@@ -991,6 +991,28 @@ test('disability 6.11 linear-scar width and age-scaled lengths remain separate c
   assert.deepEqual(unstructured, []);
 });
 
+test('unstructured 6.11 face-area and pigment claims cannot support a child assessment', () => {
+  const ageFacts = [ageFact(6), assessmentAgeFact(6)];
+  const failures = [];
+  for (const clause of catalogs.disability.clauses) {
+    if (clause.conditionLogic?.ageAdjustment !== 'disability_standard_6_11') continue;
+    const check = node => {
+      if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
+        && /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米|厘米|cm|％|%)/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
+        for (const value of node.factMatch.values || []) {
+          if (typeof value !== 'string') continue;
+          const fact = { id: `${clause.id}-child-claim`, eventId: 'E1', field: 'clinical_finding', value,
+            certainty: 'reported', source: 'description', evidence: value, verification: 'quoted' };
+          if (evaluateConditionLogic(clause.conditionLogic, [...ageFacts, fact]).met === true) failures.push(clause.id);
+        }
+      }
+      for (const child of node.children || []) check(child);
+    };
+    check(clause.conditionLogic.logic);
+  }
+  assert.deepEqual(failures, []);
+});
+
 test('neck wound and scratch length thresholds use injury standard 6.18', () => {
   const assess = (id, age, evidence) => {
     const description = `本次事故后受伤时年龄${age}周岁，${evidence}`;
