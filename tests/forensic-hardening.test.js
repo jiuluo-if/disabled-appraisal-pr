@@ -435,6 +435,31 @@ test('typed fields can recall every explicit clause beyond lexical ranking', () 
   }
 });
 
+test('service normalization rejects model support for every opaque grading clause', () => {
+  let checked = 0;
+  for (const [assessmentType, catalog] of Object.entries(catalogs)) for (const clause of catalog.clauses) {
+    if (clause.conditionLogic.annotation !== 'opaque') continue;
+    checked += 1;
+    const description = `合成资料，非真实病例。${clause.text}`;
+    const fact = { id: 'F1', field: 'clinical_finding', value: clause.text, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: clause.text };
+    const raw = { ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade, facts: [],
+      references: [{ clauseId: clause.id, relation: 'supports', evidence: clause.text, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: clause.text, factIds: ['F1'], met: true }] }] };
+    const result = normalizeResult(raw, { ...inputs[assessmentType], description }, { clauses: [clause],
+      requestId: `opaque-service-gate-${assessmentType}-${clause.id}`, model: 'test-model',
+      extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+    const reference = result.references.find(item => item.id === clause.id);
+
+    assert.equal(result.grade, null, clause.id);
+    assert.notEqual(reference?.relation, 'supports', clause.id);
+    assert.equal(reference?.evidence, '', clause.id);
+    assert.ok(reference?.conditions.every(condition => condition.evidence === ''
+      && condition.factIds.length === 0 && condition.met === null), clause.id);
+  }
+  assert.equal(checked, 25);
+});
+
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
   const assess = (id, area, site = '颈前三角区') => {
     const description = `本次事故后${site}瘢痕累计面积${area}cm2。`;
