@@ -736,3 +736,19 @@ test('neck wound and scratch length thresholds use injury standard 6.18', () => 
   assert.equal(assess('5.5.5.d', 6, '颈部皮肤划伤长2.5厘米。'), true);
   assert.notEqual(assess('5.5.4.a', 6, '左上臂皮肤创口长2.5厘米。'), true);
 });
+
+test('conditional cheek, lip and auricle wound-length thresholds use injury standard 6.18', () => {
+  const assess = (id, age, injury) => {
+    const description = `本次事故后受伤时年龄${age}周岁，${injury}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.2.4.b', 6, '右面颊贯通创，皮肤创口长0.5厘米。'), true);
+  assert.notEqual(assess('5.2.4.b', 6, '右面颊贯通创，皮肤创口长0.49厘米。'), true);
+  assert.equal(assess('5.2.4.c', 6, '上唇全层裂创，皮肤创口长0.5厘米。'), true);
+  assert.notEqual(assess('5.2.4.c', 6, '上唇全层裂创，皮肤创口长0.49厘米。'), true);
+  assert.equal(assess('5.2.4.l', 6, '右耳廓皮肤2处创口累计长度3厘米。'), true);
+  assert.notEqual(assess('5.2.4.l', 6, '右耳廓皮肤2处创口累计长度2.99厘米。'), true);
+});

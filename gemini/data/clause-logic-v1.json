@@ -5268,6 +5268,7 @@
       },
       "5.2.4.l": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "耳廓创口或者瘢痕长度累计6.0cm以上",
@@ -5305,7 +5306,8 @@
                     "瘢痕"
                   ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -8991,6 +8993,7 @@
       },
       "5.2.4.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "all",
           "children": [
@@ -9031,7 +9034,8 @@
                       ["面颊", "脸颊", "口角", "上唇", "鼻翼"],
                       ["皮肤", "创口", "伤口", "裂口", "裂创"]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 },
                 {
                   "op": "condition",
@@ -9046,7 +9050,8 @@
                       ["面颊", "脸颊", "口角", "上唇", "鼻翼"],
                       ["瘢痕", "疤痕"]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 }
               ]
             }
@@ -9055,6 +9060,7 @@
       },
       "5.2.4.c": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "口唇全层裂创",
@@ -9064,7 +9070,8 @@
             "operator": "gte",
             "value": 1,
             "unit": "cm"
-          }
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.2.4.m": {

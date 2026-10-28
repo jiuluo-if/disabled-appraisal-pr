@@ -111,7 +111,7 @@ const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 
   'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2',
   'aggregate_wound_length_cm', 'scalp_defect_area_cm2', 'scalp_avulsion_area_cm2',
   'skin_avulsion_area_cm2', 'skin_defect_area_cm2', 'skin_abrasion_area_cm2', 'skin_contusion_area_cm2',
-  'scalp_abrasion_area_cm2', 'wound_length_cm']);
+  'scalp_abrasion_area_cm2', 'wound_length_cm', 'lip_through_wound_length_cm']);
 const WOUND_SURFACE_SITE_ALIASES = new Set(['面部','脸部','额部','前额','额头','眉弓','眉部','面颊','颧部','鼻部','鼻背','鼻梁','鼻翼',
   '鼻唇沟','口唇','上唇','下唇','下颌','头部','头皮','额顶部','头顶部','颞顶部','顶枕部','后枕部','颞枕部','枕部','颞部',
   '耳廓','耳部','颈前部','颈前','颈部','颈','肢体','上肢','下肢','上臂','前臂','肘部','腕部','肩部','手部','手掌',
