@@ -7976,6 +7976,7 @@
       },
       "5.12.5.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "面部Ⅰo烧烫伤面积10.0cm2以上；浅IIo烧烫伤",
@@ -7985,12 +7986,13 @@
               "op": "condition",
               "sourceText": "面部Ⅰo烧烫伤面积10.0cm2以上",
               "conditionText": "面部Ⅰo烧烫伤面积10.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部Ⅰo烧烫伤面积10.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "burn_area_face_first_degree_cm2",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -8008,6 +8010,7 @@
       },
       "5.12.5.c": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "颈部Ⅰo烧烫伤面积15.0cm2以上；浅IIo烧烫伤面积2.0cm2以上",
@@ -8017,29 +8020,32 @@
               "op": "condition",
               "sourceText": "颈部Ⅰo烧烫伤面积15.0cm2以上",
               "conditionText": "颈部Ⅰo烧烫伤面积15.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈部Ⅰo烧烫伤面积15.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "burn_area_neck_first_degree_cm2",
+                "operator": "gte",
+                "value": 15,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "浅IIo烧烫伤面积2.0cm2以上",
               "conditionText": "浅IIo烧烫伤面积2.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "浅IIo烧烫伤面积2.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "burn_area_neck_superficial_second_degree_cm2",
+                "operator": "gte",
+                "value": 2,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
       },
       "5.12.5.d": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "体表Ⅰo烧烫伤面积20.0cm2以上；浅IIo烧烫伤面积4.0cm2以上；深IIo烧烫伤",
@@ -8049,23 +8055,25 @@
               "op": "condition",
               "sourceText": "体表Ⅰo烧烫伤面积20.0cm2以上",
               "conditionText": "体表Ⅰo烧烫伤面积20.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "体表Ⅰo烧烫伤面积20.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "burn_area_body_first_degree_cm2",
+                "operator": "gte",
+                "value": 20,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "浅IIo烧烫伤面积4.0cm2以上",
               "conditionText": "浅IIo烧烫伤面积4.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "浅IIo烧烫伤面积4.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "burn_area_body_superficial_second_degree_cm2",
+                "operator": "gte",
+                "value": 4,
+                "unit": "cm2"
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",

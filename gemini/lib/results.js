@@ -106,7 +106,9 @@ function explicitRibSiteCountStatus(conditionText, evidence) {
 
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
 const INJURY_TBSA_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
-  'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent']);
+  'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent', 'burn_area_face_first_degree_cm2',
+  'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
+  'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
@@ -224,6 +226,27 @@ function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
     return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 && sourceValue <= 100
       ? sourceValue : null;
+  }
+  if (typeof predicate.field === 'string' && predicate.field.startsWith('burn_area_')) {
+    const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*(?:cm\\s*2|平方厘米)`, 'giu'))];
+    const uncertainOrComparative = /(?:未达|低于|小于|不足|不超过|少于|超过|大于|至少|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未见|未发现|否认|排除|无)/u.test(evidence);
+    const beforeMeasurement = measurements.length === 1
+      ? evidence.slice(Math.max(0, measurements[0].index - 30), measurements[0].index) : '';
+    if (measurements.length !== 1 || uncertainOrComparative || !/烧(?:烫)?伤|烫伤/u.test(evidence)
+      || /(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:-|–|—|至|到)\s*$/u.test(beforeMeasurement)) return null;
+    const field = predicate.field;
+    const siteMatches = field.includes('_face_') ? /面部|脸部|颜面/u.test(evidence)
+      && !/颈部|体表|身体/u.test(evidence)
+      : field.includes('_neck_') ? /颈部/u.test(evidence) && !/面部|脸部|颜面|体表|身体/u.test(evidence)
+        : /体表|身体/u.test(evidence) && !/面部|脸部|颜面|颈部/u.test(evidence);
+    const degreeMatches = field.includes('_first_degree_')
+      ? /(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)(?!以上|及以上)/iu.test(evidence)
+        && !/浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)|深\s*(?:II|Ⅱ|二)\s*(?:度|o|°)|(?<!I)I(?=I\s*(?:度|o|°))/iu.test(evidence)
+      : /浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)(?!以上|及以上)/iu.test(evidence)
+        && !/深\s*(?:II|Ⅱ|二)\s*(?:度|o|°)|(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)/iu.test(evidence);
+    if (!siteMatches || !degreeMatches) return null;
+    const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 ? sourceValue : null;
   }
   if (predicate.field === 'fracture_site_count' && fact.certainty === 'derived'
     && fact.source === 'description' && fact.verification === 'quoted'
@@ -972,7 +995,10 @@ function adjustedAgePredicate(node, facts, eventId) {
     const minimumThreshold = predicate.value * 0.5;
     const completeAggregate = predicate.field === 'contusion_tbsa_percent' && measurementFacts.length === 1
       && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
-    return completeAggregate && predicateEvidenceValue(predicate, measurementFacts[0], facts) < minimumThreshold
+    const localBurnMeasurementsBelowEveryAgeThreshold = predicate.field.startsWith('burn_area_')
+      && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
+    return (completeAggregate || localBurnMeasurementsBelowEveryAgeThreshold)
+      && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;
   }
   const factor = age <= 6 ? 0.5 : age <= 10 ? 0.6 : age <= 14 ? 0.8 : 1;

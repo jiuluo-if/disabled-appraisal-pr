@@ -3169,6 +3169,19 @@ function sourceClause(sourceText, evidence) {
   return clause.slice(windowStart, windowStart + MAX_FACT_EVIDENCE_CHARS);
 }
 
+function sourceSentence(sourceText, evidence) {
+  const text = normalizeInput(sourceText || '');
+  const quote = normalizeInput(evidence || '');
+  const index = quote ? text.indexOf(quote) : -1;
+  if (index < 0) return '';
+  const left = Math.max(text.lastIndexOf('。', index), text.lastIndexOf('！', index), text.lastIndexOf('？', index),
+    text.lastIndexOf('\n', index)) + 1;
+  const quoteEnd = index + quote.length;
+  const tail = text.slice(quoteEnd);
+  const endOffset = tail.search(/[。！？\n]/);
+  return text.slice(left, endOffset < 0 ? text.length : quoteEnd + endOffset).trim();
+}
+
 function diagnosisEvidenceSupportsValue(value, evidence) {
   const normalizedValue = normalizeInput(value || '');
   const normalizedEvidence = normalizeInput(evidence || '');
@@ -3562,6 +3575,11 @@ function factFinding(field, value, certainty) {
     burn_tbsa_ii_plus_percent: 'II度以上烧烫伤体表面积比例（百分比）',
     burn_tbsa_deep_ii_plus_percent: '深II度以上烧烫伤体表面积比例（百分比）',
     burn_tbsa_iii_percent: 'III度烧烫伤体表面积比例（百分比）',
+    burn_area_face_first_degree_cm2: '面部I度烧烫伤面积（平方厘米）',
+    burn_area_neck_first_degree_cm2: '颈部I度烧烫伤面积（平方厘米）',
+    burn_area_neck_superficial_second_degree_cm2: '颈部浅II度烧烫伤面积（平方厘米）',
+    burn_area_body_first_degree_cm2: '体表I度烧烫伤面积（平方厘米）',
+    burn_area_body_superficial_second_degree_cm2: '体表浅II度烧烫伤面积（平方厘米）',
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
@@ -3898,6 +3916,38 @@ function normalizeBurnTbsaFacts(inputText) {
   return facts;
 }
 
+function normalizeLocalBurnAreaFacts(inputText) {
+  const text = normalizeInput(inputText || '');
+  const facts = [];
+  const number = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  const fields = [
+    { field: 'burn_area_face_first_degree_cm2', site: /面部|脸部|颜面/u, degree: /(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)(?!以上|及以上)/iu },
+    { field: 'burn_area_neck_first_degree_cm2', site: /颈部/u, degree: /(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)(?!以上|及以上)/iu },
+    { field: 'burn_area_neck_superficial_second_degree_cm2', site: /颈部/u, degree: /浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)(?!以上|及以上)/iu },
+    { field: 'burn_area_body_first_degree_cm2', site: /体表|身体/u, degree: /(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)(?!以上|及以上)/iu },
+    { field: 'burn_area_body_superficial_second_degree_cm2', site: /体表|身体/u, degree: /浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)(?!以上|及以上)/iu },
+  ];
+  for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
+    const clause = sentence[0];
+    const measurements = [...clause.matchAll(new RegExp(`${number}\\s*(?:cm\\s*2|平方厘米)`, 'giu'))];
+    const degrees = [...clause.matchAll(/浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)(?!以上|及以上)|(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)(?!以上|及以上)/giu)];
+    const sites = [...clause.matchAll(/面部|脸部|颜面|颈部|体表|身体/gu)];
+    if (measurements.length !== 1 || degrees.length !== 1 || sites.length !== 1
+      || !/烧(?:烫)?伤|烫伤/u.test(clause)
+      || /(?:未达|低于|小于|不足|不超过|少于|超过|大于|至少|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未见|未发现|否认|排除|无)/u.test(clause)
+      || /(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:-|–|—|至|到)\s*$/u
+        .test(clause.slice(0, measurements[0].index))) continue;
+    const measurement = measurements[0];
+    const value = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+    if (!Number.isFinite(value) || value < 0) continue;
+    const matched = fields.find(item => item.site.test(clause) && item.degree.test(clause));
+    if (!matched) continue;
+    facts.push({ id: `BURNAREA${sentence.index + measurement.index}`, field: matched.field, value,
+      certainty: certaintyFor(clause, 0, clause.length), source_type: 'user_text', source_excerpt: clause.slice(-MAX_FACT_EVIDENCE_CHARS) });
+  }
+  return facts;
+}
+
 function normalizeExtractedFacts(value, { description = '', recognizedText = '' } = {}) {
   const parsed = factExtractionSchema.parse(normalizeFactExtractionResponse(value));
   const rawFactIds = new Set(parsed.facts.map(fact => fact.id).filter(Boolean));
@@ -4038,6 +4088,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeNasalSeptumCombinationFacts(sourceText),
       ...normalizeBodySurfaceContusionFacts(sourceText),
       ...normalizeBurnTbsaFacts(sourceText),
+      ...normalizeLocalBurnAreaFacts(sourceText),
       ...normalizeCheekPenetratingWoundFacts(sourceText),
       ...normalizeSharedSuffixBoneFractureFacts(sourceText),
       ...normalizeBrainCompressionEvidenceFacts(sourceText),
@@ -4066,7 +4117,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeFacialSkinAbnormalityAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
         'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(fact.field)
-        || fact.field.startsWith('burn_tbsa_')) {
+        || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')) {
         if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
       }
       const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
@@ -4100,11 +4151,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   }
   const sameClauseBodySurfaceEventId = fact => {
     if (fact.field !== 'contusion_tbsa_percent' && !fact.field.startsWith('burn_tbsa_')
+      && !fact.field.startsWith('burn_area_')
       || fact.source !== 'description' || fact.eventId) return null;
-    const factClause = sourceClause(sourceTexts.description, fact.evidence) || fact.evidence;
+    const contextFor = text => fact.field.startsWith('burn_area_')
+      ? sourceSentence(sourceTexts.description, text) : sourceClause(sourceTexts.description, text);
+    const factClause = contextFor(fact.evidence) || fact.evidence;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
-      && (sourceClause(sourceTexts.description, modelFact.evidence) || normalizeInput(modelFact.evidence)) === factClause)
+      && (contextFor(modelFact.evidence) || normalizeInput(modelFact.evidence)) === factClause)
       .map(modelFact => modelFact.eventId));
     return eventIds.size === 1 ? [...eventIds][0] : null;
   };

@@ -54,10 +54,14 @@ test('explicit age-at-injury evidence survives fact normalization and all TBSA b
     if (node.op === 'condition' && node.ageAdjustment === 'injury_standard_6_18') markedLeaves.push(node);
     for (const child of node.children || []) collect(child);
   };
-  for (const id of ['5.11.1.a', '5.11.2.a', '5.11.3.a', '5.12.1.a', '5.12.2.a', '5.12.3.a', '5.12.4.a']) {
+  for (const id of ['5.11.1.a', '5.11.2.a', '5.11.3.a', '5.12.1.a', '5.12.2.a', '5.12.3.a', '5.12.4.a',
+    '5.12.5.b', '5.12.5.c', '5.12.5.d']) {
     collect(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.logic);
   }
-  assert.equal(markedLeaves.length, 12);
+  assert.equal(markedLeaves.length, 17);
+  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d']) {
+    assert.equal(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.ageAdjustment, 'injury_standard_6_18');
+  }
 });
 
 test('a model support flag cannot override missing injury age for a TBSA rule', () => {
@@ -223,4 +227,77 @@ test('burn parser requires explicit depth and denominator and rejects uncertain 
   assert.ok(uncertain.length > 0);
   assert.ok(uncertain.every(fact => fact.certainty === 'uncertain'));
   assert.equal(extract('III度烧伤面积占体表面积8至10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
+});
+
+test('local burn-area thresholds use source-bound degree and anatomical site measurements', () => {
+  const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const supports = (id, text, age = 15) => {
+    const description = `受伤时年龄${age}周岁，${text}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+  const cases = [
+    ['5.12.5.b', '面部Ⅰ度烧烫伤面积10平方厘米', true],
+    ['5.12.5.c', '颈部I度烧伤面积15cm2', true],
+    ['5.12.5.c', '颈部浅II度烧烫伤面积2平方厘米', true],
+    ['5.12.5.d', '体表I度烧烫伤面积20平方厘米', true],
+    ['5.12.5.d', '身体浅Ⅱ度烧伤面积4cm2', true],
+    ['5.12.5.b', '面部Ⅰ度烧烫伤面积9.99平方厘米', null],
+    ['5.12.5.c', '颈部I度烧伤面积14.99cm2', null],
+    ['5.12.5.c', '颈部浅II度烧烫伤面积1.99平方厘米', null],
+    ['5.12.5.d', '体表I度烧烫伤面积19.99平方厘米', null],
+    ['5.12.5.d', '身体浅Ⅱ度烧伤面积3.99cm2', null],
+  ];
+  for (const [id, text, expected] of cases) assert.equal(supports(id, text), expected, `${id}: ${text}`);
+  const childText = '本次事故后受伤时年龄6周岁，面部Ⅰ度烧烫伤面积5平方厘米。';
+  const childFacts = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: childText }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.12.5.b').conditionLogic,
+    childFacts).met, true);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积5平方厘米', 6), true);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积4.99平方厘米', 6), null);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积6平方厘米', 7), true);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积8平方厘米', 11), true);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积9.99平方厘米', 15), null);
+  assert.equal(supports('5.12.5.b', '面部Ⅰ度烧烫伤面积4.99平方厘米', 15), null);
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.12.5.b').conditionLogic,
+    extract('面部Ⅰ度烧烫伤面积5平方厘米')).met, null);
+  const noAgeDescription = '面部Ⅰ度烧烫伤面积5平方厘米';
+  const noAgeFacts = extract(noAgeDescription);
+  const faceClause = catalogs.injury.clauses.find(item => item.id === '5.12.5.b');
+  const faceFact = noAgeFacts.find(fact => fact.field === 'burn_area_face_first_degree_cm2');
+  const noAgeResult = normalizeResult({ ...providerFixture('injury'), grade: '轻伤二级', facts: [], references: [{
+    clauseId: faceClause.id, evidence: faceFact.evidence, reasoning: '模型认为阈值满足。', relation: 'supports',
+    conditions: [{ condition: faceClause.text, evidence: faceFact.evidence, factIds: [faceFact.id], met: true }],
+  }] }, { ...inputs.injury, description: noAgeDescription }, {
+    clauses: [faceClause], requestId: 'burn-area-age-review', model: 'test-model',
+    extractedFacts: noAgeFacts, conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(noAgeResult.references.some(reference => reference.id === faceClause.id && reference.relation === 'supports'), false);
+  assert.ok(noAgeResult.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+  const facial = extract('面部Ⅰ度烧烫伤面积12平方厘米。');
+  assert.equal(facial.find(fact => fact.field === 'burn_area_face_first_degree_cm2')?.value, 12);
+  assert.equal(extract('颈部Ⅰ度烧烫伤面积15平方厘米。')
+    .some(fact => fact.field === 'burn_area_face_first_degree_cm2'), false);
+  assert.equal(extract('本次事故后，面部Ⅰ度烧烫伤面积约12平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  assert.equal(extract('本次事故后，面部Ⅰ度烧烫伤面积8至12平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  assert.equal(extract('本次事故后，面部Ⅰ度烧烫伤面积八至十二平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  assert.equal(extract('未见面部Ⅰ度烧烫伤，面积12平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  assert.equal(extract('面部Ⅰ度以上烧烫伤面积12平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  assert.equal(extract('面部和颈部Ⅰ度烧烫伤面积12平方厘米。')
+    .some(fact => fact.field.startsWith('burn_area_')), false);
+  const sentence = '本次事故后受伤时年龄6周岁，面部Ⅰ度烧烫伤面积5平方厘米。';
+  const linked = normalizeExtractedFacts({ facts: [ageFact(6)], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: sentence }).facts;
+  const age = linked.find(fact => fact.field === 'age_at_injury_years');
+  const burnArea = linked.find(fact => fact.field === 'burn_area_face_first_degree_cm2');
+  assert.ok(age?.eventId);
+  assert.equal(burnArea?.eventId, age.eventId);
 });
