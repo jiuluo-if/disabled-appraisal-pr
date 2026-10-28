@@ -610,6 +610,8 @@ function normalizeCardiacRuptureFacts(inputText) {
         const nonPenetratingHeartWound = cardiac ? cardiacWallNotPenetratedForMatch(clause, match) : null;
         const explicitlyAbsent = (cardiac ? cardiacRuptureAbsentPattern : pericardialRuptureAbsentPattern)
           .test(localContext);
+        if (certainty === 'reported' && !explicitlyAbsent && !nonPenetratingHeartWound
+          && !isCanonicalCardiacRuptureEvidence(value, localContext)) continue;
         if ((nonPenetratingHeartWound || explicitlyAbsent) && certainty === 'reported') certainty = 'excluded';
         const sourceExcerpt = certainty === 'reported' ? match[0]
           : nonPenetratingHeartWound ? clause.slice(Math.min(match.index, nonPenetratingHeartWound.index),

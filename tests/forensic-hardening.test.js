@@ -70,6 +70,8 @@ test('heart and pericardial repair procedure names do not prove rupture without 
     const { result } = evaluate(value, evidence, `procedure-title-only-${value}`);
     assert.equal(result.grade, null, evidence);
     assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports', evidence);
+    const parsed = normalizeExtractedFacts(emptyExtraction, { description: `合成资料，非真实病例。${evidence}` }).facts;
+    assert.equal(parsed.some(fact => fact.field === 'clinical_finding' && fact.value === value), false, evidence);
   }
 
   const cardiacEvidence = '本次手术探查见右心室前壁约2cm穿通伤，活动性出血并已缝合修补。';
