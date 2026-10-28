@@ -115,6 +115,29 @@ test('same-organ surgery explicitly for another condition cannot satisfy a ruptu
   }
 });
 
+test('a model cannot turn thumb opposition and grip measurements into hand-function loss fact evidence', () => {
+  const description = '合成资料，非真实病例。检查记载左拇指对掌不能、握力I–II级，腕背屈约20°、掌屈约70°。';
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.10.2.a');
+  const measuredQuote = '左拇指对掌不能、握力I–II级，腕背屈约20°、掌屈约70°';
+  const extracted = normalizeExtractedFacts({ facts: [{ id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: clause.conditionLogic.logic.conditionText, certainty: 'reported', source: 'description',
+    evidence: measuredQuote }], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, relation: 'supports', evidence: measuredQuote, reasoning: '',
+    conditions: [{ condition: clause.text, evidence: measuredQuote, factIds: ['F1'], met: true }],
+  }] };
+  const result = normalizeResult(raw, { ...inputs.injury, description }, {
+    clauses: [clause], requestId: 'model-inferred-hand-function-loss', model: 'test-model',
+    extractedFacts: extracted.facts.map(fact => ({ ...fact, verification: 'quoted' })),
+    conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
+    factMissingMaterials: extracted.missingMaterials,
+  });
+
+  assert.equal(extracted.facts.some(fact => fact.value === clause.conditionLogic.logic.conditionText), false);
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];
