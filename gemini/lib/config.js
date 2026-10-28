@@ -35,7 +35,8 @@ function corsOrigins(env) {
   for (const origin of origins) {
     let url;
     try { url = new URL(origin); } catch { throw new Error('Invalid CORS_ALLOWED_ORIGINS'); }
-    const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    const localHttp = env.NODE_ENV !== 'production' && url.protocol === 'http:'
+      && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
     if (url.origin !== origin || !['https:', 'http:'].includes(url.protocol)
       || url.username || url.password || url.protocol !== 'https:' && !localHttp) {
       throw new Error('Invalid CORS_ALLOWED_ORIGINS');

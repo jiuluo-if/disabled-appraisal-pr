@@ -58,6 +58,8 @@ test('public API CORS is limited to the two assessment sites and cache stats sta
   assert.deepEqual(config.corsAllowedOrigins, ['https://analyst.lintsing.net', 'https://appraise.lintsing.net']);
   assert.throws(() => loadProviderConfig({ ASSESSMENT_PROVIDER: 'agnes', AGNES_API_KEY: 'test-key',
     NODE_ENV: 'production', CORS_ALLOWED_ORIGINS: 'https://untrusted.example/path' }), /CORS_ALLOWED_ORIGINS/);
+  assert.throws(() => loadProviderConfig({ ASSESSMENT_PROVIDER: 'agnes', AGNES_API_KEY: 'test-key',
+    NODE_ENV: 'production', CORS_ALLOWED_ORIGINS: 'http://localhost:5300' }), /CORS_ALLOWED_ORIGINS/);
   const provider = { readiness: async () => ({ status: 'ready' }), complete: async () => ({}) };
   const server = createApp(config, { provider }).listen(0, '127.0.0.1');
   await once(server, 'listening');
