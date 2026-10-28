@@ -1291,7 +1291,7 @@ function normalizeSharedSuffixBoneFractureFacts(inputText) {
 export function hasExplicitOrbitalFractureEnophthalmosLink(inputText) {
   const text = normalizeInput(inputText);
   const orbitalFracture = /(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?\s*骨折/u;
-  const causalLink = /(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折(?:(?!骨折)[^。；;]){0,20}(?:致|导致|造成|引起|所致)(?:(?!骨折)[^。；;]){0,12}(?:眼球)?内陷|(?:眼球)?内陷(?:(?!骨折)[^。；;]){0,20}(?:由|因|系)(?:(?!骨折)[^。；;]){0,8}(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折/u;
+  const causalLink = /(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折(?:(?!骨折)[^。；;]){0,20}(?:致|导致|造成|引起|所致|后遗)(?:(?!骨折)[^。；;]){0,12}(?:眼球)?内陷|(?:眼球)?内陷(?:(?!骨折)[^。；;]){0,20}(?:由|因|系)(?:(?!骨折)[^。；;]){0,8}(?:眼)?眶(?:内侧壁|内壁|下壁|底(?:壁)?|上壁|外侧壁|外壁|壁)?骨折/u;
   return orbitalFracture.test(text) && causalLink.test(text);
 }
 

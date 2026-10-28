@@ -152,6 +152,45 @@ test('orbital enophthalmos measurements bind to the correct threshold and fractu
   assert.notEqual(rejectedModelSupport.references.find(reference => reference.id === clause.id)?.relation, 'supports');
 });
 
+test('disability orbital enophthalmos thresholds use measured sequela values', () => {
+  const clauseNine = catalogs.disability.clauses.find(item => item.id === '5.9.2.16');
+  const clauseTen = catalogs.disability.clauses.find(item => item.id === '5.10.2.9');
+  const atFiveMillimetres = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。左眼眶骨折后遗左眼球内陷5mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const atTwoMillimetres = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。左眼眶骨折后遗左眼球内陷2mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const belowTwoMillimetres = normalizeExtractedFacts(emptyExtraction, {
+    description: '合成资料，非真实病例。左眼眶骨折后遗左眼球内陷1.9mm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+
+  const description = '合成资料，非真实病例。左眼眶骨折后遗左眼球内陷5mm。';
+  assert.ok(retrieveClauses('disability', description, 0, atFiveMillimetres)
+    .some(item => item.id === clauseNine.id));
+  assert.equal(evaluateConditionLogic(clauseNine.conditionLogic, atFiveMillimetres).met, true);
+  assert.equal(evaluateConditionLogic(clauseTen.conditionLogic, atTwoMillimetres).met, true);
+  assert.notEqual(evaluateConditionLogic(clauseTen.conditionLogic, belowTwoMillimetres).met, true);
+
+  const stableResult = normalizeResult({ ...providerFixture('disability'), status: 'preliminary',
+    grade: clauseNine.grade, facts: [], references: [{ clauseId: clauseNine.id, relation: 'supports',
+      evidence: description, reasoning: '', conditions: [{ condition: clauseNine.text, evidence: description,
+        factIds: atFiveMillimetres.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description, treatmentStatus: 'stable' }, { clauses: [clauseNine],
+    requestId: 'disability-orbital-enophthalmos-stable', model: 'test-model', extractedFacts: atFiveMillimetres,
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  const ongoingResult = normalizeResult({ ...providerFixture('disability'), status: 'preliminary',
+    grade: clauseNine.grade, facts: [], references: [{ clauseId: clauseNine.id, relation: 'supports',
+      evidence: description, reasoning: '', conditions: [{ condition: clauseNine.text, evidence: description,
+        factIds: atFiveMillimetres.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description, treatmentStatus: 'ongoing' }, { clauses: [clauseNine],
+    requestId: 'disability-orbital-enophthalmos-ongoing', model: 'test-model', extractedFacts: atFiveMillimetres,
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(stableResult.grade, clauseNine.grade);
+  assert.equal(ongoingResult.grade, null);
+  assert.equal(ongoingResult.status, 'insufficient');
+});
+
 test('rib ordinal lists do not create fracture-site counts', () => {
   const snapshot = normalizeExtractedFacts(emptyExtraction, {
     description: '左侧第3至第6肋骨骨折。',

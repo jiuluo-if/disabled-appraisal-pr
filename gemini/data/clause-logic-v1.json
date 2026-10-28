@@ -23791,10 +23791,15 @@
           "op": "condition",
           "sourceText": "一眼眶骨折后遗眼球内陷5mm以上",
           "conditionText": "一眼眶骨折后遗眼球内陷5mm以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "一眼眶骨折后遗眼球内陷5mm以上"
+          "predicate": {
+            "field": "orbital_enophthalmos_cm",
+            "operator": "gte",
+            "value": 0.5,
+            "unit": "cm",
+            "evidenceGroups": [
+              ["眼眶骨折", "眶内侧壁骨折", "眶内壁骨折", "眶下壁骨折", "眶底骨折", "眶上壁骨折", "眶外侧壁骨折", "眶壁骨折"],
+              ["眼球内陷", "内陷"],
+              ["后遗", "致", "导致", "造成", "引起", "所致", "由", "因", "系"]
             ]
           }
         }
@@ -24890,10 +24895,15 @@
           "op": "condition",
           "sourceText": "一眼眶骨折后遗眼球内陷2mm以上",
           "conditionText": "一眼眶骨折后遗眼球内陷2mm以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "一眼眶骨折后遗眼球内陷2mm以上"
+          "predicate": {
+            "field": "orbital_enophthalmos_cm",
+            "operator": "gte",
+            "value": 0.2,
+            "unit": "cm",
+            "evidenceGroups": [
+              ["眼眶骨折", "眶内侧壁骨折", "眶内壁骨折", "眶下壁骨折", "眶底骨折", "眶上壁骨折", "眶外侧壁骨折", "眶壁骨折"],
+              ["眼球内陷", "内陷"],
+              ["后遗", "致", "导致", "造成", "引起", "所致", "由", "因", "系"]
             ]
           }
         }
