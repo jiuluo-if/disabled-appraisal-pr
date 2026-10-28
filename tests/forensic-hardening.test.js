@@ -24,6 +24,29 @@ test('generic subarachnoid hemorrhage and head trauma do not imply traumatic hem
     && fact.value === '外伤性蛛网膜下腔出血'), true);
 });
 
+test('5.1.2.c binds a documented craniotomy decompression and hematoma evacuation as treatment', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.2.c');
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'diagnosis', value: '颞顶骨粉碎性骨折', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: 'CT示颞顶骨粉碎性骨折' },
+    { id: 'F2', eventId: 'E1', field: 'diagnosis', value: '脑疝', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '诊断脑疝' },
+    { id: 'F3', eventId: 'E1', field: 'treatment', value: '右侧颞顶部开颅、去骨瓣减压、血肿清除术',
+      certainty: 'reported', source: 'description', verification: 'quoted',
+      evidence: '本次手术记录：右侧颞顶部开颅、去骨瓣减压、血肿清除术' },
+  ];
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+
+  const planned = facts.map(fact => fact.id === 'F3' ? { ...fact,
+    value: '拟行右侧颞顶部开颅、去骨瓣减压、血肿清除术',
+    evidence: '本次手术计划：拟行右侧颞顶部开颅、去骨瓣减压、血肿清除术' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, planned).met, true);
+
+  const otherEvent = facts.map(fact => fact.id === 'F3' ? { ...fact, eventId: 'E2' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, otherEvent).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts.filter(fact => fact.id !== 'F2')).met, true);
+});
+
 test('heart and pericardial repair procedure names do not prove rupture without direct lesion evidence', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.b');
   const evaluate = (value, evidence, requestId) => {

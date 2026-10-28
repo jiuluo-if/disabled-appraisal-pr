@@ -919,6 +919,14 @@ function sharedClinicalInjuryPhrase(left, right) {
   return [...phrases(right)].some(phrase => leftPhrases.has(phrase));
 }
 
+function isUnperformedProcedureEvidence(evidence) {
+  const text = normalize(String(evidence || ''));
+  const procedure = '(?:手术|切除|修补|摘除|清除|引流|缝合|修复|减压|复位|置入|植入|固定)';
+  const proposed = new RegExp(`(?:拟|拟行|拟施行|计划|建议|考虑|不宜|不能|无法|难以|尚未|未行|未实施|未接受|未完成|拒绝)[^。！？；;\\n]{0,20}${procedure}`, 'u');
+  const cancelled = new RegExp(`${procedure}[^。！？；;\\n]{0,16}(?:尚未|未行|未实施|未接受|未完成|拒绝|取消)`, 'u');
+  return proposed.test(text) || cancelled.test(text);
+}
+
 function requiresCurrentProcedureLink(node) {
   const conditionText = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
   const procedurePattern = /手术|切除术?|修补术?|摘除术|清除|引流|缝合|修复术|修复手术/u;
@@ -1360,7 +1368,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
           || cardiacRuptureValue && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
       const evidenceMatches = cardiacRuptureCondition ? canonicalEvidence
         : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence;
-      const currentProcedureLink = !requiresCurrentProcedureLink(node) || hasCurrentEventLinkForProcedure(fact, facts, node);
+      const currentProcedureLink = !requiresCurrentProcedureLink(node)
+        || !isUnperformedProcedureEvidence(fact.evidence) && hasCurrentEventLinkForProcedure(fact, facts, node);
       return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
         && evidenceMatches)
         || reducedStrengthSign && !historicalEvidence && !evidenceAliasHistorical;
