@@ -108,7 +108,8 @@ const reliableCertainties = new Set(['reported', 'observed', 'derived']);
 const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
   'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent', 'burn_area_face_first_degree_cm2',
   'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
-  'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2']);
+  'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2',
+  'aggregate_wound_length_cm']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
@@ -989,16 +990,23 @@ function adjustedAgePredicate(node, facts, eventId) {
   if (node.ageAdjustment !== 'injury_standard_6_18' || !INJURY_AGE_SCALED_MEASUREMENT_FIELDS.has(predicate?.field)
     || predicate.operator !== 'gte') return null;
   const age = ageAtInjury(facts, eventId);
-  const measurementFacts = facts.filter(fact => fact.field === predicate.field && fact.eventId === eventId
+  const measurementFacts = facts.filter(fact => fact.field === predicate.field
+    && (eventId === null ? !fact.eventId : fact.eventId === eventId)
     && Number.isFinite(predicateEvidenceValue(predicate, fact, facts)));
   if (age === null) {
+    if (measurementFacts.some(fact => predicateEvidenceValue(predicate, fact, facts) >= predicate.value)) return predicate;
     const minimumThreshold = predicate.value * 0.5;
     const completeAggregate = predicate.field === 'contusion_tbsa_percent' && measurementFacts.length === 1
       && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
+    const completeScalpLengthAggregate = predicate.field === 'aggregate_wound_length_cm' && measurementFacts.length === 1
+      && measurementFacts[0].certainty === 'derived' && Array.isArray(measurementFacts[0].derivedFrom)
+      && measurementFacts[0].derivedFrom.length > 0
+      && predicate.evidenceGroups?.some(group => group.includes('头皮'))
+      && /(?:两处|多处|分别|总长|累计|合计|共计)/u.test(measurementFacts[0].evidence);
     const localSkinMeasurementsBelowEveryAgeThreshold = (predicate.field.startsWith('burn_area_')
       || predicate.field === 'facial_skin_abnormality_area_cm2')
       && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
-    return (completeAggregate || localSkinMeasurementsBelowEveryAgeThreshold)
+    return (completeAggregate || completeScalpLengthAggregate || localSkinMeasurementsBelowEveryAgeThreshold)
       && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;
   }

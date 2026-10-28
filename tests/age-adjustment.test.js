@@ -16,10 +16,10 @@ const assessmentAgeFact = (value, evidence = `评残时年龄${value}周岁`, ev
   verification: 'quoted',
 });
 
-test('injury-standard body-surface rules fail closed without verified adult age at the same injury event', () => {
+test('injury-standard body-surface rules need age only when the age band changes the threshold result', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.11.3.a');
 
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact]).met, true);
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [{ ...areaFact, value: 2,
     evidence: '本次事故后挫伤面积占体表面积2%' }]).met, null);
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [{ ...areaFact, value: 2,
@@ -28,12 +28,15 @@ test('injury-standard body-surface rules fail closed without verified adult age 
     evidence: '本次事故后挫伤面积占体表面积4.7%' }]).met, null);
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact, ageFact(15)]).met, true);
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact, ageFact(14)]).met, true);
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact, ageFact(15, '受伤时年龄14周岁')]).met, null);
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact, ageFact(15, undefined, 'E2')]).met, null);
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact, ageFact(15), ageFact(14, undefined, 'E1', 'F3')]).met, null);
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact,
+  const ageSensitiveFact = { ...areaFact, value: 5, evidence: '本次事故后挫伤面积占体表面积5%' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic,
+    [ageSensitiveFact, ageFact(15, '受伤时年龄14周岁')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [ageSensitiveFact, ageFact(15, undefined, 'E2')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic,
+    [ageSensitiveFact, ageFact(15), ageFact(14, undefined, 'E1', 'F3')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [ageSensitiveFact,
     { ...ageFact(15), certainty: 'conflicted' }]).met, null);
-  assert.equal(evaluateConditionLogic(clause.conditionLogic, [areaFact,
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [ageSensitiveFact,
     ageFact(15, '患者父亲受伤时年龄15周岁')]).met, null);
 });
 
@@ -55,16 +58,16 @@ test('explicit age-at-injury evidence survives fact normalization and all TBSA b
     for (const child of node.children || []) collect(child);
   };
   for (const id of ['5.11.1.a', '5.11.2.a', '5.11.3.a', '5.12.1.a', '5.12.2.a', '5.12.3.a', '5.12.4.a',
-    '5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e']) {
+    '5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a']) {
     collect(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.logic);
   }
-  assert.equal(markedLeaves.length, 19);
-  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e']) {
+  assert.equal(markedLeaves.length, 21);
+  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a']) {
     assert.equal(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.ageAdjustment, 'injury_standard_6_18');
   }
 });
 
-test('a model support flag cannot override missing injury age for a TBSA rule', () => {
+test('a model support flag cannot override an age-dependent TBSA result, while age-invariant evidence remains usable', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.11.3.a');
   const description = '本次事故后挫伤面积达体表面积6%。';
   const result = normalizeResult({ ...providerFixture('injury'), grade: '轻伤一级', facts: [], references: [{
@@ -75,8 +78,8 @@ test('a model support flag cannot override missing injury age for a TBSA rule', 
     extractedFacts: [areaFact], conflicts: [], requiresReview: false, factMissingMaterials: [],
   });
 
-  assert.equal(result.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
-  assert.ok(result.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+  assert.equal(result.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), true);
+  assert.equal(result.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')), false);
 
   const nearThresholdFact = { ...areaFact, value: 5, evidence: '本次事故后挫伤面积占体表面积5%' };
   const nearThreshold = normalizeResult({ ...providerFixture('injury'), grade: '轻伤一级', facts: [], references: [{
@@ -86,6 +89,7 @@ test('a model support flag cannot override missing injury age for a TBSA rule', 
     clauses: [clause], requestId: 'age-adjustment-minor-threshold', model: 'test-model',
     extractedFacts: [nearThresholdFact], conflicts: [], requiresReview: false, factMissingMaterials: [],
   });
+  assert.equal(nearThreshold.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
   assert.ok(nearThreshold.missingMaterials.some(material => material.includes('6.18')));
 });
 
@@ -341,4 +345,55 @@ test('facial skin injury area thresholds use the age bands in injury standard 6.
   });
   assert.equal(modelClaim.references.some(reference => reference.id === faceClause.id && reference.relation === 'supports'), false);
   assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+});
+
+test('cumulative scalp wound length thresholds use age-adjusted values from injury standard 6.18', () => {
+  const aggregateAtAge = (age, lengths) => {
+    const description = `本次事故后受伤时年龄${age}周岁，检查见右头皮有两处缝合创口，分别长${lengths[0]}cm和${lengths[1]}cm。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const ageEvidence = facts.find(fact => fact.field === 'age_at_injury_years');
+    const aggregate = facts.find(fact => fact.field === 'aggregate_wound_length_cm'
+      && fact.value === lengths[0] + lengths[1]);
+    assert.ok(ageEvidence?.eventId);
+    assert.equal(aggregate?.eventId, ageEvidence.eventId);
+    return facts;
+  };
+  const slight = catalogs.injury.clauses.find(item => item.id === '5.1.4.a');
+  const serious = catalogs.injury.clauses.find(item => item.id === '5.1.3.a');
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, aggregateAtAge(6, [2.5, 1.5])).met, true);
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, aggregateAtAge(7, [3, 1.8])).met, true);
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, aggregateAtAge(15, [4.5, 3.5])).met, true);
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, aggregateAtAge(15, [3.99, 4])).met, false);
+  assert.equal(evaluateConditionLogic(serious.conditionLogic, aggregateAtAge(6, [5.5, 4.5])).met, true);
+  const noAgeDescription = '本次事故后检查见右头皮有两处缝合创口，分别长4.5cm和3.5cm。';
+  const noAgeFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: noAgeDescription,
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, noAgeFacts).met, true);
+  const belowEveryAgeThreshold = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '本次事故后检查见右头皮有两处缝合创口，分别长1.5cm和2.0cm。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, belowEveryAgeThreshold).met, false);
+  const uncertainAgeDescription = '本次事故后检查见右头皮有两处缝合创口，分别长3.5cm和2.0cm。';
+  const uncertainAgeFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: uncertainAgeDescription,
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, uncertainAgeFacts).met, null);
+  const total = uncertainAgeFacts.find(fact => fact.field === 'aggregate_wound_length_cm' && fact.value === 5.5);
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: '轻伤二级', facts: [], references: [{
+    clauseId: slight.id, evidence: total.evidence, reasoning: '模型认为累计长度达到阈值。', relation: 'supports',
+    conditions: [{ condition: slight.text, evidence: total.evidence, factIds: [total.id], met: true }],
+  }] }, { ...inputs.injury, description: uncertainAgeDescription }, {
+    clauses: [slight], requestId: 'scalp-length-age-review', model: 'test-model', extractedFacts: uncertainAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === slight.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+
+  const unscopedScalp = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '检查见左额顶部5.1cm、4.5cm疤痕。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(slight.conditionLogic, unscopedScalp).met, true);
+
 });
