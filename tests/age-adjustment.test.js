@@ -717,3 +717,22 @@ test('facial wound-length thresholds use injury standard 6.18', () => {
   assert.equal(assess('5.2.4.a', 7, '多处皮肤创口累计长度3.6厘米。'), true);
   assert.notEqual(assess('5.2.4.a', 6, '皮肤创口长2.25厘米。', '左上臂'), true);
 });
+
+test('neck wound and scratch length thresholds use injury standard 6.18', () => {
+  const assess = (id, age, evidence) => {
+    const description = `本次事故后受伤时年龄${age}周岁，${evidence}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.5.3.a', 6, '颈前部皮肤创口长5厘米。'), true);
+  assert.equal(assess('5.5.3.a', 7, '颈前部多处创口累计长度9.6厘米。'), true);
+  assert.notEqual(assess('5.5.3.a', 6, '颈前部皮肤创口长4.99厘米。'), true);
+  assert.equal(assess('5.5.4.a', 6, '颈前部皮肤创口长2.5厘米。'), true);
+  assert.equal(assess('5.5.4.a', 7, '颈前部多处创口累计长度4.8厘米。'), true);
+  assert.notEqual(assess('5.5.4.a', 6, '颈前部皮肤创口长2.49厘米。'), true);
+  assert.equal(assess('5.5.5.a', 6, '颈部皮肤创口长0.5厘米。'), true);
+  assert.equal(assess('5.5.5.d', 6, '颈部皮肤划伤长2.5厘米。'), true);
+  assert.notEqual(assess('5.5.4.a', 6, '左上臂皮肤创口长2.5厘米。'), true);
+});

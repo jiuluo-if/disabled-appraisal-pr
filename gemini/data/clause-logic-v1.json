@@ -1720,13 +1720,26 @@
           "op": "condition",
           "sourceText": "颈部划伤长度5.0cm以上",
           "conditionText": "颈部划伤长度5.0cm以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "颈部划伤长度5.0cm以上"
+          "predicate": {
+            "field": "wound_length_cm",
+            "operator": "gte",
+            "value": 5,
+            "unit": "cm",
+            "evidenceGroups": [
+              [
+                "颈部",
+                "颈前部",
+                "颈前"
+              ],
+              [
+                "划伤",
+                "划痕"
+              ]
             ]
-          }
-        }
+          },
+          "ageAdjustment": "injury_standard_6_18"
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.8.2.o": {
         "annotation": "explicit",
@@ -5439,34 +5452,34 @@
       "5.5.5.a": {
         "annotation": "explicit",
         "logic": {
-          "op": "any",
+          "op": "condition",
           "sourceText": "颈部创口或者瘢痕长度1.0cm以上",
           "conditionText": "颈部创口或者瘢痕长度1.0cm以上",
-          "children": [
-            {
-              "op": "condition",
-              "sourceText": "颈部创口",
-              "conditionText": "颈部创口长度1.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈部创口长度1.0cm以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "瘢痕长度1.0cm以上",
-              "conditionText": "颈部瘢痕长度1.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈部瘢痕长度1.0cm以上"
-                ]
-              }
-            }
-          ]
-        }
+          "predicate": {
+            "field": "wound_length_cm",
+            "operator": "gte",
+            "value": 1,
+            "unit": "cm",
+            "evidenceGroups": [
+              [
+                "颈部",
+                "颈前部",
+                "颈前"
+              ],
+              [
+                "创口",
+                "伤口",
+                "裂口",
+                "裂创",
+                "裂伤",
+                "瘢痕",
+                "疤痕"
+              ]
+            ]
+          },
+          "ageAdjustment": "injury_standard_6_18"
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.6.1.b": {
         "annotation": "explicit",
@@ -10039,39 +10052,85 @@
           "children": [
             {
               "op": "condition",
-              "sourceText": "颈前部单个创口",
-              "conditionText": "颈前部单个创口长度10.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部单个创口长度10.0cm以上"
+              "sourceText": "颈前部单个创口或者瘢痕长度10.0cm以上；多个创口或者瘢痕长度累计16.0cm以上",
+              "conditionText": "颈前部单个创口或者瘢痕长度10.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部",
+                    "颈"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
-              "sourceText": "瘢痕长度10.0cm以上",
-              "conditionText": "颈前部单个瘢痕长度10.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部单个瘢痕长度10.0cm以上"
+              "sourceText": "颈前部单个创口或者瘢痕长度10.0cm以上；多个创口或者瘢痕长度累计16.0cm以上",
+              "conditionText": "多个创口或者瘢痕长度累计16.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 16,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "多个",
+                    "多处",
+                    "两处",
+                    "两处以上",
+                    "二处",
+                    "2处",
+                    "两道",
+                    "2道"
+                  ],
+                  [
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部",
+                    "颈"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "总长",
+                    "总长度",
+                    "累计长",
+                    "累计长度",
+                    "长度合计",
+                    "长度累计"
+                  ]
                 ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "多个创口或者瘢痕长度累计16.0cm以上",
-              "conditionText": "颈前部多个创口或者瘢痕长度累计16.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部多个创口或者瘢痕长度累计16.0cm以上"
-                ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.5.3.b": {
         "annotation": "explicit",
@@ -10173,19 +10232,8 @@
           "children": [
             {
               "op": "condition",
-              "sourceText": "颈前部单个创口",
-              "conditionText": "颈前部单个创口长度5.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部单个创口长度5.0cm以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "颈前部单个创口",
-              "conditionText": "颈前部单个创口长度5.0cm以上",
+              "sourceText": "颈前部单个创口或者瘢痕长度5.0cm以上；多个创口或者瘢痕长度累计8.0cm以上",
+              "conditionText": "颈前部单个创口或者瘢痕长度5.0cm以上",
               "predicate": {
                 "field": "wound_length_cm",
                 "operator": "gte",
@@ -10195,41 +10243,74 @@
                   [
                     "颈前部",
                     "颈前正中",
-                    "颈前"
+                    "颈前",
+                    "颈部",
+                    "颈"
                   ],
                   [
                     "创口",
                     "伤口",
                     "裂口",
-                    "裂伤"
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
                   ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
-              "sourceText": "瘢痕长度5.0cm以上",
-              "conditionText": "颈前部单个瘢痕长度5.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部单个瘢痕长度5.0cm以上"
+              "sourceText": "颈前部单个创口或者瘢痕长度5.0cm以上；多个创口或者瘢痕长度累计8.0cm以上",
+              "conditionText": "多个创口或者瘢痕长度累计8.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 8,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "多个",
+                    "多处",
+                    "两处",
+                    "两处以上",
+                    "二处",
+                    "2处",
+                    "两道",
+                    "2道"
+                  ],
+                  [
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部",
+                    "颈"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "总长",
+                    "总长度",
+                    "累计长",
+                    "累计长度",
+                    "长度合计",
+                    "长度累计"
+                  ]
                 ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "多个创口或者瘢痕长度累计8.0cm以上",
-              "conditionText": "颈前部多个创口或者瘢痕长度累计8.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部多个创口或者瘢痕长度累计8.0cm以上"
-                ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.5.4.b": {
         "annotation": "explicit",
