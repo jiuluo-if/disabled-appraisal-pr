@@ -1350,12 +1350,19 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const ribFractureEvidence = node.factMatch.field === 'injury_type'
         && node.factMatch.values.includes('rib_fracture') && normalize(node.sourceText) === normalize('肋骨骨折')
         && /肋骨/.test(fact.evidence) && /骨折/.test(fact.evidence) && !historicalEvidence;
+      const cardiacRuptureCondition = node.factMatch.field === 'clinical_finding'
+        && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
+      const cardiacRuptureValue = cardiacRuptureCondition
+        ? node.factMatch.values.find(value => ['心脏破裂', '心包破裂'].includes(value)) : null;
       const canonicalEvidence = node.factMatch.field === 'clinical_finding'
         && fact.source === 'description' && fact.verification === 'quoted'
-        && canonicalClinicalFindingEvidence(fact.value, fact.evidence, Boolean(fact.eventId));
+        && (canonicalClinicalFindingEvidence(fact.value, fact.evidence, Boolean(fact.eventId))
+          || cardiacRuptureValue && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
+      const evidenceMatches = cardiacRuptureCondition ? canonicalEvidence
+        : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence;
       const currentProcedureLink = !requiresCurrentProcedureLink(node) || hasCurrentEventLinkForProcedure(fact, facts, node);
       return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
-        && (exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence))
+        && evidenceMatches)
         || reducedStrengthSign && !historicalEvidence && !evidenceAliasHistorical;
     }
     const evidenceGroups = predicate.evidenceGroups;

@@ -24,6 +24,42 @@ test('generic subarachnoid hemorrhage and head trauma do not imply traumatic hem
     && fact.value === '外伤性蛛网膜下腔出血'), true);
 });
 
+test('heart and pericardial repair procedure names do not prove rupture without direct lesion evidence', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.b');
+  const evaluate = (value, evidence, requestId) => {
+    const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence };
+    const result = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence, reasoning: '',
+        conditions: [{ condition: clause.text, evidence, factIds: ['F1'], met: true }] }] },
+    { ...inputs.injury, description: `合成资料，非真实病例。${evidence}` },
+    { clauses: [clause], requestId, model: 'test-model', extractedFacts: [fact], conflicts: [],
+      requiresReview: false, factMissingMaterials: [] });
+    return { result, fact };
+  };
+
+  for (const [value, evidence] of [
+    ['心脏破裂', '本次手术计划：拟行心脏破裂修补术。'],
+    ['心脏破裂', '本次手术记录：行心脏破裂修补术。'],
+    ['心包破裂', '本次手术计划：拟行心包破裂修补术。'],
+    ['心包破裂', '本次手术记录：行心包破裂修补术。'],
+  ]) {
+    const { result } = evaluate(value, evidence, `procedure-title-only-${value}`);
+    assert.equal(result.grade, null, evidence);
+    assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports', evidence);
+  }
+
+  const cardiacEvidence = '本次手术探查见右心室前壁约2cm穿通伤，活动性出血并已缝合修补。';
+  const directCardiac = evaluate('心脏破裂', cardiacEvidence, 'direct-cardiac-wall-injury');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [directCardiac.fact]).met, true);
+  assert.equal(directCardiac.result.grade, clause.grade);
+
+  const pericardialEvidence = '本次手术探查见心包全层裂口约4cm，予缝扎止血。';
+  const directPericardial = evaluate('心包破裂', pericardialEvidence, 'direct-pericardial-wall-injury');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [directPericardial.fact]).met, true);
+  assert.equal(directPericardial.result.grade, clause.grade);
+});
+
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '检查见颞叶软化灶，诊断继发性癫痫。',

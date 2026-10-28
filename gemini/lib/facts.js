@@ -561,11 +561,26 @@ function cardiacWallNotPenetratedForMatch(clause, match) {
   return null;
 }
 
+function hasDirectCardiacRuptureSupport(value, evidence) {
+  const pattern = value === '心包破裂' ? pericardialRuptureEvidencePattern
+    : value === '心脏破裂' ? cardiacRuptureEvidencePattern : null;
+  if (!pattern) return false;
+  const directMorphology = value === '心包破裂'
+    ? /(?:全层|破口|裂口|裂伤|撕裂|刺破|穿孔)/u
+    : /(?:穿通伤|穿透伤|破口|裂口|裂伤|撕裂|刺破|穿孔)/u;
+  const explicitDiagnosis = /(?:诊断|确诊|病理|影像|CT|超声|报告)(?:明确记载|明确诊断为|诊断为|提示为|提示|示|为|记载)?[^，,。！？；;\n]{0,24}(?:心脏|心包|(?:右|左|双侧)?心室|(?:右|左|双侧)?心房|右室|左室)[^，,。！？；;\n]{0,16}(?:破裂|破口|裂口|裂伤|撕裂|刺破|穿孔)/u;
+  return String(evidence || '').split(/[。！？；;\n]/u).some(segment => {
+    if (!pattern.test(segment)) return false;
+    const procedureContext = /(?:拟行|拟施行|计划|建议|手术名称|手术记录|术后|修补术|修复术|缝合术)/u.test(segment);
+    return !procedureContext || explicitDiagnosis.test(segment) || directMorphology.test(segment);
+  });
+}
+
 export function isCanonicalCardiacRuptureEvidence(value, evidence) {
   const text = normalizeInput(evidence);
   if (!text || /(?:既往史|既往|既有|陈旧|原有|此前|曾经|术前)/u.test(text)) return false;
-  if (value === '心包破裂') return pericardialRuptureEvidencePattern.test(text);
-  if (value === '心脏破裂') return cardiacRuptureEvidencePattern.test(text)
+  if (value === '心包破裂') return hasDirectCardiacRuptureSupport(value, text);
+  if (value === '心脏破裂') return hasDirectCardiacRuptureSupport(value, text)
     && !cardiacWallNotPenetratedPattern.test(text);
   return false;
 }
