@@ -124,7 +124,7 @@ function certaintyForMention(text, start, end) {
 function hasUnresolvedOtherExperiencer(text) {
   const otherSubject = /(?:患者的?父亲|患者的?母亲|其父|其母|家属|父亲|母亲|丈夫|妻子|他人|其他人|另一个人|同事)/g;
   const patient = /(?:患者|受检者|伤者|被鉴定人|本人)/;
-  const condition = /(?:骨折|受伤|损伤|诊断|影像|症状|疼痛|腰痛|头痛|胸痛|腹痛|麻木|肿胀|障碍|咳嗽|呼吸困难|瘫痪)/;
+  const condition = /(?:骨折|受伤|损伤|休克|诊断|影像|症状|疼痛|腰痛|头痛|胸痛|腹痛|麻木|肿胀|障碍|咳嗽|呼吸困难|瘫痪)/;
   for (const match of text.matchAll(otherSubject)) {
     const following = text.slice(match.index + match[0].length);
     const target = condition.exec(following);
@@ -300,6 +300,30 @@ function normalizeBrainCompressionEvidenceFacts(inputText) {
   return findings;
 }
 
+export function hasVerifiedModerateShockEvidence(inputText) {
+  const text = normalizeInput(inputText);
+  if (!text || /[。！？；;\n]/u.test(text)) return false;
+  const moderateShock = /(?:中度[^。！？；;\n]{0,8}休克|休克[^。！？；;\n]{0,8}中度)/u.exec(text);
+  if (!moderateShock || explicitNegationCoversTerm(text, moderateShock[0])) return false;
+  const diagnosisMarkers = [...text.matchAll(/(?:明确诊断|诊断)(?:为|[:：])/gu)];
+  const diagnosisMarker = diagnosisMarkers.find(marker => marker.index <= moderateShock.index
+    && moderateShock.index - marker.index <= 32);
+  if (!diagnosisMarker) return false;
+  const injuryCausesShock = /(?:本次|此次|本案)(?:外伤|损伤|创伤|刀伤|刺伤|砍伤|殴打|车祸|交通事故)[^。！？；;\n]{0,16}(?:所致|引起|导致|造成|致|引发)[^。！？；;\n]{0,16}(?:中度[^。！？；;\n]{0,8}休克|休克[^。！？；;\n]{0,8}中度)/u;
+  const shockCausedByCurrentInjury = /(?:中度[^。！？；;\n]{0,8}休克|休克[^。！？；;\n]{0,8}中度)[^。！？；;\n]{0,16}(?:由|系)(?:本次|此次|本案)[^。！？；;\n]{0,8}(?:外伤|损伤|创伤|刀伤|刺伤|砍伤|殴打|车祸|交通事故)[^。！？；;\n]{0,8}(?:所致|引起|导致|造成)/u;
+  const causalLink = injuryCausesShock.exec(text) || shockCausedByCurrentInjury.exec(text);
+  if (!causalLink) return false;
+  const relevantStart = Math.max(0, Math.min(diagnosisMarker.index, causalLink.index) - 12);
+  const relevantEnd = Math.max(moderateShock.index + moderateShock[0].length,
+    causalLink.index + causalLink[0].length);
+  const relevantEvidence = text.slice(relevantStart, relevantEnd);
+  if (certaintyFor(text, relevantStart, relevantEnd) !== 'reported'
+    || hasUnresolvedOtherExperiencer(relevantEvidence)
+    || /(?:既往史|既往|既有|陈旧|原有|此前|曾经|术前)/u.test(relevantEvidence)
+    || hasNonCurrentClinicalContext(text, moderateShock.index, moderateShock.index + moderateShock[0].length)) return false;
+  return true;
+}
+
 function normalizeClinicalFindingFacts(inputText) {
   const text = normalizeInput(inputText);
   const findings = [];
@@ -314,6 +338,13 @@ function normalizeClinicalFindingFacts(inputText) {
   for (const match of text.matchAll(/[^。；;\n]+/gu)) {
     const clause = match[0].trim();
     const clauseOffset = match.index + match[0].indexOf(clause);
+    const moderateShock = /(?:中度[^。！？；;\n]{0,8}休克|休克[^。！？；;\n]{0,8}中度)/u.exec(clause);
+    if (hasVerifiedModerateShockEvidence(clause) && moderateShock
+      && !hasNonCurrentClinicalContext(text, clauseOffset + moderateShock.index,
+        clauseOffset + moderateShock.index + moderateShock[0].length)) {
+      findings.push({ field: 'clinical_finding', value: '各种损伤引起休克(中度)', certainty: 'reported',
+        source_type: 'user_text', source_excerpt: clause.slice(0, MAX_FACT_EVIDENCE_CHARS) });
+    }
     const renalOperations = [
       { pattern: /(?:左侧|右侧|左|右|单侧|一侧)?肾(?:脏)?切除术/gu, value: '一侧肾切除术后' },
       { pattern: /(?:左侧|右侧|左|右)?肾(?:脏)?修补术/gu, value: '肾修补术后' },

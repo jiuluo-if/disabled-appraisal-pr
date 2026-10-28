@@ -106,6 +106,60 @@ test('corrected visual acuity is bound to the injured eye rather than the next e
     && fact.value === '一眼矫正视力减退至0.5以下'));
 });
 
+test('moderate shock requires a documented grade and an explicit current-injury causal link', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.12.2.d');
+  const assess = description => {
+    const extracted = normalizeExtractedFacts(emptyExtraction, { description });
+    const facts = extracted.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return { extracted, facts, met: evaluateConditionLogic(clause.conditionLogic, facts).met };
+  };
+  const supportedDescription = '合成资料，非真实病例。诊断：本次外伤所致中度失血性休克，收缩压75mmHg，脉搏110次/分，全身状况为抑制、苍白、皮肤冷。';
+  const supported = assess(supportedDescription);
+  assert.ok(supported.facts.some(fact => fact.field === 'clinical_finding'
+    && fact.value === '各种损伤引起休克(中度)'));
+  assert.equal(supported.met, true);
+  const supportedResult = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: supportedDescription, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: supportedDescription,
+        factIds: supported.facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.injury, description: supportedDescription }, { clauses: [clause], requestId: 'moderate-shock-supported',
+    model: 'test-model', extractedFacts: supported.facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(supportedResult.grade, clause.grade);
+
+  const equivalent = assess('合成资料，非真实病例。诊断为中度失血性休克，系本次交通事故所致。');
+  assert.ok(equivalent.facts.some(fact => fact.field === 'clinical_finding'
+    && fact.value === '各种损伤引起休克(中度)'));
+  assert.equal(equivalent.met, true);
+  const unrelatedUncertainty = assess('合成资料，非真实病例。诊断：本次外伤所致中度失血性休克，另考虑轻度脱水。');
+  assert.equal(unrelatedUncertainty.met, true);
+
+  const quotedClause = '合成资料，非真实病例。诊断仅为休克；说明文字引用标准原文：各种损伤引起休克（中度）。';
+  const modelOnlyFact = { id: 'MODEL', eventId: 'E1', field: 'clinical_finding', value: '各种损伤引起休克(中度)',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: quotedClause };
+  const rejectedResult = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: quotedClause, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: quotedClause, factIds: [modelOnlyFact.id], met: true }] }] },
+  { ...inputs.injury, description: quotedClause }, { clauses: [clause], requestId: 'moderate-shock-model-only',
+    model: 'test-model', extractedFacts: [modelOnlyFact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(rejectedResult.grade, null);
+  assert.notEqual(rejectedResult.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+
+  for (const description of [
+    '合成资料，非真实病例。本次外伤后血压75mmHg，脉搏110次/分，面色苍白、皮肤冷；病历只记载休克。',
+    '合成资料，非真实病例。诊断：本次外伤后出现中度失血性休克，收缩压75mmHg，脉搏110次/分，抑制、苍白、皮肤冷。',
+    '合成资料，非真实病例。诊断需核验：本次外伤所致中度休克是否成立。',
+    '合成资料，非真实病例。诊断中度失血性休克。另有本次外伤所致其他损伤。',
+    '合成资料，非真实病例。诊断：疑似本次外伤所致中度失血性休克，收缩压75mmHg，脉搏110次/分，抑制、苍白、皮肤冷。',
+    '合成资料，非真实病例。既往外伤所致中度失血性休克；本次外伤后只记载休克。',
+    '合成资料，非真实病例。患者父亲诊断本次外伤所致中度失血性休克。',
+  ]) {
+    const result = assess(description);
+    assert.equal(result.facts.some(fact => fact.field === 'clinical_finding'
+      && fact.value === '各种损伤引起休克(中度)'), false, description);
+    assert.notEqual(result.met, true, description);
+  }
+});
+
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '检查见颞叶软化灶，诊断继发性癫痫。',

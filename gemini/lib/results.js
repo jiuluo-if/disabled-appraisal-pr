@@ -3,7 +3,7 @@ import { catalogs } from './catalog.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
-  hasExplicitLimbLengthDifferenceLink, parseNumber, quotedDentalDefectCount,
+  hasExplicitLimbLengthDifferenceLink, hasVerifiedModerateShockEvidence, parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches, hasSameEyeInjuryContext } from './facts.js';
 
 const grades = {
@@ -638,6 +638,7 @@ function woundLengthEvidenceSupportsPredicate(predicate, fact, facts = []) {
 
 function canonicalClinicalFindingEvidence(value, evidence, linkedToCurrentEvent = false) {
   if (/(?:既往史|既往|既有|陈旧|原有|此前|曾经|术前)/u.test(evidence)) return false;
+  if (value === '各种损伤引起休克(中度)') return hasVerifiedModerateShockEvidence(evidence);
   if (value === '一侧肾切除术后') return /(?:左侧|右侧|左|右|单侧|一侧)?肾(?:脏)?切除术/u.test(evidence)
     && !/部分肾(?:脏)?切除术/u.test(evidence)
     && /(?:手术记录|手术中|行|施行|实施|接受|进行|已做|完成)/u.test(evidence)
@@ -1373,7 +1374,9 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
           || parserQuotedCardiacFact(fact)
           || fact.verification === 'quoted' && cardiacRuptureValue
             && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
-      const evidenceMatches = cardiacRuptureCondition ? canonicalEvidence
+      const moderateShockCondition = node.factMatch.field === 'clinical_finding'
+        && node.factMatch.values?.some(value => normalize(value) === normalize('各种损伤引起休克（中度）'));
+      const evidenceMatches = cardiacRuptureCondition || moderateShockCondition ? canonicalEvidence
         : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence;
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
         || !isUnperformedProcedureEvidence(fact.evidence) && hasCurrentEventLinkForProcedure(fact, facts, node);
