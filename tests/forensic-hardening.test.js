@@ -511,7 +511,7 @@ test('service normalization rejects model support for every opaque grading claus
     assert.ok(reference?.conditions.every(condition => condition.evidence === ''
       && condition.factIds.length === 0 && condition.met === null), clause.id);
   }
-  assert.equal(checked, 25);
+  assert.equal(checked, 27);
 });
 
 test('service normalization rejects unsupported model support claims for every explicit clause', () => {
@@ -532,7 +532,7 @@ test('service normalization rejects unsupported model support claims for every e
     assert.equal(result.grade, null, clause.id);
     assert.ok(result.references.every(reference => reference.relation !== 'supports'), clause.id);
   }
-  assert.equal(checked, 822);
+  assert.equal(checked, 820);
 });
 
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
@@ -1048,6 +1048,8 @@ test('single-leaf compound organ and function clauses do not grade from one comp
     { assessmentType: 'injury', id: '5.6.3.a', reason: /心脏挫伤、心包积血及二者之间的损伤因果关系/u },
     { assessmentType: 'injury', id: '5.7.2.i', reason: /肾损伤、肾性高血压诊断及损伤因果关系/u },
     { assessmentType: 'injury', id: '5.8.2.g', reason: /重度狭窄的明确诊断或客观检查/u },
+    { assessmentType: 'disability', id: '5.8.6.10', reason: /不能分别核验同一肢体各关节的侧别、关节功能丧失百分比/u },
+    { assessmentType: 'disability', id: '5.9.6.11', reason: /不能分别核验同一肢体各关节的侧别、关节功能丧失百分比/u },
   ];
 
   for (const { assessmentType, id, reason } of cases) {
