@@ -20610,16 +20610,27 @@
         "annotation": "explicit",
         "ageAdjustment": "disability_standard_6_11",
         "logic": {
-          "op": "condition",
+          "op": "all",
           "sourceText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达20.0cm",
           "conditionText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达20.0cm",
-          "ageAdjustment": "disability_standard_6_11",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达20.0cm"
-            ]
-          }
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "宽度达0.3cm",
+              "conditionText": "面部中心区条状瘢痕宽度至少0.3cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {"field":"facial_scar_width_cm","operator":"gte","value":0.3,"unit":"cm",
+                "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["宽度"]]}
+            },
+            {
+              "op": "condition",
+              "sourceText": "累计长度达20.0cm",
+              "conditionText": "面部中心区条状瘢痕累计长度至少20.0cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {"field":"aggregate_facial_scar_length_cm","operator":"gte","value":20,"unit":"cm",
+                "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}
+            }
+          ]
         }
       },
       "5.6.2.3": {
@@ -21227,16 +21238,27 @@
         "annotation": "explicit",
         "ageAdjustment": "disability_standard_6_11",
         "logic": {
-          "op": "condition",
+          "op": "all",
           "sourceText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达15.0cm",
           "conditionText": "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达15.0cm",
-          "ageAdjustment": "disability_standard_6_11",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "面部中心区条状瘢痕形成（宽度达0.3cm），累计长度达15.0cm"
-            ]
-          }
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "宽度达0.3cm",
+              "conditionText": "面部中心区条状瘢痕宽度至少0.3cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {"field":"facial_scar_width_cm","operator":"gte","value":0.3,"unit":"cm",
+                "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["宽度"]]}
+            },
+            {
+              "op": "condition",
+              "sourceText": "累计长度达15.0cm",
+              "conditionText": "面部中心区条状瘢痕累计长度至少15.0cm",
+              "ageAdjustment": "disability_standard_6_11",
+              "predicate": {"field":"aggregate_facial_scar_length_cm","operator":"gte","value":15,"unit":"cm",
+                "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}
+            }
+          ]
         }
       },
       "5.7.2.2": {
@@ -23345,11 +23367,12 @@
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达30.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕形成，累计面积达30.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 30,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["片状细小瘢痕", "细小瘢痕"], ["累计", "总面积", "合计"]]
               }
             },
             {
@@ -23470,24 +23493,23 @@
               "sourceText": "面部条状瘢痕形成",
               "conditionText": "面部条状瘢痕形成，累计长度达30.0cm",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部条状瘢痕形成，累计长度达30.0cm"
-                ]
-              }
+              "predicate": {"field":"aggregate_facial_scar_length_cm","operator":"gte","value":30,"unit":"cm",
+                "evidenceGroups":[["面部","脸部"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}
             },
             {
-              "op": "condition",
+              "op": "all",
               "sourceText": "面部中心区条状瘢痕形成",
               "conditionText": "面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm",
-              "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部中心区条状瘢痕形成（宽度达0.2cm），累计长度达15.0cm"
-                ]
-              }
+              "children": [
+                {"op":"condition","sourceText":"宽度达0.2cm","conditionText":"面部中心区条状瘢痕宽度至少0.2cm",
+                  "ageAdjustment":"disability_standard_6_11",
+                  "predicate":{"field":"facial_scar_width_cm","operator":"gte","value":0.2,"unit":"cm",
+                    "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["宽度"]]}},
+                {"op":"condition","sourceText":"累计长度达15.0cm","conditionText":"面部中心区条状瘢痕累计长度至少15.0cm",
+                  "ageAdjustment":"disability_standard_6_11",
+                  "predicate":{"field":"facial_center_scar_length_cm","operator":"gte","value":15,"unit":"cm",
+                    "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["长度"]]}}
+              ]
             }
           ]
         }
@@ -23562,11 +23584,12 @@
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达100.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕形成，累计面积达100.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 100,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["片状细小瘢痕", "细小瘢痕"], ["累计", "总面积", "合计"]]
               }
             },
             {
@@ -23643,24 +23666,27 @@
               "sourceText": "累计长度达20.0cm",
               "conditionText": "面部条状瘢痕形成，累计长度达20.0cm",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部条状瘢痕形成，累计长度达20.0cm"
-                ]
-              }
+              "predicate": {"field":"aggregate_facial_scar_length_cm","operator":"gte","value":20,"unit":"cm",
+                "evidenceGroups":[["面部","脸部"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}
             },
             {
-              "op": "condition",
+              "op": "all",
               "sourceText": "宽度达0.2cm",
               "conditionText": "面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区",
-              "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部条状瘢痕形成（宽度达0.2cm），累计长度达10.0cm，其中至少5.0cm以上位于面部中心区"
-                ]
-              }
+              "children": [
+                {"op":"condition","sourceText":"宽度达0.2cm","conditionText":"面部条状瘢痕宽度至少0.2cm",
+                  "ageAdjustment":"disability_standard_6_11",
+                  "predicate":{"field":"facial_scar_width_cm","operator":"gte","value":0.2,"unit":"cm",
+                    "evidenceGroups":[["面部","脸部"],["条状瘢痕","条状疤痕"],["宽度"]]}},
+                {"op":"condition","sourceText":"累计长度达10.0cm","conditionText":"面部条状瘢痕累计长度至少10.0cm",
+                  "ageAdjustment":"disability_standard_6_11",
+                  "predicate":{"field":"aggregate_facial_scar_length_cm","operator":"gte","value":10,"unit":"cm",
+                    "evidenceGroups":[["面部","脸部"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}},
+                {"op":"condition","sourceText":"至少5.0cm以上位于面部中心区","conditionText":"面部中心区条状瘢痕长度至少5.0cm",
+                  "ageAdjustment":"disability_standard_6_11",
+                  "predicate":{"field":"facial_center_scar_length_cm","operator":"gte","value":5,"unit":"cm",
+                    "evidenceGroups":[["面部中心区","中心区"],["条状瘢痕","条状疤痕"],["长度"]]}}
+              ]
             }
           ]
         }
@@ -24718,12 +24744,8 @@
           "sourceText": "面部条状瘢痕形成，累计长度达10.0cm",
           "conditionText": "面部条状瘢痕形成，累计长度达10.0cm",
           "ageAdjustment": "disability_standard_6_11",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "面部条状瘢痕形成，累计长度达10.0cm"
-            ]
-          }
+          "predicate": {"field":"aggregate_facial_scar_length_cm","operator":"gte","value":10,"unit":"cm",
+            "evidenceGroups":[["面部","脸部"],["条状瘢痕","条状疤痕"],["累计长度","总长度"]]}
         }
       },
       "5.10.2.5": {
@@ -24776,11 +24798,12 @@
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成，累计面积达10.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕形成，累计面积达10.0cm2"
-                ]
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部"], ["片状细小瘢痕", "细小瘢痕"], ["累计", "总面积", "合计"]]
               }
             },
             {

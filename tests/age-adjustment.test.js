@@ -97,7 +97,7 @@ test('a model support flag cannot override an age-dependent TBSA result, while a
 
 test('facial-scar disability thresholds require age evidence and use the separate 6.11 rule', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.8.2.6');
-  const scar = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '面部片状细小瘢痕形成，累计面积达100.0cm2',
+  const scar = { id: 'F1', eventId: 'E1', field: 'aggregate_surface_scar_area_cm2', value: 100,
     certainty: 'reported', source: 'description', evidence: '面部片状细小瘢痕形成，累计面积达100.0cm2', verification: 'quoted' };
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [scar]).met, null);
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [scar, ageFact(15), assessmentAgeFact(15)]).met, true);
@@ -110,7 +110,7 @@ test('facial-scar disability thresholds require age evidence and use the separat
       source: 'description', evidence: '受伤时年龄15周岁' },
     { id: 'F2', eventId: 'E1', field: 'age_at_assessment_years', value: 15, certainty: 'reported',
       source: 'description', evidence: '评残时年龄15周岁' },
-    { id: 'F3', eventId: 'E1', field: 'clinical_finding', value: scar.value, certainty: 'reported',
+    { id: 'F3', eventId: 'E1', field: scar.field, value: scar.value, certainty: 'reported',
       source: 'description', evidence: scar.evidence },
   ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
   assert.equal(evaluateConditionLogic(clause.conditionLogic,
@@ -134,7 +134,7 @@ test('facial-scar disability thresholds require age evidence and use the separat
   const ids = ['5.6.2.2','5.6.2.3','5.7.2.1','5.7.2.2','5.8.2.4','5.8.2.5','5.8.2.6',
     '5.9.2.4','5.9.2.5','5.9.2.6','5.10.2.3','5.10.2.4','5.10.2.5','5.10.2.6'];
   for (const id of ids) collect(catalogs.disability.clauses.find(item => item.id === id).conditionLogic.logic);
-  assert.equal(markedLeaves.length, 27);
+  assert.equal(markedLeaves.length, 32);
 });
 
 test('contusion TBSA facts use the injury standard age bands and inclusive numeric boundaries', () => {
@@ -910,6 +910,78 @@ test('disability 6.11 block-scar areas use verified injury and assessment ages',
     const walk = node => {
       if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
         && /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米)/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
+        unstructured.push(`${id}: ${node.conditionText || node.sourceText}`);
+      }
+      for (const child of node.children || []) walk(child);
+    };
+    walk(catalogs.disability.clauses.find(item => item.id === id).conditionLogic.logic);
+  }
+  assert.deepEqual(unstructured, []);
+});
+
+test('disability 6.11 small facial scar areas use age-scaled cumulative surface measurements', () => {
+  const assess = (id, age, area, includeAge = true) => {
+    const description = `本次事故后${includeAge ? `受伤时年龄${age}周岁，评残时年龄${age}周岁，` : ''}面部片状细小瘢痕累计面积${area}cm2。`;
+    const sourceFacts = includeAge ? [ageFact(age), assessmentAgeFact(age)] : [];
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [], conflicts: [],
+      requiresReview: false }, { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.disability.clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.8.2.6', 6, 50), true);
+  assert.notEqual(assess('5.8.2.6', 6, 49.99), true);
+  assert.equal(assess('5.9.2.6', 7, 24), true);
+  assert.notEqual(assess('5.9.2.6', 7, 23.99), true);
+  assert.equal(assess('5.10.2.6', 14, 8), true);
+  assert.notEqual(assess('5.10.2.6', 14, 7.99), true);
+  assert.notEqual(assess('5.9.2.6', 6, 15, false), true);
+
+  const unstructuredScarBranches = [];
+  for (const id of ['5.8.2.6', '5.9.2.6', '5.10.2.6']) {
+    const walk = node => {
+      if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
+        && /细小瘢痕/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
+        unstructuredScarBranches.push(`${id}: ${node.conditionText || node.sourceText}`);
+      }
+      for (const child of node.children || []) walk(child);
+    };
+    walk(catalogs.disability.clauses.find(item => item.id === id).conditionLogic.logic);
+  }
+  assert.deepEqual(unstructuredScarBranches, []);
+});
+
+test('disability 6.11 linear-scar width and age-scaled lengths remain separate conditions', () => {
+  const metrics = ({ width, total, center }) => [
+    ...(width === undefined ? [] : [{ id: 'W', eventId: 'E1', field: 'facial_scar_width_cm', value: width,
+      certainty: 'reported', source: 'description', evidence: `面部中心区条状瘢痕宽度${width}cm`, verification: 'quoted' }]),
+    ...(total === undefined ? [] : [{ id: 'L', eventId: 'E1', field: 'aggregate_facial_scar_length_cm', value: total,
+      certainty: 'reported', source: 'description', evidence: `面部中心区条状瘢痕累计长度${total}cm`, verification: 'quoted' }]),
+    ...(center === undefined ? [] : [{ id: 'C', eventId: 'E1', field: 'facial_center_scar_length_cm', value: center,
+      certainty: 'reported', source: 'description', evidence: `面部中心区条状瘢痕长度${center}cm`, verification: 'quoted' }]),
+  ];
+  const assess = (id, age, values, includeAge = true) => {
+    const ages = includeAge ? [ageFact(age), assessmentAgeFact(age)] : [];
+    const clause = catalogs.disability.clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, [...ages, ...metrics(values)]).met;
+  };
+
+  assert.equal(assess('5.6.2.2', 6, { width: 0.3, total: 10 }), true);
+  assert.notEqual(assess('5.6.2.2', 6, { width: 0.29, total: 10 }), true);
+  assert.equal(assess('5.7.2.1', 7, { width: 0.3, total: 12 }), true);
+  assert.notEqual(assess('5.7.2.1', 7, { width: 0.29, total: 12 }), true);
+  assert.equal(assess('5.8.2.4', 6, { total: 15 }), true);
+  assert.equal(assess('5.8.2.4', 6, { width: 0.2, center: 7.5 }), true);
+  assert.equal(assess('5.9.2.4', 6, { width: 0.2, total: 5, center: 2.5 }), true);
+  assert.notEqual(assess('5.9.2.4', 6, { width: 0.2, total: 5 }), true);
+  assert.equal(assess('5.10.2.4', 6, { total: 5 }), true);
+  assert.notEqual(assess('5.6.2.2', 6, { width: 0.15, total: 10 }, false), true);
+
+  const unstructured = [];
+  for (const id of ['5.6.2.2', '5.7.2.1', '5.8.2.4', '5.9.2.4', '5.10.2.4']) {
+    const walk = node => {
+      if (node.op === 'condition' && node.factMatch?.field === 'clinical_finding'
+        && /\d+(?:\.\d+)?\s*(?:厘米|cm)/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`)) {
         unstructured.push(`${id}: ${node.conditionText || node.sourceText}`);
       }
       for (const child of node.children || []) walk(child);
