@@ -636,3 +636,26 @@ test('general body-surface wound-length thresholds use injury standard 6.18', ()
   assert.notEqual(splitEventFacts.find(fact => fact.field === 'wound_length_cm')?.eventId, 'E1');
   assert.equal(evaluateConditionLogic(clause.conditionLogic, splitEventFacts).met, null);
 });
+
+test('limb and hand wound-length thresholds use injury standard 6.18', () => {
+  const assess = (id, age, site, count, length) => {
+    const countText = count === 1 ? '一处' : `${count}处`;
+    const description = `本次事故后受伤时年龄${age}周岁，${site}皮肤${countText}创口累计长度${length}厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.9.4.l', 6, '左上臂', 1, 5), true);
+  assert.equal(assess('5.9.4.l', 7, '左小腿', 2, 9), true);
+  assert.notEqual(assess('5.9.4.l', 6, '左上臂', 1, 4.99), true);
+  assert.equal(assess('5.9.5.a', 6, '左上臂', 1, 0.5), true);
+  assert.equal(assess('5.9.5.a', 6, '左小腿', 2, 0.75), true);
+  assert.equal(assess('5.9.5.a', 6, '左手掌', 1, 0.5), true);
+  assert.notEqual(assess('5.9.5.a', 6, '左上臂', 1, 0.49), true);
+  assert.equal(assess('5.10.5.b', 6, '左手掌', 1, 0.5), true);
+  assert.equal(assess('5.10.5.b', 6, '左手掌', 2, 0.75), true);
+  assert.notEqual(assess('5.10.5.b', 6, '左手掌', 1, 0.49), true);
+  assert.notEqual(assess('5.10.5.b', 6, '左小腿', 2, 0.75), true);
+  assert.notEqual(assess('5.10.5.b', 6, '左手掌和左小腿', 2, 0.75), true);
+});

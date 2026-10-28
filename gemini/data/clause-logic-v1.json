@@ -13116,97 +13116,124 @@
           "conditionText": "肢体皮肤一处创口或者瘢痕长度10.0cm以上；两处以上创口或者瘢痕长度累计15.0cm以上",
           "children": [
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "肢体皮肤一处创口或者瘢痕长度10.0cm以上",
-              "conditionText": "肢体皮肤一处创口或者瘢痕长度10.0cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "肢体皮肤一处创口",
-                  "conditionText": "肢体皮肤一处创口或者瘢痕长度10.0cm以上",
-                  "predicate": {
-                    "field": "wound_length_cm",
-                    "operator": "gte",
-                    "value": 10,
-                    "unit": "cm",
-                    "evidenceGroups": [
-                      [
-                        "肢体",
-                        "肩部",
-                        "左肩",
-                        "右肩",
-                        "上肢",
-                        "上臂",
-                        "前臂",
-                        "肘部",
-                        "腕部",
-                        "手部"
-                      ],
-                      [
-                        "创口",
-                        "伤口",
-                        "裂口",
-                        "裂伤",
-                        "瘢痕"
-                      ]
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "肢体皮肤一处创口",
-                  "conditionText": "肢体皮肤一处创口长度10.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体皮肤一处创口长度10.0cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度10.0cm以上",
-                  "conditionText": "肢体皮肤一处瘢痕长度10.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体皮肤一处瘢痕长度10.0cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "肢体单处创口或者瘢痕长度10.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "肢体",
+                    "上肢",
+                    "上臂",
+                    "前臂",
+                    "肘部",
+                    "腕部",
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "手",
+                    "肩部",
+                    "左肩",
+                    "右肩",
+                    "髋部",
+                    "大腿",
+                    "股部",
+                    "膝部",
+                    "小腿",
+                    "踝部",
+                    "足部",
+                    "趾部"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "两处以上创口或者瘢痕长度累计15.0cm以上",
-              "conditionText": "两处以上创口或者瘢痕长度累计15.0cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "两处以上创口",
-                  "conditionText": "肢体皮肤两处以上创口长度累计15.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体皮肤两处以上创口长度累计15.0cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度累计15.0cm以上",
-                  "conditionText": "肢体皮肤两处以上瘢痕长度累计15.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体皮肤两处以上瘢痕长度累计15.0cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "肢体多处创口或者瘢痕长度累计15.0cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 15,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "两处以上",
+                    "多处",
+                    "多个",
+                    "两道以上",
+                    "两处",
+                    "二处",
+                    "2处",
+                    "两道",
+                    "二道",
+                    "2道"
+                  ],
+                  [
+                    "肢体",
+                    "上肢",
+                    "上臂",
+                    "前臂",
+                    "肘部",
+                    "腕部",
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "手",
+                    "肩部",
+                    "左肩",
+                    "右肩",
+                    "髋部",
+                    "大腿",
+                    "股部",
+                    "膝部",
+                    "小腿",
+                    "踝部",
+                    "足部",
+                    "趾部"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "总长",
+                    "总长度",
+                    "累计长",
+                    "累计长度",
+                    "长度合计",
+                    "长度累计"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.9.5.a": {
         "annotation": "explicit",
@@ -13216,62 +13243,120 @@
           "conditionText": "肢体一处创口或者瘢痕长度1.0cm以上；两处以上创口或者瘢痕长度累计1.5cm以上；刺创深达肌层",
           "children": [
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "肢体一处创口或者瘢痕长度1.0cm以上",
-              "conditionText": "肢体一处创口或者瘢痕长度1.0cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "肢体一处创口",
-                  "conditionText": "肢体一处创口长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体一处创口长度1.0cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度1.0cm以上",
-                  "conditionText": "肢体一处瘢痕长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体一处瘢痕长度1.0cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "肢体单处创口或者瘢痕长度1.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 1,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "肢体",
+                    "上肢",
+                    "上臂",
+                    "前臂",
+                    "肘部",
+                    "腕部",
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "手",
+                    "肩部",
+                    "左肩",
+                    "右肩",
+                    "髋部",
+                    "大腿",
+                    "股部",
+                    "膝部",
+                    "小腿",
+                    "踝部",
+                    "足部",
+                    "趾部"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "两处以上创口或者瘢痕长度累计1.5cm以上",
-              "conditionText": "两处以上创口或者瘢痕长度累计1.5cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "两处以上创口",
-                  "conditionText": "肢体两处以上创口长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体两处以上创口长度累计1.5cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度累计1.5cm以上",
-                  "conditionText": "肢体两处以上瘢痕长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "肢体两处以上瘢痕长度累计1.5cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "肢体多处创口或者瘢痕长度累计1.5cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 1.5,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "两处以上",
+                    "多处",
+                    "多个",
+                    "两道以上",
+                    "两处",
+                    "二处",
+                    "2处",
+                    "两道",
+                    "二道",
+                    "2道"
+                  ],
+                  [
+                    "肢体",
+                    "上肢",
+                    "上臂",
+                    "前臂",
+                    "肘部",
+                    "腕部",
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "手",
+                    "肩部",
+                    "左肩",
+                    "右肩",
+                    "髋部",
+                    "大腿",
+                    "股部",
+                    "膝部",
+                    "小腿",
+                    "踝部",
+                    "足部",
+                    "趾部"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "总长",
+                    "总长度",
+                    "累计长",
+                    "累计长度",
+                    "长度合计",
+                    "长度累计"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -13285,7 +13370,8 @@
               }
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.10.1.a": {
         "annotation": "explicit",
@@ -13463,62 +13549,88 @@
           "conditionText": "手一处创口或者瘢痕长度1.0cm以上；两处以上创口或者瘢痕长度累计1.5cm以上；刺伤深达肌层",
           "children": [
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "手一处创口或者瘢痕长度1.0cm以上",
-              "conditionText": "手一处创口或者瘢痕长度1.0cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "手一处创口",
-                  "conditionText": "手一处创口长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "手一处创口长度1.0cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度1.0cm以上",
-                  "conditionText": "手一处瘢痕长度1.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "手一处瘢痕长度1.0cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "手单处创口或者瘢痕长度1.0cm以上",
+              "predicate": {
+                "field": "wound_length_cm",
+                "operator": "gte",
+                "value": 1,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "掌指",
+                    "手"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
-              "op": "any",
+              "op": "condition",
               "sourceText": "两处以上创口或者瘢痕长度累计1.5cm以上",
-              "conditionText": "两处以上创口或者瘢痕长度累计1.5cm以上",
-              "children": [
-                {
-                  "op": "condition",
-                  "sourceText": "两处以上创口",
-                  "conditionText": "手两处以上创口长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "手两处以上创口长度累计1.5cm以上"
-                    ]
-                  }
-                },
-                {
-                  "op": "condition",
-                  "sourceText": "瘢痕长度累计1.5cm以上",
-                  "conditionText": "手两处以上瘢痕长度累计1.5cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "手两处以上瘢痕长度累计1.5cm以上"
-                    ]
-                  }
-                }
-              ]
+              "conditionText": "手多处创口或者瘢痕长度累计1.5cm以上",
+              "predicate": {
+                "field": "aggregate_wound_length_cm",
+                "operator": "gte",
+                "value": 1.5,
+                "unit": "cm",
+                "evidenceGroups": [
+                  [
+                    "两处以上",
+                    "多处",
+                    "多个",
+                    "两道以上",
+                    "两处",
+                    "二处",
+                    "2处",
+                    "两道",
+                    "二道",
+                    "2道"
+                  ],
+                  [
+                    "手部",
+                    "手掌",
+                    "手背",
+                    "手指",
+                    "掌部",
+                    "掌指",
+                    "手"
+                  ],
+                  [
+                    "创口",
+                    "伤口",
+                    "裂口",
+                    "裂创",
+                    "裂伤",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "总长",
+                    "总长度",
+                    "累计长",
+                    "累计长度",
+                    "长度合计",
+                    "长度累计"
+                  ]
+                ]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
@@ -13532,7 +13644,8 @@
               }
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.10.5.e": {
         "annotation": "explicit",

@@ -2411,8 +2411,8 @@ function normalizeAggregateWoundLengthFacts(inputText) {
   const findings = [];
   const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
   const woundCount = '(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\\s*(?:处|道))';
-  const faceSite = '(?<site>(?:左侧|右侧|左|右|双侧|两侧)?(?:面部|脸部))';
-  const pattern = new RegExp(`(?:全身)?(?:${faceSite}[^。；;\\n]{0,20})?(?<count>${woundCount})[^。；;\\n]{0,24}(?:皮肤)?(?:创口|裂伤|伤口)[^。；;\\n]{0,24}(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)(?:约为|为|约|达)?\\s*(?<amount>${amount})\\s*(?:cm|厘米)`, 'gu');
+  const bodySurfaceSite = '(?<site>(?:左侧|右侧|左|右|双侧|两侧)?(?:面部|脸部|额部|前额|额头|眉弓|眉部|面颊|颧部|鼻部|鼻背|鼻梁|鼻翼|鼻唇沟|口唇|上唇|下唇|下颌|头部|头皮|额顶部|头顶部|颞顶部|顶枕部|后枕部|颞枕部|枕部|颞部|耳廓|耳部|颈前部|颈前|颈部|颈|肢体|上肢|下肢|上臂|前臂|肘部|腕部|肩部|手部|手掌|手背|手指|掌部|髋部|大腿|股部|膝部|小腿|踝部|足部|足背|趾部|胸部|腹部|背部|腰部))';
+  const pattern = new RegExp(`(?:全身)?(?:${bodySurfaceSite}[^。；;\\n]{0,24})?(?<count>${woundCount})[^。；;\\n]{0,24}(?:皮肤)?(?:创口|裂伤|伤口)[^。；;\\n]{0,24}(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)(?:约为|为|约|达)?\\s*(?<amount>${amount})\\s*(?:cm|厘米)`, 'gu');
   for (const clauseMatch of text.matchAll(/[^。；;\\n]+/gu)) {
     const clause = clauseMatch[0];
     pattern.lastIndex = 0;
@@ -2421,9 +2421,12 @@ function normalizeAggregateWoundLengthFacts(inputText) {
       const value = /^\d+(?:\.\d+)?$/.test(token) ? Number(token) : parseNumber(token);
       if (!Number.isFinite(value) || value < 0
         || certaintyFor(clause, match.index, match.index + match[0].length) !== 'reported') continue;
+      const limbSites = [...match[0].matchAll(/(?:左侧|右侧|左|右|双侧|两侧)?(?:肢体|上肢|下肢|上臂|前臂|肘部|腕部|肩部|手部|手掌|手背|手指|掌部|髋部|大腿|股部|膝部|小腿|踝部|足部|足背|趾部)/gu)]
+        .map(site => site[0]);
       findings.push({ id: `AW${clauseMatch.index + match.index}`, field: 'aggregate_wound_length_cm', value,
         certainty: 'reported', source_type: 'user_text', source_excerpt: match[0].trim(),
-        ...(match.groups.site ? { aggregateRegion: 'face' } : {}) });
+        ...(limbSites.length ? { regionEvidence: { site: limbSites[0], sites: limbSites } } : {}),
+        ...(match.groups.site && /(?:面部|脸部)/u.test(match.groups.site) ? { aggregateRegion: 'face' } : {}) });
     }
   }
   return findings;
