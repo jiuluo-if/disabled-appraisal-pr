@@ -965,6 +965,33 @@ function evidenceLabelsFindingAsHistorical(evidence, sourceText) {
     || historicalCues.at(-1).index > currentCues.at(-1).index);
 }
 
+function evidenceOccursOnlyAsStandardQuotation(evidence, sourceText) {
+  const quote = String(evidence || '').normalize('NFKC').replace(/\r\n?/gu, '\n').replace(/[\t \u00a0]+/gu, '').toLowerCase();
+  const source = String(sourceText || '').normalize('NFKC').replace(/\r\n?/gu, '\n').replace(/[\t \u00a0]+/gu, '').toLowerCase();
+  if (!quote || !source) return false;
+  const citationMarker = /(?:标准原文|标准条文|条文原文|条款原文|引用(?:了)?(?:标准|条文|条款)|摘录(?:了)?(?:标准|条文|条款)|照录(?:标准|条文|条款))/u;
+  let occurrenceCount = 0;
+  let allOccurrencesAreCitations = true;
+  let offset = source.indexOf(quote);
+  while (offset >= 0) {
+    occurrenceCount += 1;
+    const start = Math.max(source.lastIndexOf('。', offset - 1), source.lastIndexOf('！', offset - 1),
+      source.lastIndexOf('？', offset - 1), source.lastIndexOf('；', offset - 1), source.lastIndexOf(';', offset - 1),
+      source.lastIndexOf('\n', offset - 1)) + 1;
+    const prefix = source.slice(start, offset);
+    const previousLineEnd = source[start - 1] === '\n' ? start - 1 : -1;
+    const previousLineStart = previousLineEnd >= 0
+      ? Math.max(source.lastIndexOf('。', previousLineEnd - 1), source.lastIndexOf('！', previousLineEnd - 1),
+        source.lastIndexOf('？', previousLineEnd - 1), source.lastIndexOf('；', previousLineEnd - 1),
+        source.lastIndexOf(';', previousLineEnd - 1), source.lastIndexOf('\n', previousLineEnd - 1)) + 1 : -1;
+    const previousLineIsCitationHeading = previousLineStart >= 0
+      && /^(?:标准原文|标准条文|条文原文|条款原文)[:：]?$/u.test(source.slice(previousLineStart, previousLineEnd));
+    if (!citationMarker.test(prefix) && !previousLineIsCitationHeading) allOccurrencesAreCitations = false;
+    offset = source.indexOf(quote, offset + quote.length);
+  }
+  return occurrenceCount > 0 && allOccurrencesAreCitations;
+}
+
 function aggregateEvidenceIncludesParent(aggregate, parent) {
   if (includesEvidence(aggregate.evidence, parent.evidence)) return true;
   return Array.isArray(aggregate.sourceRefs) && aggregate.sourceRefs.some(reference => reference.source === parent.source
@@ -1957,6 +1984,10 @@ export function normalizeResult(raw, input, context) {
     }
     if (Array.isArray(fact.sourceRefs) && !sourceRefs.length) {
       warnings.push('事实来源无法对应到原始文本或图片页，已移除，不能作为等级依据。');
+      continue;
+    }
+    if (evidenceOccursOnlyAsStandardQuotation(fact.evidence, source)) {
+      warnings.push('引用的标准或条款原文不是受检者的检查事实，已移除；请补充病例本身的诊疗或检查记录。');
       continue;
     }
     if (sourceRefs && sourceRefs.length !== fact.sourceRefs.length) warnings.push('部分事实来源无法对应到原始页面，已移除无效来源链接。');

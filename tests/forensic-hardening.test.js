@@ -160,6 +160,40 @@ test('moderate shock requires a documented grade and an explicit current-injury 
   }
 });
 
+test('quoted standard text cannot stand in for a patient finding', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.4.6.3');
+  const criterion = clause.conditionLogic.logic.sourceText;
+  const evaluate = (description, requestId) => {
+    const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: criterion, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: criterion };
+    const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: criterion, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: criterion, factIds: ['F1'], met: true }] }] },
+    { ...inputs.disability, description }, { clauses: [clause], requestId, model: 'test-model', extractedFacts: [fact],
+      conflicts: [], requiresReview: false, factMissingMaterials: [] });
+    return result;
+  };
+
+  const standardQuote = '合成资料，非真实病例。标准原文：' + criterion + '。本段仅引用鉴定标准条文，没有受检者手功能检查结果。';
+  const rejected = evaluate(standardQuote, 'quoted-standard-is-not-patient-fact');
+  assert.equal(rejected.grade, null);
+  assert.notEqual(rejected.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.match([...rejected.warnings, ...rejected.nextSteps].join(' '), /标准.{0,12}(?:引用|原文)|条文.{0,12}(?:引用|原文)/u);
+  assert.equal(evaluate('合成资料，非真实病例。标准原文\n' + criterion,
+    'standard-heading-before-quotation').grade, null);
+
+  const patientFinding = '合成资料，非真实病例。手功能评估记录：' + criterion + '。';
+  const supported = evaluate(patientFinding, 'quoted-patient-finding-remains-supported');
+  assert.equal(supported.grade, clause.grade);
+  assert.equal(supported.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+
+  const standardThenPatientFinding = '合成资料，非真实病例。标准原文：' + criterion
+    + '。另有受检者手功能评估记录：' + criterion + '。';
+  const repeated = evaluate(standardThenPatientFinding, 'patient-finding-after-standard-quotation');
+  assert.equal(repeated.grade, clause.grade);
+  assert.equal(repeated.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('temporal lobe softening and secondary epilepsy do not imply traumatic late-onset epilepsy', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '检查见颞叶软化灶，诊断继发性癫痫。',
