@@ -63,6 +63,11 @@ function validateLogicNode(node, clauseText, annotation) {
   if (node.op !== 'condition' || typeof node.sourceText !== 'string' || typeof node.conditionText !== 'string'
     || !node.conditionText.trim()) throw new TypeError('条款 condition 节点格式无效');
   if (annotation === 'opaque') return;
+  if (node.ageAdjustment != null && (node.ageAdjustment !== 'injury_standard_6_18'
+    || !clauseText.includes('体表面积') || !/%|％/u.test(node.sourceText) && node.sourceText !== '面积低于上述程度'
+    || node.factMatch?.field !== 'clinical_finding' || annotation !== 'explicit')) {
+    throw new TypeError('体表面积年龄调整标记只能用于显式伤情标准条款');
+  }
   const hasFactMatch = isRecord(node.factMatch);
   const hasPredicate = isRecord(node.predicate);
   if (hasFactMatch === hasPredicate) throw new TypeError('显式条件必须且只能配置 factMatch 或 predicate');
@@ -117,6 +122,10 @@ export function applyClauseLogicMetadata(catalogs, metadata) {
       if (!knownIds.has(id)) throw new TypeError(`未知条款 ID：${id}`);
       if (!isRecord(entry) || !['explicit', 'opaque'].includes(entry.annotation) || !entry.logic) throw new TypeError(`条款 ${id} 元数据标记无效`);
       const clause = catalogs[type].clauses.find(item => item.id === id);
+      if (entry.ageAdjustment != null && (type !== 'injury' || entry.ageAdjustment !== 'injury_standard_6_18'
+        || !clause.text.includes('体表面积'))) {
+        throw new TypeError(`条款 ${id} 的年龄调整标记无效`);
+      }
       if (entry.annotation === 'opaque' && (typeof entry.reason !== 'string' || !entry.reason.trim())) {
         throw new TypeError(`条款 ${id} 的 opaque 标记必须记录具体原因`);
       }

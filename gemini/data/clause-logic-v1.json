@@ -1889,10 +1889,12 @@
       },
       "5.11.1.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "挫伤面积累计达体表面积30％",
           "conditionText": "挫伤面积累计达体表面积30％",
+          "ageAdjustment": "injury_standard_6_18",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -1903,10 +1905,12 @@
       },
       "5.11.2.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "挫伤面积累计达体表面积10％",
           "conditionText": "挫伤面积累计达体表面积10％",
+          "ageAdjustment": "injury_standard_6_18",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -1945,10 +1949,12 @@
       },
       "5.11.3.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "挫伤面积达体表面积6％",
           "conditionText": "挫伤面积达体表面积6％",
+          "ageAdjustment": "injury_standard_6_18",
           "factMatch": {
             "field": "clinical_finding",
             "values": [
@@ -6449,6 +6455,7 @@
       },
       "5.12.1.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "深IIo以上烧烫伤面积达体表面积70％或者IIIo面积达30％",
@@ -6458,6 +6465,7 @@
               "op": "condition",
               "sourceText": "深IIo以上烧烫伤面积达体表面积70％",
               "conditionText": "深IIo以上烧烫伤面积达体表面积70％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -6469,6 +6477,7 @@
               "op": "condition",
               "sourceText": "IIIo面积达30％",
               "conditionText": "IIIo烧烫伤面积达体表面积30％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -6481,6 +6490,7 @@
       },
       "5.12.3.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "IIo以上烧烫伤面积达体表面积20％或者IIIo面积达5％",
@@ -6490,6 +6500,7 @@
               "op": "condition",
               "sourceText": "IIo以上烧烫伤面积达体表面积20％",
               "conditionText": "IIo以上烧烫伤面积达体表面积20％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -6501,6 +6512,7 @@
               "op": "condition",
               "sourceText": "IIIo面积达5％",
               "conditionText": "IIIo烧烫伤面积达体表面积5％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -6513,6 +6525,7 @@
       },
       "5.12.4.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "IIo以上烧烫伤面积达体表面积5％或者IIIo面积达0.5％",
@@ -6522,6 +6535,7 @@
               "op": "condition",
               "sourceText": "IIo以上烧烫伤面积达体表面积5％",
               "conditionText": "IIo以上烧烫伤面积达体表面积5％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -6533,6 +6547,7 @@
               "op": "condition",
               "sourceText": "IIIo面积达0.5％",
               "conditionText": "IIIo烧烫伤面积达体表面积0.5％",
+              "ageAdjustment": "injury_standard_6_18",
               "factMatch": {
                 "field": "clinical_finding",
                 "values": [
@@ -13698,6 +13713,7 @@
       },
       "5.12.2.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "IIo以上烧烫伤面积达体表面积30％或者IIIo面积达10％；面积低于上述程度但合并吸入有毒气体中毒或者严重呼吸道烧烫伤",
@@ -13712,6 +13728,7 @@
                   "op": "condition",
                   "sourceText": "IIo以上烧烫伤面积达体表面积30％",
                   "conditionText": "IIo以上烧烫伤面积达体表面积30％",
+                  "ageAdjustment": "injury_standard_6_18",
                   "factMatch": {
                     "field": "clinical_finding",
                     "values": [
@@ -13723,6 +13740,7 @@
                   "op": "condition",
                   "sourceText": "IIIo面积达10％",
                   "conditionText": "IIIo面积达10％",
+                  "ageAdjustment": "injury_standard_6_18",
                   "factMatch": {
                     "field": "clinical_finding",
                     "values": [
@@ -13739,6 +13757,7 @@
                   "op": "condition",
                   "sourceText": "面积低于上述程度",
                   "conditionText": "面积低于上述程度",
+                  "ageAdjustment": "injury_standard_6_18",
                   "factMatch": {
                     "field": "clinical_finding",
                     "values": [

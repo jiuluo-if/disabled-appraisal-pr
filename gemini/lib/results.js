@@ -879,7 +879,45 @@ function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
 
-function evaluateConditionLeaf(node, facts) {
+function verifiedAdultAgeAtInjury(facts, eventId) {
+  if (!eventId) return false;
+  const ageFacts = facts.filter(fact => fact.field === 'age_at_injury_years' && fact.eventId === eventId
+    && fact.source === 'description' && fact.verification === 'quoted');
+  if (!ageFacts.length) return false;
+  const values = new Set();
+  for (const fact of ageFacts) {
+    if (!reliableCertainties.has(fact.certainty) || !Number.isInteger(fact.value) || fact.value < 0 || fact.value > 130) {
+      return false;
+    }
+    if (/(?:患者的?父亲|患者的?母亲|其父|其母|家属|丈夫|妻子|他人|其他人|另一个人|同事)/u.test(fact.evidence || '')) {
+      return false;
+    }
+    const match = /(?:受伤|事故|损伤)时(?:年龄)?\s*(?:为|是|[:：])?\s*(\d{1,3})\s*(?:周岁|岁)/u.exec(fact.evidence || '');
+    if (!match || Number(match[1]) !== fact.value) return false;
+    values.add(fact.value);
+  }
+  return values.size === 1 && [...values][0] >= 15;
+}
+
+function ageAdjustmentFollowUp(logic, facts) {
+  for (const { node } of collectLogicNodes(logic).filter(({ node }) =>
+    node.ageAdjustment === 'injury_standard_6_18')) {
+    const observed = evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
+    if (observed.met !== true) continue;
+    const eventIds = new Set(observed.factIds.map(id => facts.find(fact => fact.id === id)?.eventId).filter(Boolean));
+    const hasValidAdultAge = eventIds.size === 1 && verifiedAdultAgeAtInjury(facts, [...eventIds][0]);
+    if (!hasValidAdultAge) {
+      return '补充受伤时年龄资料，并按标准6.18核对体表损伤阈值（0–6岁按50%、7–10岁按60%、11–14岁按80%计算）；当前不能按成人阈值自动判断。';
+    }
+  }
+  return null;
+}
+
+function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled = false) {
+  if (ageAdjustmentEnabled && node.ageAdjustment === 'injury_standard_6_18'
+    && !verifiedAdultAgeAtInjury(facts, eventId)) {
+    return { met: null, evidence: '', factIds: [] };
+  }
   const acceptedFields = conditionFactFields(node.factMatch, node.predicate);
   const candidates = facts.filter(fact => acceptedFields.has(fact.field)
     && fact.source === 'description' && fact.verification === 'quoted');
@@ -1000,8 +1038,9 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   if (conditionLogic?.annotation !== 'explicit' || !conditionLogic.logic || !Array.isArray(facts)) {
     return { met: null, evidence: '', factIds: [] };
   }
+  const ageAdjustmentEnabled = conditionLogic.ageAdjustment === 'injury_standard_6_18';
   const evaluate = (node, scopedFacts, eventId) => {
-    if (node.op === 'condition') return evaluateConditionLeaf(node, scopedFacts);
+    if (node.op === 'condition') return evaluateConditionLeaf(node, scopedFacts, eventId, ageAdjustmentEnabled);
     if (node.op === 'not') {
       if (node.confirmedBy) {
         const confirmed = evaluateConditionLeaf({ op: 'condition', sourceText: node.sourceText,
@@ -1105,8 +1144,9 @@ function collectLogicNodes(node, ancestors = [], output = []) {
   return output;
 }
 
-function evaluateLogicNode(node, facts) {
-  return evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
+function evaluateLogicNode(node, facts, ageAdjustment = null) {
+  return evaluateConditionLogic({ annotation: 'explicit', logic: node,
+    ...(ageAdjustment ? { ageAdjustment } : {}) }, facts);
 }
 
 function contradictsVerifiedRibFacts(text, facts) {
@@ -1211,7 +1251,7 @@ function bindExplicitGroups(clause, proposedConditions, facts) {
       return { met: null, evidence: '', factIds: [] };
     }
     const groupFacts = [...new Map(entries.flatMap(entry => entry.linkedFacts).map(fact => [fact.id, fact])).values()];
-    const result = evaluateLogicNode(group, groupFacts);
+    const result = evaluateLogicNode(group, groupFacts, clause.conditionLogic.ageAdjustment);
     return result;
   });
   const rootFacts = [...new Map(bindings.flat().flatMap(entry => entry.linkedFacts).map(fact => [fact.id, fact])).values()];
@@ -1290,7 +1330,7 @@ function deterministicExplicitReferences(clauses, facts, sourceUrl) {
     if (evaluated.met !== true) return [];
     const groups = logicGroups(clause.conditionLogic.logic);
     const conditions = groups.map(group => {
-      const result = evaluateLogicNode(group, facts);
+      const result = evaluateLogicNode(group, facts, clause.conditionLogic.ageAdjustment);
       return { condition: logicGroupText(group), evidence: result.evidence, factIds: result.factIds, met: result.met };
     });
     if (conditions.some(condition => condition.met !== true)) return [];
@@ -1446,6 +1486,7 @@ export function normalizeResult(raw, input, context) {
     warnings.push('材料同时记载具体受伤日期与相对时间，请结合原始病历核实时间线及骨折与本次事件的关联；该提示本身不等同于骨折证据冲突。');
   }
   const hasValidatedFacts = Array.isArray(context.extractedFacts);
+  const ageAdjustmentMissingMaterials = [];
   const missingMaterials = canonicalMissingMaterials([
     ...(hasValidatedFacts ? [] : generated.missingMaterials),
     ...(Array.isArray(context.factMissingMaterials) ? context.factMissingMaterials : []),
@@ -1660,6 +1701,9 @@ export function normalizeResult(raw, input, context) {
     }
     if (clause.grade && clause.conditionLogic?.annotation === 'explicit') {
       const bound = bindExplicitGroups(clause, proposed.conditions, facts);
+      const ageFollowUp = clause.conditionLogic.ageAdjustment === 'injury_standard_6_18'
+        ? ageAdjustmentFollowUp(clause.conditionLogic.logic, facts) : null;
+      if (ageFollowUp && !ageAdjustmentMissingMaterials.includes(ageFollowUp)) ageAdjustmentMissingMaterials.push(ageFollowUp);
       if (bound.invalid && /肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;
       if (clause.grade && proposed.relation === 'differential'
         && !hasSourceLinkedReference(bound.conditions, proposed.evidence)) {
@@ -1929,7 +1973,7 @@ export function normalizeResult(raw, input, context) {
       missingMaterials.length = 0;
     } else if (status === 'insufficient') {
       missingMaterials.splice(0, missingMaterials.length,
-        ...canonicalMissingMaterials(context.factMissingMaterials || []));
+        ...canonicalMissingMaterials([...(context.factMissingMaterials || []), ...ageAdjustmentMissingMaterials]));
       const excludedOnlyFacts = facts.length > 0 && facts.every(fact => fact.certainty === 'excluded');
       const hasReliableRibFact = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture'
         && ['reported', 'observed', 'derived'].includes(fact.certainty)
