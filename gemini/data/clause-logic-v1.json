@@ -12698,44 +12698,60 @@
               }
             },
             {
-              "op": "condition",
+              "op": "all",
               "sourceText": "鼻骨骨折合并上颌骨额突骨折",
               "conditionText": "鼻骨骨折合并上颌骨额突骨折",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "鼻骨骨折合并上颌骨额突骨折"
-                ]
-              }
+              "children": [
+                {
+                  "op": "condition",
+                  "sourceText": "鼻骨骨折",
+                  "conditionText": "鼻骨骨折",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "values": ["鼻骨骨折"],
+                    "evidenceAliases": ["鼻骨骨折"]
+                  }
+                },
+                {
+                  "op": "condition",
+                  "sourceText": "上颌骨额突骨折",
+                  "conditionText": "上颌骨额突骨折",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "valueIncludes": ["上颌骨额突骨折", "上颌骨额突部骨折"],
+                    "evidenceAliases": ["上颌骨额突骨折", "上颌骨额突部骨折"]
+                  }
+                }
+              ]
             },
             {
-              "op": "condition",
+              "op": "all",
               "sourceText": "鼻骨骨折合并鼻中隔骨折",
               "conditionText": "鼻骨骨折合并鼻中隔骨折",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "鼻骨骨折合并鼻中隔骨折"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "鼻骨骨折合并鼻中隔骨折",
-              "conditionText": "诊断同时记载鼻骨骨折和鼻中隔骨折",
-              "factMatch": {
-                "field": "diagnosis",
-                "values": [
-                  "鼻骨骨折合并鼻中隔骨折"
-                ],
-                "evidenceAliases": [
-                  "鼻骨骨折、鼻中隔骨折",
-                  "鼻骨骨折及鼻中隔骨折",
-                  "鼻骨骨折和鼻中隔骨折",
-                  "鼻骨骨折合并鼻中隔骨折",
-                  "鼻骨骨折伴鼻中隔骨折"
-                ]
-              }
+              "children": [
+                {
+                  "op": "condition",
+                  "sourceText": "鼻骨骨折",
+                  "conditionText": "鼻骨骨折",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "valueIncludes": ["鼻骨骨折"],
+                    "evidenceAliases": ["鼻骨骨折、鼻中隔骨折", "鼻骨骨折及鼻中隔骨折",
+                      "鼻骨骨折和鼻中隔骨折", "鼻骨骨折合并鼻中隔骨折", "鼻骨骨折伴鼻中隔骨折"]
+                  }
+                },
+                {
+                  "op": "condition",
+                  "sourceText": "鼻中隔骨折",
+                  "conditionText": "鼻中隔骨折",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "valueIncludes": ["鼻中隔骨折"],
+                    "evidenceAliases": ["鼻骨骨折、鼻中隔骨折", "鼻骨骨折及鼻中隔骨折",
+                      "鼻骨骨折和鼻中隔骨折", "鼻骨骨折合并鼻中隔骨折", "鼻骨骨折伴鼻中隔骨折"]
+                  }
+                }
+              ]
             },
             {
               "op": "condition",

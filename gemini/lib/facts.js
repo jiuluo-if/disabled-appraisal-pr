@@ -687,6 +687,27 @@ function normalizeNasalSeptumCombinationFacts(inputText) {
   return findings;
 }
 
+function normalizeNasalFrontalProcessCombinationFacts(inputText) {
+  const text = normalizeInput(inputText);
+  const findings = [];
+  const pattern = /(?:鼻骨骨折[^。；;\n]{0,24}(?:合并|伴|及|和|与|、|，|,)[^。；;\n]{0,12}上颌骨额突(?:部)?骨折|上颌骨额突(?:部)?骨折[^。；;\n]{0,24}(?:合并|伴|及|和|与|、|，|,)[^。；;\n]{0,12}鼻骨骨折)/gu;
+  for (const clauseMatch of text.matchAll(/[^。！？；;\n]+/gu)) {
+    const clause = clauseMatch[0];
+    for (const match of clause.matchAll(pattern)) {
+      const site = /上颌骨额突(?:部)?骨折/u.exec(match[0]);
+      if (!site) continue;
+      const start = clauseMatch.index + match.index + site.index;
+      const end = start + site[0].length;
+      const trailingQualifier = /^(?:\s|[，,：:]?)(?:可疑|疑似|怀疑|考虑|可能|待排|待查|不排除|不能排除|排除|未见|未发现|阴性|否认|不存在)/u.exec(text.slice(end));
+      const certainty = certaintyFor(text, start, end + (trailingQualifier?.[0].length || 0));
+      if (certainty !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
+      findings.push({ field: 'diagnosis', value: site[0], certainty, source_type: 'user_text',
+        source_excerpt: match[0].trim() });
+    }
+  }
+  return findings;
+}
+
 function hasSplitExplicitEventEvidence(text, matches) {
   const eventCues = [...text.matchAll(/(?<current>(?:本次|此次|当前)(?:交通)?(?:事故|外伤|车祸|受伤|损伤))|(?<separate>(?:(?:另(?:一次|一场)|另一(?:次|场)|第(?:二|两)次|其他(?:一次|一场))(?:交通)?(?:事故|外伤|车祸|受伤|损伤)|(?:非同一|不同)(?:次)?(?:交通)?(?:事故|外伤|车祸|受伤|损伤)))/gu)];
   const contexts = matches.map(match => {
@@ -4257,6 +4278,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeReportedSkullFractureDiagnosisFacts(sourceText),
       ...normalizeVertebralFractureDiagnosisFacts(sourceText),
       ...normalizeNasalSeptumCombinationFacts(sourceText),
+      ...normalizeNasalFrontalProcessCombinationFacts(sourceText),
       ...normalizeBodySurfaceContusionFacts(sourceText),
       ...normalizeBurnTbsaFacts(sourceText),
       ...normalizeLocalBurnAreaFacts(sourceText),

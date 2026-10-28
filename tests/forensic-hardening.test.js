@@ -680,6 +680,45 @@ test('surgical difficulty requires a same-event causal link without requiring a 
   assert.equal(crossEvent.grade, null);
 });
 
+test('combined nasal and maxillary fractures require both typed diagnoses', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.4.o');
+  const combined = '鼻骨骨折合并上颌骨额突骨折';
+  const bundledDescription = `合成资料，非真实病例。鉴定结论记载${combined}。`;
+  const bundledFact = { id: 'N1', eventId: 'E1', field: 'clinical_finding', value: combined,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: combined };
+  const bundled = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: combined, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: combined, factIds: ['N1'], met: true }] }] },
+  { ...inputs.injury, description: bundledDescription }, { clauses: [clause], requestId: 'nasal-maxillary-composite-alone',
+    model: 'test-model', extractedFacts: [bundledFact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(bundled.grade, null);
+
+  const imagingText = '合成资料，非真实病例。CT示鼻骨骨折合并上颌骨额突骨折。';
+  const imagingFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: imagingText }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.ok(imagingFacts.some(fact => fact.field === 'diagnosis' && /鼻骨骨折/u.test(fact.value)));
+  assert.ok(imagingFacts.some(fact => fact.field === 'diagnosis' && /上颌骨额突骨折/u.test(fact.value)));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, imagingFacts).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    imagingFacts.filter(fact => !/上颌骨额突骨折/u.test(fact.value))).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    imagingFacts.map(fact => /上颌骨额突骨折/u.test(fact.value) ? { ...fact, eventId: 'E2' } : fact)).met, true);
+
+  const uncertainFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: '合成资料，非真实病例。CT示鼻骨骨折合并上颌骨额突骨折可疑。' }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(uncertainFacts.some(fact => fact.field === 'diagnosis' && /上颌骨额突骨折/u.test(fact.value)
+    && fact.certainty === 'reported'), false);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, uncertainFacts).met, true);
+
+  const reversedFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: '合成资料，非真实病例。CT示上颌骨额突骨折合并鼻骨骨折。' }).facts
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.ok(reversedFacts.some(fact => fact.field === 'diagnosis' && /鼻骨骨折/u.test(fact.value)));
+  assert.ok(reversedFacts.some(fact => fact.field === 'diagnosis' && /上颌骨额突骨折/u.test(fact.value)));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, reversedFacts).met, true);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
