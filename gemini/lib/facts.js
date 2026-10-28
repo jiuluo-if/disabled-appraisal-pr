@@ -3580,6 +3580,8 @@ function factFinding(field, value, certainty) {
     burn_area_neck_superficial_second_degree_cm2: '颈部浅II度烧烫伤面积（平方厘米）',
     burn_area_body_first_degree_cm2: '体表I度烧烫伤面积（平方厘米）',
     burn_area_body_superficial_second_degree_cm2: '体表浅II度烧烫伤面积（平方厘米）',
+    scalp_defect_area_cm2: '头皮皮肤缺损面积（平方厘米）',
+    scalp_avulsion_area_cm2: '头皮撕脱伤面积（平方厘米）',
     diagnosis: '诊断', imaging_finding: '影像检查结果', treatment: '治疗情况',
     clinical_finding: '临床事实',
     gcs_score: 'GCS评分',
@@ -3948,6 +3950,31 @@ function normalizeLocalBurnAreaFacts(inputText) {
   return facts;
 }
 
+function normalizeScalpSurfaceAreaFacts(inputText) {
+  const text = normalizeInput(inputText || '');
+  const facts = [];
+  const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
+    const clause = sentence[0];
+    const measurements = [...clause.matchAll(new RegExp(`${amount}\\s*(?:cm\\s*2|平方厘米)`, 'giu'))];
+    const sitePattern = /头皮|头顶部|额顶部|颞顶部|颞枕部|顶枕部|枕顶部|枕部/gu;
+    const sites = [...clause.matchAll(sitePattern)];
+    const hasDefect = /缺损/u.test(clause);
+    const hasAvulsion = /撕脱(?:伤|创)?/u.test(clause);
+    if (measurements.length !== 1 || sites.length !== 1 || hasDefect === hasAvulsion || !/面积/u.test(clause)
+      || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未达|低于|小于|不足|不超过|少于|超过|大于|至少|未见|未发现|否认|排除|无|既往|陈旧|术前|术后|手术切口|供皮区|植皮|移植|切除)/u.test(clause)
+      || new RegExp(`(?:${amount})\\s*(?:-|–|—|至|到)\\s*$`, 'u')
+        .test(clause.slice(0, measurements[0].index))) continue;
+    const measurement = measurements[0];
+    const value = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+    if (!Number.isFinite(value) || value < 0) continue;
+    facts.push({ id: `SSA${sentence.index + measurement.index}`,
+      field: hasDefect ? 'scalp_defect_area_cm2' : 'scalp_avulsion_area_cm2', value,
+      certainty: certaintyFor(clause, 0, clause.length), source_type: 'user_text', source_excerpt: clause.slice(-MAX_FACT_EVIDENCE_CHARS) });
+  }
+  return facts;
+}
+
 function normalizeExtractedFacts(value, { description = '', recognizedText = '' } = {}) {
   const parsed = factExtractionSchema.parse(normalizeFactExtractionResponse(value));
   const rawFactIds = new Set(parsed.facts.map(fact => fact.id).filter(Boolean));
@@ -4089,6 +4116,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeBodySurfaceContusionFacts(sourceText),
       ...normalizeBurnTbsaFacts(sourceText),
       ...normalizeLocalBurnAreaFacts(sourceText),
+      ...normalizeScalpSurfaceAreaFacts(sourceText),
       ...normalizeCheekPenetratingWoundFacts(sourceText),
       ...normalizeSharedSuffixBoneFractureFacts(sourceText),
       ...normalizeBrainCompressionEvidenceFacts(sourceText),
@@ -4117,7 +4145,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeFacialSkinAbnormalityAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
         'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(fact.field)
-        || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')) {
+        || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')
+        || fact.field.startsWith('scalp_')) {
         if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
       }
       const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
@@ -4132,6 +4161,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field === 'lip_wound_length_cm'
         || fact.field === 'lip_through_wound_length_cm'
         || fact.field === 'facial_skin_abnormality_area_cm2'
+        || fact.field.startsWith('scalp_')
         || fact.field === 'prior_injury' && fact.source_excerpt.includes('\n')
         ? fact.source_excerpt
         : sourceClause(sourceText, fact.source_excerpt) || fact.source_excerpt;
@@ -4151,9 +4181,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   }
   const sameClauseBodySurfaceEventId = fact => {
     if (fact.field !== 'contusion_tbsa_percent' && !fact.field.startsWith('burn_tbsa_')
-      && !fact.field.startsWith('burn_area_')
+      && !fact.field.startsWith('burn_area_') && !fact.field.startsWith('scalp_')
       || fact.source !== 'description' || fact.eventId) return null;
-    const contextFor = text => fact.field.startsWith('burn_area_')
+    const contextFor = text => fact.field.startsWith('burn_area_') || fact.field.startsWith('scalp_')
       ? sourceSentence(sourceTexts.description, text) : sourceClause(sourceTexts.description, text);
     const factClause = contextFor(fact.evidence) || fact.evidence;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
@@ -4280,6 +4310,17 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
         && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
       if (!deterministicMatch) { invalidEvidence = true; continue; }
+    }
+    if (['scalp_defect_area_cm2', 'scalp_avulsion_area_cm2'].includes(field)) {
+      const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
+        && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
+      const scalpSite = /头皮|头顶部|额顶部|颞顶部|颞枕部|顶枕部|枕顶部|枕部/u.test(fullEvidence);
+      const injuryType = field === 'scalp_defect_area_cm2' ? /缺损/u.test(fullEvidence) : /撕脱(?:伤|创)?/u.test(fullEvidence);
+      if (!deterministicMatch || typeof value !== 'number' || !scalpSite || !injuryType || !/面积/u.test(fullEvidence)
+        || !evidenceHasMeasurement(fullEvidence, value, /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm2|平方厘米)/gu)) {
+        invalidEvidence = true;
+        continue;
+      }
     }
     if (field === 'wound_length_cm' && (typeof value !== 'number'
       || !/(?:创口|伤口|划伤|瘢痕|疤痕|切口|裂口|裂创|裂伤)/u.test(fullEvidence)

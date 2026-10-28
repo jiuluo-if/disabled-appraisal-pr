@@ -58,11 +58,13 @@ test('explicit age-at-injury evidence survives fact normalization and all TBSA b
     for (const child of node.children || []) collect(child);
   };
   for (const id of ['5.11.1.a', '5.11.2.a', '5.11.3.a', '5.12.1.a', '5.12.2.a', '5.12.3.a', '5.12.4.a',
-    '5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a']) {
+    '5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a',
+    '5.1.2.a', '5.1.3.b', '5.1.4.b']) {
     collect(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.logic);
   }
-  assert.equal(markedLeaves.length, 21);
-  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a']) {
+  assert.equal(markedLeaves.length, 26);
+  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e', '5.1.3.a', '5.1.4.a',
+    '5.1.2.a', '5.1.3.b', '5.1.4.b']) {
     assert.equal(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.ageAdjustment, 'injury_standard_6_18');
   }
 });
@@ -171,7 +173,7 @@ test('contusion TBSA facts use the injury standard age bands and inclusive numer
 
 test('TBSA contusion parsing preserves uncertainty and rejects neighboring injury types and comparison phrases', () => {
   const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
-    { description }).facts;
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
   const uncertain = extract('病历考虑挫伤面积占体表面积5%。');
   assert.equal(uncertain.find(fact => fact.field === 'contusion_tbsa_percent')?.certainty, 'uncertain');
   assert.equal(extract('挫伤面积未达体表面积5%。').some(fact => fact.field === 'contusion_tbsa_percent'), false);
@@ -224,7 +226,7 @@ test('burn depth and TBSA percentages normalize as one source-bound fact and sca
 
 test('burn parser requires explicit depth and denominator and rejects uncertain or ranged measurements', () => {
   const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
-    { description }).facts;
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
   assert.equal(extract('烧伤面积占体表面积10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
   assert.equal(extract('III度烧伤面积10%。').some(fact => fact.field.startsWith('burn_tbsa_')), false);
   const uncertain = extract('考虑III度烧伤面积占体表面积10%。').filter(fact => fact.field.startsWith('burn_tbsa_'));
@@ -396,4 +398,47 @@ test('cumulative scalp wound length thresholds use age-adjusted values from inju
   }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
   assert.equal(evaluateConditionLogic(slight.conditionLogic, unscopedScalp).met, true);
 
+});
+
+test('scalp skin-defect and avulsion area thresholds use injury standard 6.18', () => {
+  const assess = (id, age, finding, area) => {
+    const description = `本次事故后受伤时年龄${age}周岁，头皮${finding}面积累计${area}平方厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const ageEvidence = facts.find(fact => fact.field === 'age_at_injury_years');
+    const areaEvidence = facts.find(fact => fact.field.startsWith('scalp_'));
+    assert.equal(areaEvidence?.eventId, ageEvidence?.eventId);
+    return { facts, met: evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met };
+  };
+  assert.equal(assess('5.1.2.a', 6, '缺损', 37.5).met, true);
+  assert.equal(assess('5.1.2.a', 7, '缺损', 45).met, true);
+  assert.equal(assess('5.1.2.a', 11, '缺损', 60).met, true);
+  assert.equal(assess('5.1.2.a', 15, '缺损', 75).met, true);
+  assert.equal(assess('5.1.3.b', 6, '撕脱伤', 25).met, true);
+  assert.equal(assess('5.1.3.b', 7, '缺损', 14.4).met, true);
+  assert.equal(assess('5.1.4.b', 11, '撕脱伤', 16).met, true);
+  assert.equal(assess('5.1.4.b', 15, '缺损', 10).met, true);
+
+  const extract = description => normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const severe = catalogs.injury.clauses.find(item => item.id === '5.1.2.a');
+  assert.equal(evaluateConditionLogic(severe.conditionLogic, extract('本次事故后，头皮缺损面积累计75平方厘米。')).met, true);
+  assert.equal(evaluateConditionLogic(severe.conditionLogic, extract('本次事故后，头皮缺损面积累计30平方厘米。')).met, false);
+  const noAgeDescription = '本次事故后，头皮皮肤缺损面积累计40平方厘米。';
+  const noAgeFacts = extract(noAgeDescription).map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(severe.conditionLogic, noAgeFacts).met, null);
+  const areaFact = noAgeFacts.find(fact => fact.field === 'scalp_defect_area_cm2');
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: '重伤二级', facts: [], references: [{
+    clauseId: severe.id, evidence: areaFact.evidence, reasoning: '模型认为条件满足。', relation: 'supports',
+    conditions: [{ condition: severe.text, evidence: areaFact.evidence, factIds: [areaFact.id], met: true }],
+  }] }, { ...inputs.injury, description: noAgeDescription }, {
+    clauses: [severe], requestId: 'scalp-area-age-review', model: 'test-model', extractedFacts: noAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === severe.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+  assert.equal(extract('本次事故后，头皮缺损面积约20平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
+  assert.equal(extract('本次事故后，头皮缺损面积10至20平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
+  assert.equal(extract('本次事故后，未见头皮皮肤缺损面积10平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
+  assert.equal(extract('本次事故后，背部皮肤缺损面积20平方厘米。').some(fact => fact.field.startsWith('scalp_')), false);
 });

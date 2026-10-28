@@ -109,7 +109,7 @@ const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 
   'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent', 'burn_area_face_first_degree_cm2',
   'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
   'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2',
-  'aggregate_wound_length_cm']);
+  'aggregate_wound_length_cm', 'scalp_defect_area_cm2', 'scalp_avulsion_area_cm2']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
@@ -246,6 +246,19 @@ function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
       : /浅\s*(?:II|Ⅱ|二)\s*(?:度|o|°)(?!以上|及以上)/iu.test(evidence)
         && !/深\s*(?:II|Ⅱ|二)\s*(?:度|o|°)|(?:(?<!I)I(?!I)|Ⅰ|一)\s*(?:度|o|°)/iu.test(evidence);
     if (!siteMatches || !degreeMatches) return null;
+    const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 ? sourceValue : null;
+  }
+  if (predicate.field === 'scalp_defect_area_cm2' || predicate.field === 'scalp_avulsion_area_cm2') {
+    const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*(?:cm\\s*2|平方厘米)`, 'giu'))];
+    const beforeMeasurement = measurements.length === 1
+      ? evidence.slice(Math.max(0, measurements[0].index - 30), measurements[0].index) : '';
+    const siteMatches = /头皮|头顶部|额顶部|颞顶部|颞枕部|顶枕部|枕顶部|枕部/u.test(evidence);
+    const typeMatches = predicate.field === 'scalp_defect_area_cm2'
+      ? /缺损/u.test(evidence) : /撕脱(?:伤|创)?/u.test(evidence);
+    if (measurements.length !== 1 || !siteMatches || !typeMatches || !/面积/u.test(evidence)
+      || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未达|低于|小于|不足|不超过|少于|超过|大于|至少|未见|未发现|否认|排除|无)/u.test(evidence)
+      || /(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:-|–|—|至|到)\s*$/u.test(beforeMeasurement)) return null;
     const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
     return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 ? sourceValue : null;
   }
@@ -1003,10 +1016,12 @@ function adjustedAgePredicate(node, facts, eventId) {
       && measurementFacts[0].derivedFrom.length > 0
       && predicate.evidenceGroups?.some(group => group.includes('头皮'))
       && /(?:两处|多处|分别|总长|累计|合计|共计)/u.test(measurementFacts[0].evidence);
+    const completeScalpAreaAggregate = predicate.field.startsWith('scalp_') && measurementFacts.length === 1
+      && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
     const localSkinMeasurementsBelowEveryAgeThreshold = (predicate.field.startsWith('burn_area_')
       || predicate.field === 'facial_skin_abnormality_area_cm2')
       && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
-    return (completeAggregate || completeScalpLengthAggregate || localSkinMeasurementsBelowEveryAgeThreshold)
+    return (completeAggregate || completeScalpLengthAggregate || completeScalpAreaAggregate || localSkinMeasurementsBelowEveryAgeThreshold)
       && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;
   }
@@ -1024,7 +1039,8 @@ function ageAdjustmentFollowUp(logic, facts) {
       const minimumThreshold = node.predicate.value * 0.5;
       const measurements = facts.filter(fact => fact.field === node.predicate.field && fact.source === 'description'
         && fact.verification === 'quoted' && Number.isFinite(predicateEvidenceValue(node.predicate, fact, facts))
-        && predicateEvidenceValue(node.predicate, fact, facts) >= minimumThreshold);
+        && predicateEvidenceValue(node.predicate, fact, facts) >= minimumThreshold
+        && predicateEvidenceValue(node.predicate, fact, facts) < node.predicate.value);
       needsAgeReview = measurements.some(fact => ageAtInjury(facts, fact.eventId) === null);
     }
     if (needsAgeReview) {
@@ -2103,7 +2119,7 @@ export function normalizeResult(raw, input, context) {
       missingMaterials.splice(0, missingMaterials.length,
         conflicts.length ? '核对冲突事实所涉及的原始资料。' : '核实关键事实的原始资料。');
     } else if (status === 'preliminary') {
-      missingMaterials.length = 0;
+      missingMaterials.splice(0, missingMaterials.length, ...canonicalMissingMaterials(ageAdjustmentMissingMaterials));
     } else if (status === 'insufficient') {
       missingMaterials.splice(0, missingMaterials.length,
         ...canonicalMissingMaterials([...(context.factMissingMaterials || []), ...ageAdjustmentMissingMaterials]));

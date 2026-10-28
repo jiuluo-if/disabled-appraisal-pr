@@ -1404,16 +1404,19 @@
       },
       "5.1.2.a": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "头皮缺损面积累计75.0cm2以上",
           "conditionText": "头皮缺损面积累计75.0cm2以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "头皮缺损面积累计75.0cm2以上"
-            ]
-          }
+          "predicate": {
+            "field": "scalp_defect_area_cm2",
+            "operator": "gte",
+            "value": 75,
+            "unit": "cm2",
+            "evidenceGroups": [["头皮", "头顶部", "额顶部", "颞顶部", "颞枕部", "顶枕部", "枕顶部", "枕部"], ["缺损"], ["面积"]]
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.1.2.q": {
@@ -6657,6 +6660,7 @@
       },
       "5.1.3.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "头皮撕脱伤面积累计50.0cm2以上；头皮缺损面积累计24.0cm2以上",
@@ -6666,23 +6670,27 @@
               "op": "condition",
               "sourceText": "头皮撕脱伤面积累计50.0cm2以上",
               "conditionText": "头皮撕脱伤面积累计50.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "头皮撕脱伤面积累计50.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "scalp_avulsion_area_cm2",
+                "operator": "gte",
+                "value": 50,
+                "unit": "cm2",
+                "evidenceGroups": [["头皮", "头顶部", "额顶部", "颞顶部", "颞枕部", "顶枕部", "枕顶部", "枕部"], ["撕脱伤", "撕脱创", "撕脱"], ["面积"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "头皮缺损面积累计24.0cm2以上",
               "conditionText": "头皮缺损面积累计24.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "头皮缺损面积累计24.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "scalp_defect_area_cm2",
+                "operator": "gte",
+                "value": 24,
+                "unit": "cm2",
+                "evidenceGroups": [["头皮", "头顶部", "额顶部", "颞顶部", "颞枕部", "顶枕部", "枕顶部", "枕部"], ["缺损"], ["面积"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
@@ -6862,6 +6870,7 @@
       },
       "5.1.4.b": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "any",
           "sourceText": "头皮撕脱伤面积累计20.0cm2以上；头皮缺损面积累计10.0cm2以上",
@@ -6871,23 +6880,27 @@
               "op": "condition",
               "sourceText": "头皮撕脱伤面积累计20.0cm2以上",
               "conditionText": "头皮撕脱伤面积累计20.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "头皮撕脱伤面积累计20.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "scalp_avulsion_area_cm2",
+                "operator": "gte",
+                "value": 20,
+                "unit": "cm2",
+                "evidenceGroups": [["头皮", "头顶部", "额顶部", "颞顶部", "颞枕部", "顶枕部", "枕顶部", "枕部"], ["撕脱伤", "撕脱创", "撕脱"], ["面积"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "头皮缺损面积累计10.0cm2以上",
               "conditionText": "头皮缺损面积累计10.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "头皮缺损面积累计10.0cm2以上"
-                ]
-              }
+              "predicate": {
+                "field": "scalp_defect_area_cm2",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm2",
+                "evidenceGroups": [["头皮", "头顶部", "额顶部", "颞顶部", "颞枕部", "顶枕部", "枕顶部", "枕部"], ["缺损"], ["面积"]]
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
         }
