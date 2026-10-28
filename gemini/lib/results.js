@@ -1421,6 +1421,16 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
     factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId };
 }
 
+function factDateKeys(fact) {
+  const text = [fact.value, fact.evidence].flatMap(value => Array.isArray(value) ? value : [value])
+    .filter(Boolean).join(' ').normalize('NFKC');
+  return [...text.matchAll(/(?:19|20)\d{2}(?:年\s*\d{1,2}月\s*\d{1,2}日|[-/.]\s*\d{1,2}[-/.]\s*\d{1,2})/gu)]
+    .map(([date]) => {
+      const [year, month, day] = date.match(/\d+/gu).map(Number);
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    });
+}
+
 export function evaluateConditionLogic(conditionLogic, facts) {
   if (conditionLogic?.annotation !== 'explicit' || !conditionLogic.logic || !Array.isArray(facts)) {
     return { met: null, evidence: '', factIds: [] };
@@ -1446,20 +1456,11 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   };
   const eventIds = [...new Set(facts.map(fact => fact.eventId).filter(Boolean))].sort();
   const unscopedFacts = facts.filter(fact => !fact.eventId);
-  const dateKeys = fact => {
-    const text = [fact.value, fact.evidence].flatMap(value => Array.isArray(value) ? value : [value])
-      .filter(Boolean).join(' ').normalize('NFKC');
-    return [...text.matchAll(/(?:19|20)\d{2}(?:年\s*\d{1,2}月\s*\d{1,2}日|[-/.]\s*\d{1,2}[-/.]\s*\d{1,2})/gu)]
-      .map(([date]) => {
-        const [year, month, day] = date.match(/\d+/gu).map(Number);
-        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-      });
-  };
   const eventIdsByDate = new Map();
   const hasQuotedSource = fact => fact.source === 'description' && fact.verification === 'quoted'
     && reliableCertainties.has(fact.certainty);
   for (const fact of facts.filter(item => item.eventId && hasQuotedSource(item))) {
-    for (const date of dateKeys(fact)) {
+    for (const date of factDateKeys(fact)) {
       const owners = eventIdsByDate.get(date) || new Set();
       owners.add(fact.eventId);
       eventIdsByDate.set(date, owners);
@@ -1470,7 +1471,7 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   for (const fact of unscopedFacts.filter(hasQuotedSource)) {
     const owners = new Set();
     let ambiguousDate = false;
-    for (const date of dateKeys(fact)) {
+    for (const date of factDateKeys(fact)) {
       const matchingEvents = eventIdsByDate.get(date);
       if (!matchingEvents) continue;
       if (matchingEvents.size !== 1) ambiguousDate = true;
@@ -1502,7 +1503,7 @@ export function evaluateConditionLogic(conditionLogic, facts) {
   for (const scope of scopes) scope.facts.push(...(linkedUnscopedFacts.get(scope.eventId) || [])
     .filter(fact => conditionFields.has(fact.field) || supportingFactIds.has(fact.id)));
   const remainingRelevantFacts = relevantUnscopedFacts.filter(fact => remainingUnscopedFacts.includes(fact));
-  if (remainingRelevantFacts.length || scopes.length === 0) scopes.push({ eventId: null, facts: remainingRelevantFacts });
+  if (eventIds.length === 0) scopes.push({ eventId: null, facts: remainingRelevantFacts });
   const results = scopes.map(scope => evaluate(conditionLogic.logic, scope.facts, scope.eventId));
   return results.find(result => result.met === true)
     || results.every(result => result.met === false) && results[0]
@@ -1639,11 +1640,13 @@ function bindExplicitGroups(clause, proposedConditions, facts) {
       return { met: null, evidence: '', factIds: [] };
     }
     const groupFacts = [...new Map(entries.flatMap(entry => entry.linkedFacts).map(fact => [fact.id, fact])).values()];
-    const result = evaluateLogicNode(group, groupFacts, clause.conditionLogic.ageAdjustment);
+    const result = evaluateLogicNode(group, includeLinkedEventFacts(facts, groupFacts.map(fact => fact.id)),
+      clause.conditionLogic.ageAdjustment);
     return result;
   });
   const rootFacts = [...new Map(bindings.flat().flatMap(entry => entry.linkedFacts).map(fact => [fact.id, fact])).values()];
-  const root = evaluateConditionLogic(clause.conditionLogic, rootFacts);
+  const root = evaluateConditionLogic(clause.conditionLogic,
+    includeLinkedEventFacts(facts, rootFacts.map(fact => fact.id)));
   const allGroupsBound = bindings.every(entries => entries.length > 0);
   const met = allGroupsBound && !invalid ? root.met : null;
   const displayGroups = groups.length <= 12 ? groups : [logic];
@@ -1825,7 +1828,24 @@ function includeDerivedParents(facts, factIds) {
 function includeLinkedEventFacts(facts, factIds) {
   const selected = includeDerivedParents(facts, factIds);
   const eventIds = new Set(selected.map(fact => fact.eventId).filter(Boolean));
-  if (!eventIds.size) return selected;
+  if (!eventIds.size) {
+    if (!facts.some(fact => fact.eventId)) return selected;
+    if (!selected.length || selected.some(fact => !factDateKeys(fact).length)) return [];
+    const owners = new Set();
+    for (const fact of selected) {
+      const eventIdsForFact = new Set(factDateKeys(fact).flatMap(date => facts
+        .filter(candidate => candidate.eventId && candidate.source === fact.source && candidate.verification === 'quoted'
+          && reliableCertainties.has(candidate.certainty) && factDateKeys(candidate).includes(date))
+        .map(candidate => candidate.eventId)));
+      if (eventIdsForFact.size !== 1) return [];
+      owners.add([...eventIdsForFact][0]);
+    }
+    if (owners.size !== 1) return [];
+    const [eventId] = owners;
+    const linked = [...new Map([...selected, ...facts.filter(fact => fact.eventId === eventId)]
+      .map(fact => [fact.id, fact])).values()];
+    return includeDerivedParents(linked, linked.map(fact => fact.id));
+  }
   const expanded = [...new Map([...selected, ...facts.filter(fact => eventIds.has(fact.eventId))]
     .map(fact => [fact.id, fact])).values()];
   return includeDerivedParents(expanded, expanded.map(fact => fact.id));

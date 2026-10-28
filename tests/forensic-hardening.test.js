@@ -191,6 +191,34 @@ test('disability orbital enophthalmos thresholds use measured sequela values', (
   assert.equal(ongoingResult.status, 'insufficient');
 });
 
+test('unscoped clause evidence cannot support a grade beside explicitly scoped event facts', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.7.6.1');
+  const value = clause.conditionLogic.logic.factMatch.values[0];
+  const unscoped = { id: 'L1', field: 'clinical_finding', value, certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: value };
+  const scoped = { id: 'E1', eventId: 'E1', field: 'injury_type', value: 'rib_fracture',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '本次交通事故致肋骨骨折' };
+
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [unscoped, scoped]).met, true);
+  const linked = { ...unscoped, eventId: 'E1' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [linked, scoped]).met, true);
+
+  const description = `合成资料，非真实病例。${value}。本次交通事故致肋骨骨折。`;
+  const makeResult = (facts, requestId) => normalizeResult({ ...providerFixture('disability'),
+    status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: value, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: value, factIds: ['L1'], met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId,
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false,
+    factMissingMaterials: [] });
+  const result = makeResult([unscoped, scoped], 'unscoped-clause-fact-event-gate');
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  const linkedResult = makeResult([linked, scoped], 'linked-clause-fact-event-gate');
+  assert.equal(linkedResult.grade, clause.grade);
+});
+
 test('rib ordinal lists do not create fracture-site counts', () => {
   const snapshot = normalizeExtractedFacts(emptyExtraction, {
     description: '左侧第3至第6肋骨骨折。',
