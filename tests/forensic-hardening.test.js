@@ -487,6 +487,32 @@ test('single-leaf compound organ and function clauses do not grade from one comp
   }
 });
 
+test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
+  const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
+  const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',
+    value: '子宫大部分切除术后', certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '手术记录记载子宫大部分切除术后' };
+  const uterusInjury = { id: 'U2', eventId: 'E1', field: 'diagnosis', value: '子宫损伤',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '本次事故导致子宫损伤' };
+  assert.equal(evaluateConditionLogic(uterusClause.conditionLogic, [uterusOperation, uterusInjury]).met, true);
+  assert.notEqual(evaluateConditionLogic(uterusClause.conditionLogic,
+    [uterusOperation, { ...uterusInjury, eventId: 'E2' }]).met, true);
+  assert.notEqual(evaluateConditionLogic(uterusClause.conditionLogic,
+    [uterusOperation, { ...uterusInjury, value: '肾损伤', evidence: '本次事故导致肾损伤' }]).met, true);
+
+  const testicleClause = catalogs.disability.clauses.find(item => item.id === '5.10.5.4');
+  const testicleOperation = { id: 'T1', eventId: 'E1', field: 'clinical_finding',
+    value: '睾丸破裂修补术后', certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '本次事故后右侧睾丸破裂修补术后' };
+  const rightTesticleInjury = { id: 'T2', eventId: 'E1', field: 'diagnosis', value: '右侧睾丸破裂',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '本次事故导致右侧睾丸破裂' };
+  const leftTesticleInjury = { ...rightTesticleInjury, value: '左侧睾丸破裂', evidence: '本次事故导致左侧睾丸破裂' };
+  assert.equal(evaluateConditionLogic(testicleClause.conditionLogic,
+    [testicleOperation, rightTesticleInjury]).met, true);
+  assert.notEqual(evaluateConditionLogic(testicleClause.conditionLogic,
+    [testicleOperation, leftTesticleInjury]).met, true);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');

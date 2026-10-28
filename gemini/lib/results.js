@@ -743,6 +743,11 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
       && sharedClinicalInjuryPhrase(anchor, indication));
     if (!indicationIsLinked) return false;
   }
+  const sameEventOrganSideConflict = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+    && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
+    && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
+    && factOrgan && clinicalOrgan(anchor) === factOrgan && !compatibleLaterality(anchor, fact));
+  if (sameEventOrganSideConflict) return false;
   if (hasExplicitCurrentEventLink(fact.evidence) && !requiresOrganAnchor
     && (!configuredOperationOrgans.size || configuredOperationOrgans.has(factOrgan))) return true;
   if (!fact.eventId || /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u
@@ -799,6 +804,11 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
 
 function clinicalOrgan(fact) {
   const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
+  if (/额叶/u.test(text)) return 'frontal_brain_lobe';
+  if (/颞叶/u.test(text)) return 'temporal_brain_lobe';
+  if (/顶叶/u.test(text)) return 'parietal_brain_lobe';
+  if (/枕叶/u.test(text)) return 'occipital_brain_lobe';
+  if (/脑叶/u.test(text)) return 'brain_lobe';
   if (/肾/u.test(text)) return 'kidney';
   if (/肝/u.test(text)) return 'liver';
   if (/脾/u.test(text)) return 'spleen';
@@ -808,15 +818,44 @@ function clinicalOrgan(fact) {
   if (/胆囊/u.test(text)) return 'gallbladder';
   if (/(?:胆道|胆总管|胆管)/u.test(text)) return 'bile_duct';
   if (/肺/u.test(text)) return 'lung';
+  if (/子宫/u.test(text)) return 'uterus';
+  if (/膀胱/u.test(text)) return 'bladder';
+  if (/食管/u.test(text)) return 'esophagus';
+  if (/膈肌/u.test(text)) return 'diaphragm';
+  if (/睾丸/u.test(text)) return 'testicle';
+  if (/尿道/u.test(text)) return 'urethra';
+  if (/髌骨/u.test(text)) return 'patella';
   return null;
 }
 
 function compatibleLaterality(left, right) {
   const side = fact => {
     const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
-    return /左(?:侧)?(?:肾|肺)/u.test(text) ? 'left' : /右(?:侧)?(?:肾|肺)/u.test(text) ? 'right' : null;
+    const sitePattern = {
+      kidney: /肾/u,
+      lung: /肺/u,
+      testicle: /睾丸/u,
+      patella: /髌骨/u,
+      frontal_brain_lobe: /额叶/u,
+      temporal_brain_lobe: /颞叶/u,
+      parietal_brain_lobe: /顶叶/u,
+      occipital_brain_lobe: /枕叶/u,
+    }[clinicalOrgan(fact)];
+    if (!sitePattern) return null;
+    const sides = new Set();
+    for (const site of text.matchAll(new RegExp(sitePattern.source, 'gu'))) {
+      const before = text.slice(Math.max(0, site.index - 6), site.index);
+      const after = text.slice(site.index + site[0].length, site.index + site[0].length + 6);
+      const leftSide = /左(?:侧)?$/u.test(before) || /^左(?:侧)?/u.test(after);
+      const rightSide = /右(?:侧)?$/u.test(before) || /^右(?:侧)?/u.test(after);
+      if (leftSide && rightSide) return 'conflict';
+      if (leftSide) sides.add('left');
+      if (rightSide) sides.add('right');
+    }
+    return sides.size > 1 ? 'conflict' : sides.size === 1 ? [...sides][0] : null;
   };
   const leftSide = side(left), rightSide = side(right);
+  if (leftSide === 'conflict' || rightSide === 'conflict') return false;
   return !leftSide || !rightSide || leftSide === rightSide;
 }
 
