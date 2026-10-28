@@ -795,3 +795,26 @@ test('neck scar-area thresholds use source-measured scar areas and injury standa
   assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
   assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
 });
+
+test('facial block-scar area thresholds use injury standard 6.18 without dropping the central-zone condition', () => {
+  const assess = (id, age, finding, { centralZone = false } = {}) => {
+    const sourceFinding = centralZone ? `面部块状瘢痕（50%以上位于中心区），${finding}` : finding;
+    const description = `本次事故后受伤时年龄${age}周岁，${sourceFinding}`;
+    const sourceFacts = [ageFact(age)];
+    if (centralZone) sourceFacts.push({ id: 'F-center', eventId: 'E1', field: 'clinical_finding',
+      value: '面部块状瘢痕（50%以上位于中心区）', certainty: 'reported', source: 'description',
+      evidence: '面部块状瘢痕（50%以上位于中心区）' });
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.2.2.b', 6, '面部块状瘢痕单块面积3平方厘米。', { centralZone: true }), true);
+  assert.notEqual(assess('5.2.2.b', 6, '面部块状瘢痕单块面积3平方厘米。'), true);
+  assert.equal(assess('5.2.2.b', 6, '面部块状瘢痕两块以上面积累计5平方厘米。', { centralZone: true }), true);
+  assert.equal(assess('5.2.3.b', 6, '面部块状瘢痕单块面积2平方厘米。'), true);
+  assert.equal(assess('5.2.3.b', 7, '面部块状瘢痕多块面积累计4.2平方厘米。'), true);
+  assert.equal(assess('5.2.4.d', 6, '面部块状瘢痕单块面积1.5平方厘米。'), true);
+  assert.equal(assess('5.2.4.d', 7, '面部块状瘢痕多块面积累计3平方厘米。'), true);
+  assert.notEqual(assess('5.2.4.d', 6, '面部线状瘢痕单块面积1.5平方厘米。'), true);
+});

@@ -4663,27 +4663,87 @@
             {
               "op": "condition",
               "sourceText": "单块面积3.0cm2以上",
-              "conditionText": "面部块状瘢痕单块面积3.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕单块面积3.0cm2以上"
+              "conditionText": "单块面积3.0cm2以上",
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 3,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "面部",
+                    "脸部",
+                    "额部",
+                    "前额",
+                    "额头",
+                    "眉弓",
+                    "眉部",
+                    "面颊",
+                    "颊部",
+                    "颧部"
+                  ],
+                  [
+                    "块状瘢痕",
+                    "块状"
+                  ],
+                  [
+                    "单块",
+                    "单个",
+                    "面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "多块面积累计5.0cm2以上",
-              "conditionText": "面部块状瘢痕多块面积累计5.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕多块面积累计5.0cm2以上"
+              "conditionText": "多块面积累计5.0cm2以上",
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 5,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "两块以上",
+                    "多块",
+                    "多个",
+                    "两块",
+                    "二块",
+                    "2块",
+                    "2块以上"
+                  ],
+                  [
+                    "面部",
+                    "脸部",
+                    "额部",
+                    "前额",
+                    "额头",
+                    "眉弓",
+                    "眉部",
+                    "面颊",
+                    "颊部",
+                    "颧部"
+                  ],
+                  [
+                    "块状瘢痕",
+                    "块状"
+                  ],
+                  [
+                    "累计",
+                    "总面积",
+                    "合计",
+                    "面积累计",
+                    "累计面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.2.4.e": {
         "annotation": "explicit",
@@ -8729,35 +8789,95 @@
             },
             {
               "op": "any",
-              "sourceText": "单块面积6.0cm2以上，或者两块以上面积累计10.0cm2以上",
-              "conditionText": "单块面积6.0cm2以上，或者两块以上面积累计10.0cm2以上",
+              "sourceText": "面部块状瘢痕（50%以上位于中心区），单块面积6.0cm2以上，或者两块以上面积累计10.0cm2以上",
+              "conditionText": "面部块状瘢痕（50%以上位于中心区），单块面积6.0cm2以上，或者两块以上面积累计10.0cm2以上",
               "children": [
                 {
                   "op": "condition",
                   "sourceText": "单块面积6.0cm2以上",
-                  "conditionText": "面部块状瘢痕单块面积6.0cm2以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部块状瘢痕单块面积6.0cm2以上"
+                  "conditionText": "单块面积6.0cm2以上",
+                  "predicate": {
+                    "field": "surface_scar_area_cm2",
+                    "operator": "gte",
+                    "value": 6,
+                    "unit": "cm2",
+                    "evidenceGroups": [
+                      [
+                        "面部",
+                        "脸部",
+                        "额部",
+                        "前额",
+                        "额头",
+                        "眉弓",
+                        "眉部",
+                        "面颊",
+                        "颊部",
+                        "颧部"
+                      ],
+                      [
+                        "块状瘢痕",
+                        "块状"
+                      ],
+                      [
+                        "单块",
+                        "单个",
+                        "面积"
+                      ]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 },
                 {
                   "op": "condition",
                   "sourceText": "两块以上面积累计10.0cm2以上",
-                  "conditionText": "面部块状瘢痕两块以上面积累计10.0cm2以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "面部块状瘢痕两块以上面积累计10.0cm2以上"
+                  "conditionText": "两块以上面积累计10.0cm2以上",
+                  "predicate": {
+                    "field": "aggregate_surface_scar_area_cm2",
+                    "operator": "gte",
+                    "value": 10,
+                    "unit": "cm2",
+                    "evidenceGroups": [
+                      [
+                        "两块以上",
+                        "多块",
+                        "多个",
+                        "两块",
+                        "二块",
+                        "2块",
+                        "2块以上"
+                      ],
+                      [
+                        "面部",
+                        "脸部",
+                        "额部",
+                        "前额",
+                        "额头",
+                        "眉弓",
+                        "眉部",
+                        "面颊",
+                        "颊部",
+                        "颧部"
+                      ],
+                      [
+                        "块状瘢痕",
+                        "块状"
+                      ],
+                      [
+                        "累计",
+                        "总面积",
+                        "合计",
+                        "面积累计",
+                        "累计面积"
+                      ]
                     ]
-                  }
+                  },
+                  "ageAdjustment": "injury_standard_6_18"
                 }
               ]
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.2.2.c": {
         "annotation": "explicit",
@@ -8839,26 +8959,86 @@
               "op": "condition",
               "sourceText": "面部块状瘢痕，单块面积4.0cm2以上",
               "conditionText": "面部块状瘢痕，单块面积4.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕，单块面积4.0cm2以上"
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 4,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "面部",
+                    "脸部",
+                    "额部",
+                    "前额",
+                    "额头",
+                    "眉弓",
+                    "眉部",
+                    "面颊",
+                    "颊部",
+                    "颧部"
+                  ],
+                  [
+                    "块状瘢痕",
+                    "块状"
+                  ],
+                  [
+                    "单块",
+                    "单个",
+                    "面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "多块面积累计7.0cm2以上",
-              "conditionText": "面部块状瘢痕多块面积累计7.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部块状瘢痕多块面积累计7.0cm2以上"
+              "conditionText": "多块面积累计7.0cm2以上",
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 7,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "两块以上",
+                    "多块",
+                    "多个",
+                    "两块",
+                    "二块",
+                    "2块",
+                    "2块以上"
+                  ],
+                  [
+                    "面部",
+                    "脸部",
+                    "额部",
+                    "前额",
+                    "额头",
+                    "眉弓",
+                    "眉部",
+                    "面颊",
+                    "颊部",
+                    "颧部"
+                  ],
+                  [
+                    "块状瘢痕",
+                    "块状"
+                  ],
+                  [
+                    "累计",
+                    "总面积",
+                    "合计",
+                    "面积累计",
+                    "累计面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.2.3.g": {
         "annotation": "explicit",
