@@ -215,6 +215,10 @@ export function createAnalysisBodyConcurrencyLimiter({ maxConcurrentPerIp = 2, m
   };
 }
 
+function isLoopbackAddress(address = '') {
+  return address === '::1' || address === '127.0.0.1' || address.startsWith('::ffff:127.');
+}
+
 export function createApp(config, options = {}) {
   const app = express();
   const provider = options.provider || createProvider(config, options.fetchImpl);
@@ -237,7 +241,13 @@ export function createApp(config, options = {}) {
   app.disable('x-powered-by');
   // Nginx connects over loopback; only that trusted hop may supply the client IP.
   app.set('trust proxy', 'loopback');
-  app.use(cors());
+  const allowedOrigins = new Set(config.corsAllowedOrigins || [
+    'https://analyst.lintsing.net', 'https://appraise.lintsing.net',
+    'http://127.0.0.1:5300', 'http://localhost:5300',
+  ]);
+  app.use(cors({ origin(origin, callback) {
+    callback(null, !origin || allowedOrigins.has(origin));
+  } }));
   app.use((req, res, next) => {
     req.requestId = randomUUID();
     res.setHeader('X-Request-ID', req.requestId);
@@ -253,7 +263,10 @@ export function createApp(config, options = {}) {
     const health = await provider.readiness();
     res.status(health.status === 'ready' ? 200 : 503).json(health);
   });
-  app.get('/api/cache/stats', (req, res) => res.json(analysisCache.stats()));
+  app.get('/api/cache/stats', (req, res) => {
+    if (!isLoopbackAddress(req.ip || req.socket.remoteAddress || '')) return res.sendStatus(404);
+    res.json(analysisCache.stats());
+  });
   app.get('/api/standards/:type', (req, res) => {
     const kind = assessmentTypeSchema.safeParse(req.params.type);
     if (!kind.success) throw new ServiceError(404, 'STANDARD_NOT_FOUND', '未找到该评估类型的标准。');

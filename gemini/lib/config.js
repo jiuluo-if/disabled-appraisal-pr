@@ -3,6 +3,8 @@ import { MAX_REQUEST_TIMEOUT_MS } from './request-timeouts.js';
 const DEFAULT_TIMEOUT_MS = 90_000;
 const DEFAULT_CACHE_TTL_MS = 900_000;
 const DEFAULT_CACHE_CAPACITY = 200;
+const DEFAULT_CORS_ORIGINS = ['https://analyst.lintsing.net', 'https://appraise.lintsing.net'];
+const LOCAL_CORS_ORIGINS = ['http://127.0.0.1:5300', 'http://localhost:5300'];
 
 function integer(env, name, fallback, minimum, maximum) {
   const raw = env[name];
@@ -23,6 +25,23 @@ function completionUrl(baseUrl) {
   url.search = '';
   url.hash = '';
   return url.toString();
+}
+
+function corsOrigins(env) {
+  const defaults = env.NODE_ENV === 'production'
+    ? DEFAULT_CORS_ORIGINS : [...DEFAULT_CORS_ORIGINS, ...LOCAL_CORS_ORIGINS];
+  const origins = env.CORS_ALLOWED_ORIGINS === undefined
+    ? defaults : [...new Set(env.CORS_ALLOWED_ORIGINS.split(',').map(value => value.trim()).filter(Boolean))];
+  for (const origin of origins) {
+    let url;
+    try { url = new URL(origin); } catch { throw new Error('Invalid CORS_ALLOWED_ORIGINS'); }
+    const localHttp = url.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (url.origin !== origin || !['https:', 'http:'].includes(url.protocol)
+      || url.username || url.password || url.protocol !== 'https:' && !localHttp) {
+      throw new Error('Invalid CORS_ALLOWED_ORIGINS');
+    }
+  }
+  return origins;
 }
 
 export function loadProviderConfig(env = process.env) {
@@ -74,5 +93,6 @@ export function loadProviderConfig(env = process.env) {
     analysisBodyConcurrencyGlobal: integer(env, 'ANALYSIS_BODY_CONCURRENCY_GLOBAL', 8, 1, 1024),
     analysisBodyConcurrencyThresholdBytes: integer(env, 'ANALYSIS_BODY_CONCURRENCY_THRESHOLD_BYTES', 262_144, 1, 50_000_000),
     localHttp,
+    corsAllowedOrigins: corsOrigins(env),
   };
 }

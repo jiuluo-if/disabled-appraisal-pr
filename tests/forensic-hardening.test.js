@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
+import { createApp } from '../gemini/lib/app.js';
+import { loadProviderConfig } from '../gemini/lib/config.js';
 import { normalizeExtractedFacts } from '../gemini/lib/facts.js';
 import { retrieveClauses } from '../gemini/lib/catalog.js';
 
@@ -47,4 +50,27 @@ test('structured facts supplement text recall without proving an incomplete cond
   ]);
   assert.ok(candidates.some(clause => clause.id === '5.1.2.c'));
   assert.equal(candidates.find(clause => clause.id === '5.1.2.c').conditionLogic.annotation, 'explicit');
+});
+
+test('public API CORS is limited to the two assessment sites and cache stats stay local', async () => {
+  const config = loadProviderConfig({ ASSESSMENT_PROVIDER: 'agnes', AGNES_API_KEY: 'test-key',
+    NODE_ENV: 'production' });
+  assert.deepEqual(config.corsAllowedOrigins, ['https://analyst.lintsing.net', 'https://appraise.lintsing.net']);
+  assert.throws(() => loadProviderConfig({ ASSESSMENT_PROVIDER: 'agnes', AGNES_API_KEY: 'test-key',
+    NODE_ENV: 'production', CORS_ALLOWED_ORIGINS: 'https://untrusted.example/path' }), /CORS_ALLOWED_ORIGINS/);
+  const provider = { readiness: async () => ({ status: 'ready' }), complete: async () => ({}) };
+  const server = createApp(config, { provider }).listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = `http://127.0.0.1:${server.address().port}`;
+  try {
+    const allowed = await fetch(`${base}/api/health/live`, { headers: { Origin: 'https://appraise.lintsing.net' } });
+    assert.equal(allowed.headers.get('access-control-allow-origin'), 'https://appraise.lintsing.net');
+    const denied = await fetch(`${base}/api/health/live`, { headers: { Origin: 'https://untrusted.example' } });
+    assert.equal(denied.headers.get('access-control-allow-origin'), null);
+    assert.equal((await fetch(`${base}/api/cache/stats`)).status, 200);
+    assert.equal((await fetch(`${base}/api/cache/stats`, { headers: { 'X-Forwarded-For': '203.0.113.9' } })).status, 404);
+  } finally {
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+  }
 });
