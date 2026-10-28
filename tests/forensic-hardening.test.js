@@ -115,6 +115,38 @@ test('structured facts supplement text recall without proving an incomplete cond
   assert.equal(candidates.find(clause => clause.id === '5.1.2.c').conditionLogic.annotation, 'explicit');
 });
 
+test('typed fields can recall every explicit clause beyond lexical ranking', () => {
+  const sampleFact = (clause, node, index) => {
+    const match = node.factMatch || node.confirmedBy;
+    if (node.predicate?.field) return { id: `P${index}`, field: node.predicate.field, value: null,
+      certainty: 'reported', source: 'description', evidence: '' };
+    if (!match) return null;
+    const field = match.field || match.fields?.[0];
+    if (!field) return null;
+    const value = match.values?.[0] ?? match.valueIncludes?.[0] ?? 'candidate evidence';
+    const evidence = match.evidenceAliases?.[0] || (typeof value === 'string' ? value : '');
+    return { id: `M${index}`, field, value, certainty: 'reported', source: 'description', evidence };
+  };
+  const makeFacts = catalog => catalog.clauses.flatMap((clause, index) => {
+    if (clause.conditionLogic?.annotation !== 'explicit') return [];
+    let fact = null;
+    const walk = node => {
+      if (!node || fact) return;
+      fact = sampleFact(clause, node, index);
+      for (const child of node.children || []) walk(child);
+    };
+    walk(clause.conditionLogic.logic);
+    return fact ? [fact] : [];
+  });
+
+  for (const type of ['injury', 'disability']) {
+    const clauses = catalogs[type].clauses.filter(clause => clause.conditionLogic?.annotation === 'explicit');
+    const candidates = new Set(retrieveClauses(type, '', 0, makeFacts(catalogs[type])).map(clause => clause.id));
+    const missing = clauses.filter(clause => !candidates.has(clause.id)).map(clause => clause.id);
+    assert.deepEqual(missing, []);
+  }
+});
+
 test('unrelated head evidence cannot be displayed as support for an uncertain rib-count clause', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.10.3.7');
   const headEvidence = '本次头部软组织损伤';
