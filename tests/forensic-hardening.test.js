@@ -511,7 +511,7 @@ test('service normalization rejects model support for every opaque grading claus
     assert.ok(reference?.conditions.every(condition => condition.evidence === ''
       && condition.factIds.length === 0 && condition.met === null), clause.id);
   }
-  assert.equal(checked, 31);
+  assert.equal(checked, 32);
 });
 
 test('service normalization rejects unsupported model support claims for every explicit clause', () => {
@@ -532,7 +532,7 @@ test('service normalization rejects unsupported model support claims for every e
     assert.equal(result.grade, null, clause.id);
     assert.ok(result.references.every(reference => reference.relation !== 'supports'), clause.id);
   }
-  assert.equal(checked, 816);
+  assert.equal(checked, 815);
 });
 
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
@@ -1043,6 +1043,7 @@ test('single-leaf compound organ and function clauses do not grade from one comp
     { assessmentType: 'disability', id: '5.10.1.6', reason: /重要神经损伤、与其对应的肌群及客观肌力等级/u },
     { assessmentType: 'disability', id: '5.10.3.3', reason: /喉返神经损伤及其功能影响/u },
     { assessmentType: 'disability', id: '5.10.6.1', reason: /齿状突骨折及其造成的功能影响/u },
+    { assessmentType: 'disability', id: '5.8.6.1', reason: /两个不同椎体均为压缩性骨折且各自压缩程度达到1\/3/u },
     { assessmentType: 'disability', id: '5.10.6.14', reason: /重要血管循环障碍、受累肢体与功能后果/u },
     { assessmentType: 'injury', id: '5.9.2.q', reason: /同一足部除第一趾外三趾.*趾骨—跖骨对应关系/u },
     { assessmentType: 'injury', id: '5.6.3.a', reason: /心脏挫伤、心包积血及二者之间的损伤因果关系/u },
