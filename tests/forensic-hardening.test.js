@@ -575,6 +575,31 @@ test('mandibular body defect without a fracture cannot satisfy the jaw-fracture 
   assert.equal(evaluateConditionLogic(clause.conditionLogic, [fracture]).met, true);
 });
 
+test('not nodes preserve unknown and do not merge exclusion facts across events', () => {
+  const findNot = node => node.op === 'not' ? node : (node.children || []).map(findNot).find(Boolean);
+  const necrosisClause = catalogs.injury.clauses.find(item => item.id === '5.9.3.g');
+  const necrosisLogic = { annotation: 'explicit', logic: findNot(necrosisClause.conditionLogic.logic) };
+  const necrosis = { id: 'N1', eventId: 'E1', field: 'clinical_finding', value: '股骨头坏死',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '影像诊断股骨头坏死' };
+  const noNecrosis = { ...necrosis, certainty: 'excluded', evidence: '影像明确未见股骨头坏死' };
+  const uncertainNecrosis = { ...necrosis, certainty: 'uncertain', evidence: '影像考虑股骨头坏死可能' };
+  assert.equal(evaluateConditionLogic(necrosisLogic, [necrosis]).met, false);
+  assert.equal(evaluateConditionLogic(necrosisLogic, [noNecrosis]).met, true);
+  assert.equal(evaluateConditionLogic(necrosisLogic, [uncertainNecrosis]).met, null);
+  assert.equal(evaluateConditionLogic(necrosisLogic, []).met, null);
+
+  const coccyxClause = catalogs.injury.clauses.find(item => item.id === '5.9.4.d');
+  const coccyxLogic = { annotation: 'explicit', logic: findNot(coccyxClause.conditionLogic.logic) };
+  const dislocation = { id: 'C1', eventId: 'E1', field: 'clinical_finding', value: '尾椎脱位',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '影像诊断尾椎脱位' };
+  const noFunctionalEffect = { id: 'C2', eventId: 'E1', field: 'clinical_finding', value: '不影响功能',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '评估记载尾椎脱位不影响功能' };
+  assert.equal(evaluateConditionLogic(coccyxLogic, [dislocation, noFunctionalEffect]).met, false);
+  assert.equal(evaluateConditionLogic(coccyxLogic, [dislocation]).met, null);
+  assert.equal(evaluateConditionLogic(coccyxLogic,
+    [dislocation, { ...noFunctionalEffect, eventId: 'E2' }]).met, null);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
