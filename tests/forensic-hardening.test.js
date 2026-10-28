@@ -101,6 +101,20 @@ test('pulmonary contusion and an unrelated operation do not prove lung rupture r
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
 });
 
+test('same-organ surgery explicitly for another condition cannot satisfy a rupture-treatment clause', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.7.2.c');
+  const diagnosis = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '脾破裂', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '本次事故后明确诊断脾破裂' };
+  const operation = indication => ({ id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '脾切除术',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: indication });
+
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    [diagnosis, operation('本次事故后因脾囊肿行脾切除术')]).met, true);
+  for (const indication of ['本次事故后因脾破裂行脾切除术', '本次事故后因脾脏破裂行脾切除术']) {
+    assert.equal(evaluateConditionLogic(clause.conditionLogic, [diagnosis, operation(indication)]).met, true, indication);
+  }
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];

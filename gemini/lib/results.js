@@ -711,6 +711,16 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
   const requiresOrganAnchor = /(?:破裂|裂口|裂伤|挫裂伤|损伤|血肿)[^。；;]{0,24}(?:手术|切除|修补|缝合)/u
     .test(node.conditionText || '');
   const factOrgan = clinicalOrgan(fact);
+  const explicitIndication = procedureText.match(/(?:因|由于|针对|为治疗|用于治疗)([^，,。；;\n]{1,28}?)(?=(?:行|接受|实施|进行|施行|予以))/u);
+  if (explicitIndication) {
+    const indication = { evidence: explicitIndication[1], value: '' };
+    const indicationIsLinked = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+      && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
+      && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
+      && clinicalOrgan(anchor) === factOrgan && compatibleLaterality(anchor, fact)
+      && sharedClinicalInjuryPhrase(anchor, indication));
+    if (!indicationIsLinked) return false;
+  }
   if (hasExplicitCurrentEventLink(fact.evidence) && !requiresOrganAnchor
     && (!configuredOperationOrgans.size || configuredOperationOrgans.has(factOrgan))) return true;
   if (!fact.eventId || /既往(?:史)?|既有|历史(?:病历|手术|病史|资料)|陈旧|原有|此前|术前|曾(?:经|于|在|行|接受|做过|做|切除|修补|施行)/u
@@ -790,7 +800,9 @@ function compatibleLaterality(left, right) {
 
 function sharedClinicalInjuryPhrase(left, right) {
   const phrases = evidence => {
-    const text = normalize(evidence || '');
+    const source = typeof evidence === 'string' ? evidence : `${evidence?.value ?? ''} ${evidence?.evidence ?? ''}`;
+    const text = normalize(source).replace(/脾脏/gu, '脾').replace(/肝脏/gu, '肝')
+      .replace(/胰腺/gu, '胰').replace(/肾脏/gu, '肾');
     const result = new Set();
     for (const match of text.matchAll(/[\u4e00-\u9fff]{1,4}(?:骨折|破裂|挫伤|损伤|创口|穿透创|贯通伤|出血|脱位|撕裂|断裂)/gu)) {
       for (let start = 0; start <= match[0].length - 3; start += 1) {
