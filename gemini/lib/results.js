@@ -2,7 +2,7 @@ import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
-  isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts, parseNumber,
+  isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts, parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches } from './facts.js';
 
 const grades = {
@@ -445,7 +445,10 @@ function predicateEvidenceValue(predicate, fact, facts = []) {
     return total === fact.value ? total : null;
   }
   if (predicate.field === 'dental_loss_count' && fact.certainty === 'reported' && fact.source === 'description') {
-    return /1\s*[╋＋+┼]\s*1(?:上颌)?(?:(?:前|中切)牙)?(?:牙齿)?(?:新鲜)?(?:缺失|脱落)/u.test(fact.evidence) ? fact.value : null;
+    if (/1\s*[╋＋+┼]\s*1(?:上颌)?(?:(?:前|中切)牙)?(?:牙齿)?(?:新鲜)?(?:缺失|脱落)/u.test(fact.evidence)) {
+      return fact.value === 2 ? fact.value : null;
+    }
+    return quotedDentalDefectCount(fact.evidence, fact.value);
   }
   if (quotedValue !== null) return quotedValue;
   if (predicate.field === 'lip_wound_length_cm' && fact.certainty === 'derived'

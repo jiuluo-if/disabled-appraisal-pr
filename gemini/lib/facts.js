@@ -72,6 +72,20 @@ function parseNumber(value) {
   return total || 0;
 }
 
+export function quotedDentalDefectCount(evidence, expectedValue) {
+  const text = normalizeInput(evidence || '');
+  const measurements = [...text.matchAll(/([0-9零〇一二两三四五六七八九十百]+)\s*(?:枚|颗|个)/gu)];
+  if (measurements.length !== 1 || !/(?:牙齿|牙|齿)/u.test(text)
+    || !/(?:缺失|缺齿|脱落|折断|折裂|断裂)/u.test(text)
+    || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|待查|不排除|未达|低于|小于|不足|不超过|少于|未见|未发现|未记载|否认|排除)/u.test(text)) return null;
+  const measurement = measurements[0];
+  const before = text.slice(Math.max(0, measurement.index - 20), measurement.index);
+  if (/(?:第|编号|序号)\s*$/u.test(before)
+    || /(?:\d+)\s*(?:~|～|〜|-|–|—|至|到)\s*$/u.test(before)) return null;
+  const count = parseNumber(measurement[1]);
+  return Number.isInteger(count) && count > 0 && count === expectedValue ? count : null;
+}
+
 function certaintyFor(text, start, end) {
   const context = text.slice(start, Math.min(text.length, end));
   if (hasUnresolvedOtherExperiencer(context) || /若(?!干)|如果|假如|倘若|一旦|假设|如有|如出现|如发生|必要时/.test(context)) return 'unknown';
@@ -3678,7 +3692,7 @@ function factFinding(field, value, certainty) {
     facial_center_scar_length_cm: '面部中心区条状瘢痕长度（厘米）',
     surface_scar_area_cm2: '瘢痕单块面积（平方厘米）',
     aggregate_surface_scar_area_cm2: '瘢痕累计面积（平方厘米）',
-    dental_loss_count: '牙齿缺失数',
+    dental_loss_count: '牙齿缺失或折断数',
     lip_wound_length_cm: '唇部创口或瘢痕长度（厘米）',
     lip_through_wound_length_cm: '唇部贯通创相关皮肤长度（厘米）',
     cross_region_wound_ratio: '头面部跨部位创口系数和',
@@ -4443,7 +4457,12 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     }
     if (field === 'cross_region_wound_ratio' || field === 'ear_scalp_wound_ratio'
       || field === 'auricle_defect_ratio' || field === 'aggregate_wound_length_cm') continue;
-    if (field === 'dental_loss_count') continue;
+    if (field === 'dental_loss_count') {
+      const deterministicDentalCount = deterministicFacts.some(item => item.source === source && item.field === field
+        && item.value === value && normalizeInput(fullEvidence).includes(normalizeInput(item.evidence)));
+      if (deterministicDentalCount) continue;
+      if (quotedDentalDefectCount(fullEvidence, value) === null) { invalidEvidence = true; continue; }
+    }
     if (field === 'lip_wound_length_cm') continue;
     if (field === 'lip_through_wound_length_cm') continue;
     if (field === 'distinct_orbital_wall_fracture_count' || field === 'orbital_wall_enophthalmos') {

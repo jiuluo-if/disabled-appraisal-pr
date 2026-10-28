@@ -23927,15 +23927,32 @@
       "5.9.2.23": {
         "annotation": "explicit",
         "logic": {
-          "op": "condition",
-          "sourceText": "上颌骨或者下颌骨部分缺损伴牙齿缺失或者折断7枚以上",
-          "conditionText": "上颌骨或者下颌骨部分缺损伴牙齿缺失或者折断7枚以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "上颌骨或者下颌骨部分缺损伴牙齿缺失或者折断7枚以上"
-            ]
-          }
+          "op": "all",
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "上颌骨或者下颌骨部分缺损",
+              "conditionText": "上颌骨或下颌骨部分缺损",
+              "factMatch": {
+                "field": "diagnosis",
+                "fields": ["imaging_finding", "clinical_finding"],
+                "values": ["上颌骨部分缺损", "下颌骨部分缺损"],
+                "evidenceAliases": ["上颌骨部分缺损", "下颌骨部分缺损"]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "牙齿缺失或者折断7枚以上",
+              "conditionText": "牙齿缺失或折断至少7枚",
+              "predicate": {
+                "field": "dental_loss_count",
+                "operator": "gte",
+                "value": 7,
+                "unit": "枚",
+                "evidenceGroups": [["牙齿", "牙"], ["缺失", "折断", "折裂", "脱落"]]
+              }
+            }
+          ]
         }
       },
       "5.9.3.1": {

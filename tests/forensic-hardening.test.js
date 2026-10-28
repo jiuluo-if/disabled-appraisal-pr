@@ -328,6 +328,50 @@ test('one quoted composite vertebral-process conclusion cannot independently pro
   assert.match(reference?.reasoning || '', /骨折处数及其与功能受影响的同事件关联/u);
 });
 
+test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
+  const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
+  const extraction = normalizeExtractedFacts({ facts: [
+    { id: 'J1', eventId: 'E1', field: 'diagnosis', value: '上颌骨部分缺损', certainty: 'reported',
+      source: 'description', evidence: 'CT示左侧上颌骨部分缺损' },
+    { id: 'D1', eventId: 'E1', field: 'dental_loss_count', value: 7, certainty: 'reported',
+      source: 'description', evidence: '检查记载7枚牙齿缺失' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+
+  assert.equal(facts.some(fact => fact.field === 'dental_loss_count' && fact.value === 7), true);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.filter(fact => fact.field !== 'diagnosis')).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'dental_loss_count'
+      ? { ...fact, value: 6, evidence: '检查记载6枚牙齿缺失' } : fact)).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    facts.map(fact => fact.field === 'dental_loss_count' ? { ...fact, eventId: 'E2' } : fact)).met, true);
+  const brokenToothDescription = description.replace('牙齿缺失', '牙齿折断');
+  const brokenToothFacts = normalizeExtractedFacts({ facts: [
+    { id: 'J1', eventId: 'E1', field: 'diagnosis', value: '上颌骨部分缺损', certainty: 'reported',
+      source: 'description', evidence: 'CT示左侧上颌骨部分缺损' },
+    { id: 'D1', eventId: 'E1', field: 'dental_loss_count', value: 7, certainty: 'reported',
+      source: 'description', evidence: '检查记载7枚牙齿折断' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description: brokenToothDescription })
+    .facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, brokenToothFacts).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    brokenToothFacts.map(fact => fact.field === 'dental_loss_count' ? { ...fact, certainty: 'uncertain' } : fact)).met, true);
+  const rangedCount = normalizeExtractedFacts({ facts: [{ id: 'D1', eventId: 'E1', field: 'dental_loss_count',
+    value: 7, certainty: 'reported', source: 'description', evidence: '检查记载牙齿缺失6至7枚' }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description: '检查记载牙齿缺失6至7枚。' });
+  assert.equal(rangedCount.facts.some(fact => fact.field === 'dental_loss_count'), false);
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: description, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'jaw-defect-seven-teeth',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(result.grade, clause.grade);
+  assert.ok(result.references.some(reference => reference.id === clause.id && reference.relation === 'supports'));
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];
