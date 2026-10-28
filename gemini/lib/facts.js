@@ -77,7 +77,7 @@ export function quotedDentalDefectCount(evidence, expectedValue) {
   const measurements = [...text.matchAll(/([0-9零〇一二两三四五六七八九十百]+)\s*(?:枚|颗|个)/gu)];
   if (measurements.length !== 1 || !/(?:牙齿|牙|齿)/u.test(text)
     || !/(?:缺失|缺齿|脱落|折断|折裂|断裂)/u.test(text)
-    || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|待查|不排除|未达|低于|小于|不足|不超过|少于|未见|未发现|未记载|否认|排除)/u.test(text)) return null;
+    || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|待查|不排除|未达|低于|小于|不足|不超过|少于|未见|未发现|未记载|否认|排除|既往|既有|曾经|曾有|陈旧|旧伤|此前|术前|义齿|假牙|牙冠|牙桥|种植体)/u.test(text)) return null;
   const measurement = measurements[0];
   const before = text.slice(Math.max(0, measurement.index - 20), measurement.index);
   if (/(?:第|编号|序号)\s*$/u.test(before)

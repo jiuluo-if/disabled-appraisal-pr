@@ -359,6 +359,12 @@ test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.
   assert.equal(evaluateConditionLogic(clause.conditionLogic, brokenToothFacts).met, true);
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
     brokenToothFacts.map(fact => fact.field === 'dental_loss_count' ? { ...fact, certainty: 'uncertain' } : fact)).met, true);
+  for (const evidence of ['既往牙齿缺失7枚', '牙冠缺失7枚']) {
+    const unsupportedCount = normalizeExtractedFacts({ facts: [{ id: 'D1', eventId: null,
+      field: 'dental_loss_count', value: 7, certainty: 'reported', source: 'description', evidence }],
+    missingMaterials: [], conflicts: [], requiresReview: false }, { description: `${evidence}。` });
+    assert.equal(unsupportedCount.facts.some(fact => fact.field === 'dental_loss_count'), false, evidence);
+  }
   const rangedCount = normalizeExtractedFacts({ facts: [{ id: 'D1', eventId: 'E1', field: 'dental_loss_count',
     value: 7, certainty: 'reported', source: 'description', evidence: '检查记载牙齿缺失6至7枚' }],
   missingMaterials: [], conflicts: [], requiresReview: false }, { description: '检查记载牙齿缺失6至7枚。' });
