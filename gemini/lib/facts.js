@@ -2395,6 +2395,7 @@ function normalizeBowelBladderIncontinenceFacts(inputText) {
 }
 
 function facialWoundLocation(evidence, value, regionEvidence = null) {
+  if (regionEvidence?.site === '头皮') return null;
   if (regionEvidence?.site === '面部' && /(?:创口|伤口|创痕|裂口|裂创|裂伤|切口|瘢痕|疤痕)/u.test(regionEvidence.injuryType || '')) {
     return '面部';
   }
@@ -2446,18 +2447,26 @@ function facialWoundLocation(evidence, value, regionEvidence = null) {
 function isWholeMeasurementWithRegionSegments(fact, allMeasurements) {
   if (fact.field !== 'wound_length_cm' || fact.regionEvidence?.site || !Number.isFinite(fact.value)) return false;
   const segments = allMeasurements.filter(candidate => candidate !== fact && candidate.field === 'wound_length_cm'
-    && candidate.certainty === fact.certainty && candidate.regionEvidence?.site && Number.isFinite(candidate.value));
+    && (candidate.certainty === fact.certainty || candidate.derived_from?.includes(fact.id))
+    && candidate.regionEvidence?.site && Number.isFinite(candidate.value));
   const sites = new Set(segments.map(candidate => candidate.regionEvidence.site));
   const segmentTotal = Math.round(segments.reduce((sum, candidate) => sum + candidate.value, 0) * 100) / 100;
   return sites.size >= 2 && segmentTotal === fact.value;
+}
+
+function woundFactPosition(fact) {
+  return Number.isInteger(fact?.source_position) ? fact.source_position : Number(String(fact?.id || '').slice(2));
 }
 
 function normalizeHairlineWoundSegmentFacts(inputText, woundFacts) {
   const text = normalizeInput(inputText);
   const findings = [];
   const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
-  const outsidePattern = new RegExp(`发际(?:线)?外(?:长度|长)?(?:约|为|达)?\\s*${amount}\\s*(?:cm|厘米)`, 'gu');
-  const insidePattern = new RegExp(`发际(?:线)?内(?:长度|长)?(?:约|为|达)?\\s*${amount}\\s*(?:cm|厘米)`, 'gu');
+  const outsidePattern = new RegExp(`发际(?:线)?(?:外|上)(?:长度|长)?(?:约|为|达)?\\s*${amount}\\s*(?:cm|厘米)`, 'gu');
+  const insidePattern = new RegExp(`发际(?:线)?(?:内|下)(?:长度|长)?(?:约|为|达)?\\s*${amount}\\s*(?:cm|厘米)`, 'gu');
+  const belowHairlinePattern = new RegExp(`(?:其中|其中的|其中一段|其中部分)\\s*${amount}\\s*(?:cm|厘米)[^。；;\\n]{0,12}(?:位于|在)发际(?:线)?(?:下|内)`, 'gu');
+  const aboveHairlinePattern = new RegExp(`(?:其中|其中的|其中一段|其中部分)\\s*${amount}\\s*(?:cm|厘米)[^。；;\\n]{0,12}(?:位于|在)发际(?:线)?(?:上|外)`, 'gu');
+  const wholeMeasurementPattern = new RegExp(`(?:创口|伤口|创痕|裂口|裂创|裂伤|瘢痕|疤痕)[^。；;\\n]{0,12}?(?:长|长度)(?:约|为|达)?\\s*${amount}\\s*(?:cm|厘米)`, 'gu');
   for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
     if (sentence[0].length > 500 || certaintyFor(sentence[0], 0, sentence[0].length) !== 'reported'
       || /(?:既往|曾经|陈旧|旧伤|此前|之前|原有|既有|历史)[^。；;\n]{0,48}(?:创口|伤口|瘢痕|外伤|损伤)/u.test(sentence[0])) continue;
@@ -2465,6 +2474,50 @@ function normalizeHairlineWoundSegmentFacts(inputText, woundFacts) {
     insidePattern.lastIndex = 0;
     const outside = [...sentence[0].matchAll(outsidePattern)];
     const inside = [...sentence[0].matchAll(insidePattern)];
+    belowHairlinePattern.lastIndex = 0;
+    aboveHairlinePattern.lastIndex = 0;
+    const belowHairline = [...sentence[0].matchAll(belowHairlinePattern)];
+    const aboveHairline = [...sentence[0].matchAll(aboveHairlinePattern)];
+    const explicitSubset = outside.length === 1 && inside.length === 0 && belowHairline.length === 0
+      && aboveHairline.length === 0 ? { match: outside[0], isFace: false }
+      : outside.length === 0 && inside.length === 1 && belowHairline.length === 0
+        && aboveHairline.length === 0 ? { match: inside[0], isFace: true }
+        : outside.length === 0 && inside.length === 0 && belowHairline.length === 1
+          && aboveHairline.length === 0 ? { match: belowHairline[0], isFace: true }
+          : outside.length === 0 && inside.length === 0 && belowHairline.length === 0
+            && aboveHairline.length === 1 ? { match: aboveHairline[0], isFace: false } : null;
+    if (explicitSubset && /(?:额部|额头|前额|面部|脸部)/u.test(sentence[0])
+      && /(?:创口|伤口|划伤|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(sentence[0])) {
+      wholeMeasurementPattern.lastIndex = 0;
+      const subset = explicitSubset.match;
+      const subsetLength = /^\d/u.test(subset[1]) ? Number(subset[1]) : parseNumber(subset[1]);
+      const wholeMatches = [...sentence[0].matchAll(wholeMeasurementPattern)]
+        .filter(match => match.index < subset.index && subset.index - match.index <= 80)
+        .sort((left, right) => right.index - left.index);
+      const whole = wholeMatches[0];
+      if (whole && Number.isFinite(subsetLength) && subsetLength > 0) {
+        const wholeLength = /^\d/u.test(whole[1]) ? Number(whole[1]) : parseNumber(whole[1]);
+        const faceLength = explicitSubset.isFace ? subsetLength : Math.round((wholeLength - subsetLength) * 100) / 100;
+        const scalpLength = explicitSubset.isFace ? Math.round((wholeLength - subsetLength) * 100) / 100 : subsetLength;
+        const wholeValueOffset = sentence.index + whole.index + whole[0].indexOf(whole[1]);
+        const totalFact = woundFacts.find(fact => fact.field === 'wound_length_cm' && fact.certainty === 'reported'
+          && fact.value === wholeLength && Number(String(fact.id).slice(2)) === wholeValueOffset);
+        if (totalFact && wholeLength > subsetLength && faceLength > 0 && scalpLength > 0) {
+          const sourceExcerpt = sentence[0].trim();
+          const injuryType = sourceExcerpt.match(/瘢痕|疤痕|裂口|裂创|裂伤|创口|伤口|划伤/u)?.[0] || '创口';
+          const subsetValueOffset = sentence.index + subset.index + subset[0].indexOf(subset[1]);
+          findings.push({ id: `HLI${subsetValueOffset}`, field: 'wound_length_cm', value: faceLength,
+            certainty: 'derived', source_type: 'derived', derived_from: [totalFact.id], source_excerpt: sourceExcerpt,
+            source_position: subsetValueOffset,
+            regionEvidence: { site: '面部', injuryType } });
+          findings.push({ id: `HLO${subsetValueOffset}`, field: 'wound_length_cm', value: scalpLength,
+            certainty: 'derived', source_type: 'derived', derived_from: [totalFact.id], source_excerpt: sourceExcerpt,
+            source_position: subsetValueOffset,
+            regionEvidence: { site: '头皮', injuryType } });
+          continue;
+        }
+      }
+    }
     if (outside.length !== 1 || inside.length !== 1
       || !/(?:额部|额头|前额|面部|脸部)/u.test(sentence[0])
       || !/(?:创口|伤口|划伤|裂口|裂创|裂伤|瘢痕|疤痕)/u.test(sentence[0])) continue;
@@ -2506,9 +2559,9 @@ function normalizeFacialWoundAggregateFacts(inputText, woundFacts) {
     const start = sentence.index;
     const end = start + sentence[0].length;
     const candidates = [...new Map(woundFacts.filter(fact => {
-      const position = Number(String(fact.id).slice(2));
+      const position = woundFactPosition(fact);
       return Number.isInteger(position) && position >= start && position < end
-        && fact.certainty === 'reported' && Number.isFinite(fact.value) && fact.value > 0;
+        && ['reported', 'derived'].includes(fact.certainty) && Number.isFinite(fact.value) && fact.value > 0;
     }).map(fact => [`${fact.id}:${fact.value}`, fact])).values()]
       .filter(fact => !isWholeMeasurementWithRegionSegments(fact, woundFacts)
         && !isUnsegmentedFaceScalpMeasurement(fact))
@@ -2519,7 +2572,7 @@ function normalizeFacialWoundAggregateFacts(inputText, woundFacts) {
           .map(reference => reference.evidence);
         const locationEvidence = localEvidence.length ? localEvidence.join('；') : fact.source_excerpt;
         return { ...fact, location: facialWoundLocation(locationEvidence, fact.value, fact.regionEvidence),
-          multiplicity: explicitWoundMultiplicity(fact) };
+          multiplicity: fact.certainty === 'derived' ? 1 : explicitWoundMultiplicity(fact) };
       }).filter(fact => fact.location);
     if (hasSeparateObservationCueBetweenMeasurements(sentence[0], start, candidates)) continue;
     const byLocation = new Map();
@@ -2551,7 +2604,7 @@ function normalizeFacialWoundAggregateFacts(inputText, woundFacts) {
         explicitSameSiteMultiple = true;
         continue;
       }
-      const positions = factsAtLocation.map(fact => Number(String(fact.id).slice(2))).filter(Number.isInteger);
+      const positions = factsAtLocation.map(woundFactPosition).filter(Number.isInteger);
       if (positions.length === factsAtLocation.length) {
         const span = sentence[0].slice(Math.min(...positions) - start, Math.max(...positions) - start);
         const joinedWoundDescriptions = factsAtLocation.some(fact => /(?:及|和|以及)/u.test(fact.source_excerpt)
@@ -3554,9 +3607,14 @@ function dateRoleBefore(text, dateIndex) {
 
 function parseEventDateAnchors(text) {
   const anchors = [];
-  const datePattern = /(?<year>(?:19|20)\d{2})年(?:(?<month>\d{1,2})月(?:(?<day>\d{1,2})日)?)?/gu;
+  const datePatterns = [
+    /(?<year>(?:19|20)\d{2})年(?:(?<month>\d{1,2})月(?:(?<day>\d{1,2})日)?)?/gu,
+    /(?<year>(?:19|20)\d{2})[-/.](?<month>\d{1,2})[-/.](?<day>\d{1,2})/gu,
+  ];
   const source = String(text || '');
-  for (const match of source.matchAll(datePattern)) {
+  const dateMatches = datePatterns.flatMap(datePattern => [...source.matchAll(datePattern)])
+    .sort((left, right) => left.index - right.index);
+  for (const match of dateMatches) {
     const dateRole = dateRoleBefore(source, match.index);
     if (dateRole === 'clinical') continue;
     const contextStart = match.index + match[0].length;
@@ -3990,8 +4048,13 @@ function isNonInjuryDateClaim(evidence, value) {
   const targetDate = normalizeInjuryDateValue(value);
   if (!targetDate) return false;
   const text = normalizeInput(evidence || '');
-  const datePattern = /(?<year>(?:19|20)\d{2})年(?:(?<month>\d{1,2})月(?:(?<day>\d{1,2})日)?)?/gu;
-  for (const match of text.matchAll(datePattern)) {
+  const datePatterns = [
+    /(?<year>(?:19|20)\d{2})年(?:(?<month>\d{1,2})月(?:(?<day>\d{1,2})日)?)?/gu,
+    /(?<year>(?:19|20)\d{2})[-/.](?<month>\d{1,2})[-/.](?<day>\d{1,2})/gu,
+  ];
+  const dateMatches = datePatterns.flatMap(datePattern => [...text.matchAll(datePattern)])
+    .sort((left, right) => left.index - right.index);
+  for (const match of dateMatches) {
     const month = match.groups.month == null ? null : Number(match.groups.month);
     const day = match.groups.day == null ? null : Number(match.groups.day);
     const dateValue = month == null ? match.groups.year
@@ -4472,8 +4535,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeOrbitalWallFractureFacts(sourceText),
       ...normalizeOrbitalWallEnophthalmosFacts(sourceText),
       ...normalizeLimbLengthDifferenceFacts(sourceText),
-      ...woundLengthFacts, ...normalizeScalpWoundAggregateFacts(sourceText, woundLengthFacts),
-      ...normalizeFacialWoundAggregateFacts(sourceText, woundLengthFacts),
+      ...woundLengthFacts, ...normalizeScalpWoundAggregateFacts(sourceText, ratioLengthFacts),
+      ...normalizeFacialWoundAggregateFacts(sourceText, ratioLengthFacts),
       ...normalizeAuricleWoundAggregateFacts(sourceText, woundLengthFacts),
       ...normalizeAggregateWoundLengthFacts(sourceText),
       ...normalizeBilateralIncisorLossFacts(sourceText),
@@ -4547,7 +4610,13 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
       && (contextFor(modelFact.evidence) || normalizeInput(modelFact.evidence)) === factClause)
       .map(modelFact => modelFact.eventId));
-    return eventIds.size === 1 ? [...eventIds][0] : null;
+    if (eventIds.size === 1) return [...eventIds][0];
+    if (eventIds.size > 1 || !hasSingleExplicitInjuryEvent(sourceTexts.description)) return null;
+    const sourceEventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
+      && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
+      && sourceTexts.description.includes(normalizeInput(modelFact.evidence)))
+      .map(modelFact => modelFact.eventId));
+    return sourceEventIds.size === 1 ? [...sourceEventIds][0] : null;
   };
   for (const fact of deterministicFacts) {
     const explicitlyLinkedEquivalentFinding = fact.field === 'clinical_finding'

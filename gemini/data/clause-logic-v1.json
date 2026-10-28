@@ -24301,35 +24301,12 @@
         }
       },
       "5.9.6.2": {
-        "annotation": "explicit",
+        "annotation": "opaque",
+        "reason": "条文包含“一椎体并相应附件骨折，经手术治疗后”或“二椎体压缩性骨折”。当前事实结构无法可靠核验独立椎体层面及数量、附件与椎体的对应关系和手术对象；完整结论短语不能替代逐椎体影像及手术记录核对，需人工复核。",
         "logic": {
-          "op": "any",
+          "op": "condition",
           "sourceText": "一椎体并相应附件骨折，经手术治疗后；二椎体压缩性骨折；",
-          "conditionText": "一椎体并相应附件骨折，经手术治疗后；二椎体压缩性骨折；",
-          "children": [
-            {
-              "op": "condition",
-              "sourceText": "一椎体并相应附件骨折，经手术治疗后",
-              "conditionText": "一椎体并相应附件骨折，经手术治疗后",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "一椎体并相应附件骨折，经手术治疗后"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "二椎体压缩性骨折",
-              "conditionText": "二椎体压缩性骨折",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "二椎体压缩性骨折"
-                ]
-              }
-            }
-          ]
+          "conditionText": "一椎体并相应附件骨折，经手术治疗后；二椎体压缩性骨折；"
         }
       },
       "5.9.6.3": {
@@ -24933,15 +24910,33 @@
           "conditionText": "一眼外伤性青光眼，经手术治疗；一眼外伤性低眼压；",
           "children": [
             {
-              "op": "condition",
+              "op": "all",
               "sourceText": "一眼外伤性青光眼，经手术治疗",
               "conditionText": "一眼外伤性青光眼，经手术治疗",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "一眼外伤性青光眼，经手术治疗"
-                ]
-              }
+              "children": [
+                {
+                  "op": "condition",
+                  "sourceText": "一眼外伤性青光眼",
+                  "conditionText": "一眼外伤性青光眼",
+                  "factMatch": {
+                    "field": "diagnosis",
+                    "values": ["一眼外伤性青光眼"],
+                    "valueIncludes": ["外伤性青光眼"],
+                    "evidenceAliases": ["外伤性青光眼"]
+                  }
+                },
+                {
+                  "op": "condition",
+                  "sourceText": "经手术治疗",
+                  "conditionText": "经手术治疗",
+                  "factMatch": {
+                    "field": "treatment",
+                    "values": ["经手术治疗"],
+                    "valueIncludes": ["手术"],
+                    "evidenceAliases": ["手术"]
+                  }
+                }
+              ]
             },
             {
               "op": "condition",

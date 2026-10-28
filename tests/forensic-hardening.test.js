@@ -734,7 +734,7 @@ test('service normalization rejects model support for every opaque grading claus
     assert.ok(reference?.conditions.every(condition => condition.evidence === ''
       && condition.factIds.length === 0 && condition.met === null), clause.id);
   }
-  assert.equal(checked, 32);
+  assert.equal(checked, 33);
 });
 
 test('service normalization rejects unsupported model support claims for every explicit clause', () => {
@@ -755,7 +755,7 @@ test('service normalization rejects unsupported model support claims for every e
     assert.equal(result.grade, null, clause.id);
     assert.ok(result.references.every(reference => reference.relation !== 'supports'), clause.id);
   }
-  assert.equal(checked, 815);
+  assert.equal(checked, 814);
 });
 
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
@@ -1111,6 +1111,69 @@ test('one quoted composite vertebral-process conclusion cannot independently pro
   const reference = result.references.find(item => item.id === clause.id);
   assert.equal(reference?.relation, 'incomplete');
   assert.match(reference?.reasoning || '', /骨折处数及其与功能受影响的同事件关联/u);
+});
+
+test('5.9.6.2 stays opaque until vertebral levels and surgery-object linkage are source-verifiable', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.9.6.2');
+  assert.equal(clause.conditionLogic.annotation, 'opaque');
+  assert.match(clause.conditionLogic.reason, /椎体.*(?:层面|数量).*(?:附件|手术|影像)/u);
+});
+
+test('traumatic glaucoma surgery clauses verify diagnosis and current-event treatment separately', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.2.12');
+  const [glaucomaBranch] = clause.conditionLogic.logic.children;
+  assert.equal(glaucomaBranch.op, 'all');
+  assert.deepEqual(glaucomaBranch.children.map(child => child.factMatch.field), ['diagnosis', 'treatment']);
+
+  const diagnosis = { id: 'G1', eventId: 'E1', field: 'diagnosis', value: '左眼外伤性青光眼',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '本次事故导致左眼外伤性青光眼' };
+  const treatment = { id: 'G2', eventId: 'E1', field: 'treatment', value: '左眼小梁切除术',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '因本次事故导致左眼外伤性青光眼，接受左眼小梁切除术' };
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [diagnosis, treatment]).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [diagnosis, { ...treatment, eventId: 'E2' }]).met, true);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [diagnosis, { ...treatment,
+    value: '肾修补术', evidence: '因本次事故导致左眼外伤性青光眼，接受肾修补术' }]).met, true);
+});
+
+test('a same-organ partial splenectomy cannot satisfy age-specific total-splenectomy clauses', () => {
+  const partial = { id: 'SP1', eventId: 'E1', field: 'treatment', value: '脾部分切除术',
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence: '成年人因本次事故接受脾部分切除术' };
+  const minorTotal = catalogs.disability.clauses.find(item => item.id === '5.7.4.4');
+  const adultTotal = catalogs.disability.clauses.find(item => item.id === '5.8.4.2');
+  const partialClause = catalogs.disability.clauses.find(item => item.id === '5.9.4.2');
+
+  assert.notEqual(evaluateConditionLogic(minorTotal.conditionLogic, [partial]).met, true);
+  assert.notEqual(evaluateConditionLogic(adultTotal.conditionLogic, [partial]).met, true);
+  assert.equal(evaluateConditionLogic(partialClause.conditionLogic, [partial]).met, true);
+});
+
+test('ISO-dated current injuries keep later measurements event-bound without merging a second accident', () => {
+  const description = '2016-10-06遭酒瓶击伤后右眼受伤，右眼内眦创口长5.5cm。2018-03-12另一次事故后左面部受伤，左面部创口长5.5cm。';
+  const facts = normalizeExtractedFacts({ facts: [
+    { id: 'D1', field: 'injury_date', value: '2016-10-06', certainty: 'reported', source: 'description',
+      evidence: '2016-10-06遭酒瓶击伤后右眼受伤，右眼内眦创口长5.5cm', eventId: 'E1' },
+    { id: 'D2', field: 'injury_date', value: '2018-03-12', certainty: 'reported', source: 'description',
+      evidence: '2018-03-12另一次事故后左面部受伤，左面部创口长5.5cm', eventId: 'E2' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false }, { description }).facts;
+  const wounds = facts.filter(fact => fact.field === 'wound_length_cm');
+
+  assert.deepEqual(wounds.map(fact => fact.eventId), ['E1', 'E2']);
+  assert.equal(facts.some(fact => fact.field === 'aggregate_wound_length_cm' && fact.value === 11), false);
+});
+
+test('forehead scars crossing the hairline count only their verified facial segment', () => {
+  const description = '头部被打伤后约1小时就诊，受伤时30周岁。查体见右额部不规则创口约10厘米，皮瓣外翻，深达颅骨，未触及颅骨凹陷；双瞳孔光反射灵敏，耳鼻道无出血。诊断为右额头皮撕脱伤，行清创缝合。2016年8月30日检验见右额部瘢痕长7.8厘米，其中5.0厘米位于发际下；右眉弓上方两道瘢痕，长0.5厘米、0.8厘米。';
+  const extraction = normalizeExtractedFacts({ facts: [{ id: 'AGE-I', field: 'age_at_injury_years', value: 30,
+    certainty: 'reported', source: 'description', evidence: '受伤时30周岁' }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const gradeOne = catalogs.injury.clauses.find(item => item.id === '5.2.3.a');
+  const gradeTwo = catalogs.injury.clauses.find(item => item.id === '5.2.4.a');
+
+  assert.ok(facts.some(fact => fact.field === 'aggregate_wound_length_cm' && fact.value === 6.3));
+  assert.notEqual(evaluateConditionLogic(gradeOne.conditionLogic, facts).met, true);
+  assert.equal(evaluateConditionLogic(gradeTwo.conditionLogic, facts).met, true);
 });
 
 test('one quoted composite knee conclusion cannot independently prove injuries, surgery, and residual function impact', () => {

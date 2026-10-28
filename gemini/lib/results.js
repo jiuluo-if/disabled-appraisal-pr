@@ -899,6 +899,7 @@ function clinicalOrgan(fact) {
   if (/膈肌/u.test(text)) return 'diaphragm';
   if (/睾丸/u.test(text)) return 'testicle';
   if (/尿道/u.test(text)) return 'urethra';
+  if (/(?:眼球|眼睑|眼角膜|角膜|视网膜|视神经|眼)/u.test(text)) return 'eye';
   if (/髌骨/u.test(text)) return 'patella';
   return null;
 }
@@ -910,6 +911,7 @@ function compatibleLaterality(left, right) {
       kidney: /肾/u,
       lung: /肺/u,
       testicle: /睾丸/u,
+      eye: /(?:眼球|眼睑|眼角膜|角膜|视网膜|视神经|眼)/u,
       patella: /髌骨/u,
       frontal_brain_lobe: /额叶/u,
       temporal_brain_lobe: /颞叶/u,
@@ -1431,8 +1433,12 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const genericBrainContusionValue = normalize(node.sourceText || '') === normalize('脑挫(裂)伤')
         && factValues.some(value => typeof value === 'string' && normalize(value) === normalize('挫伤'))
         && Boolean(evidenceAliasMatch);
-      const performedSurgicalTreatment = acceptedFields.has('treatment') && requiresCurrentProcedureLink(node)
-        && isPerformedSurgicalTreatmentFact(fact);
+      const surgicalConditionText = normalize(node.conditionText || node.sourceText || '');
+      const genericSurgicalRequirement = /(?:须|需)手术治疗|经手术治疗(?:后)?|手术治疗/u.test(surgicalConditionText)
+        && !/(?:开颅|减压|切除|修补|摘除|清除|吻合|固定|移植|置换|复位|缝合|重建|成形|植入|引流|取出)/u
+          .test(surgicalConditionText);
+      const performedSurgicalTreatment = genericSurgicalRequirement && acceptedFields.has('treatment')
+        && requiresCurrentProcedureLink(node) && isPerformedSurgicalTreatmentFact(fact);
       const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue || performedSurgicalTreatment;
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
