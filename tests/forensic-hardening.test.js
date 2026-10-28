@@ -147,6 +147,37 @@ test('typed fields can recall every explicit clause beyond lexical ranking', () 
   }
 });
 
+test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
+  const assess = (id, area, site = '颈前三角区') => {
+    const description = `本次事故后${site}瘢痕累计面积${area}cm2。`;
+    const facts = normalizeExtractedFacts(emptyExtraction, { description }).facts
+      .map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.disability.clauses.find(item => item.id === id);
+    assert.ok(facts.some(fact => fact.field === 'aggregate_surface_scar_area_cm2' && fact.value === area));
+    assert.ok(retrieveClauses('disability', '', 0, facts).some(item => item.id === id));
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.9.3.1', 50), true);
+  assert.notEqual(assess('5.9.3.1', 49.99), true);
+  assert.equal(assess('5.10.3.2', 25), true);
+  assert.notEqual(assess('5.10.3.2', 24.99), true);
+
+  const description = '本次事故后背部瘢痕累计面积25cm2。';
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.3.2');
+  const facts = [{ id: 'B1', eventId: 'E1', field: 'aggregate_surface_scar_area_cm2', value: 25,
+    certainty: 'reported', source: 'description', evidence: '背部瘢痕累计面积25cm2', verification: 'quoted' }];
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: description,
+        factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'neck-triangle-area-model-override',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
 test('unrelated head evidence cannot be displayed as support for an uncertain rib-count clause', () => {
   const clause = catalogs.disability.clauses.find(item => item.id === '5.10.3.7');
   const headEvidence = '本次头部软组织损伤';

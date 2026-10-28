@@ -23942,12 +23942,13 @@
           "op": "condition",
           "sourceText": "颈前三角区瘢痕形成，累计面积达50.0cm2",
           "conditionText": "颈前三角区瘢痕形成，累计面积达50.0cm2",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "颈前三角区瘢痕形成，累计面积达50.0cm2"
-            ]
-          }
+        "predicate": {
+          "field": "aggregate_surface_scar_area_cm2",
+          "operator": "gte",
+          "value": 50,
+          "unit": "cm2",
+          "evidenceGroups": [["颈前三角区"], ["瘢痕"], ["累计面积", "总面积", "合计"]]
+        }
         }
       },
       "5.9.3.4": {
@@ -25229,12 +25230,13 @@
           "op": "condition",
           "sourceText": "颈前三角区瘢痕形成，累计面积达25.0cm2",
           "conditionText": "颈前三角区瘢痕形成，累计面积达25.0cm2",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "颈前三角区瘢痕形成，累计面积达25.0cm2"
-            ]
-          }
+        "predicate": {
+          "field": "aggregate_surface_scar_area_cm2",
+          "operator": "gte",
+          "value": 25,
+          "unit": "cm2",
+          "evidenceGroups": [["颈前三角区"], ["瘢痕"], ["累计面积", "总面积", "合计"]]
+        }
         }
       },
       "5.10.3.3": {
