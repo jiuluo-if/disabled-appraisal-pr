@@ -47,6 +47,132 @@ test('5.1.2.c binds a documented craniotomy decompression and hematoma evacuatio
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, facts.filter(fact => fact.id !== 'F2')).met, true);
 });
 
+test('5.1.2.m binds completed surgery to the same-event traumatic hydrocephalus diagnosis', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.2.m');
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '外伤性脑积水', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '本次事故造成外伤性脑积水' },
+    { id: 'F2', eventId: 'E1', field: 'treatment', value: '脑室腹腔分流术', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '因外伤性脑积水行脑室腹腔分流术' },
+  ];
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+
+  const planned = facts.map(fact => fact.id === 'F2' ? { ...fact,
+    value: '拟行脑室腹腔分流术', evidence: '因外伤性脑积水拟行脑室腹腔分流术' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, planned).met, true);
+
+  const otherEvent = facts.map(fact => fact.id === 'F2' ? { ...fact, eventId: 'E2' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, otherEvent).met, true);
+
+  const unrelatedSurgery = facts.map(fact => fact.id === 'F2' ? { ...fact,
+    evidence: '因同次事故的脑挫伤行脑室腹腔分流术' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, unrelatedSurgery).met, true);
+
+  const genericAccidentOnly = facts.map(fact => fact.id === 'F2' ? { ...fact,
+    evidence: '因本次事故行脑室腹腔分流术' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, genericAccidentOnly).met, true);
+
+  const description = '本次事故造成外伤性脑积水，因外伤性脑积水行脑室腹腔分流术。';
+  const normalized = normalizeResult({ ...providerFixture('injury'), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.injury, description }, { clauses: [clause],
+    requestId: 'traumatic-hydrocephalus-surgery-binding', model: 'test-model', extractedFacts: facts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(normalized.grade, clause.grade);
+  assert.equal(normalized.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
+test('5.12.4.k accepts an explicit same-event need for hardware replacement without inventing a completed operation', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.12.4.k');
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '骨折内固定物损坏', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '检查确认骨折内固定物损坏' },
+    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '骨折内固定物需要手术更换', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '医师评估骨折内固定物需要手术更换' },
+  ];
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+
+  const otherEvent = facts.map(fact => fact.id === 'F2' ? { ...fact, eventId: 'E2' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, otherEvent).met, true);
+
+  const uncertain = facts.map(fact => fact.id === 'F2' ? { ...fact, certainty: 'uncertain',
+    evidence: '医师考虑骨折内固定物可能需要手术更换' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, uncertain).met, true);
+
+  const prosthesisClause = catalogs.injury.clauses.find(item => item.id === '5.12.4.l');
+  const prosthesisFacts = facts.map(fact => ({ ...fact,
+    value: fact.value.replaceAll('骨折内固定物', '置入式假体装置'),
+    evidence: fact.evidence.replaceAll('骨折内固定物', '置入式假体装置'),
+  }));
+  assert.equal(evaluateConditionLogic(prosthesisClause.conditionLogic, prosthesisFacts).met, true);
+
+  const description = '检查确认骨折内固定物损坏，医师评估骨折内固定物需要手术更换。';
+  const normalized = normalizeResult({ ...providerFixture('injury'), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.injury, description }, { clauses: [clause],
+    requestId: 'hardware-replacement-need-binding', model: 'test-model', extractedFacts: facts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(normalized.grade, clause.grade);
+  assert.equal(normalized.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
+test('5.6.3.2 links thoracoplasty and rib resection to the same thoracic site, side, and event', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.6.3.2');
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '一侧胸廓成形术后', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '本次损伤后右侧胸廓成形术后，记录为一侧胸廓成形术后' },
+    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '切除6根以上肋骨', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '右侧胸廓成形术后切除6根以上肋骨' },
+  ];
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, facts).met, true);
+
+  const otherEvent = facts.map(fact => fact.id === 'F2' ? { ...fact, eventId: 'E2' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, otherEvent).met, true);
+
+  const oppositeSide = facts.map(fact => fact.id === 'F2' ? { ...fact,
+    evidence: '左侧胸廓成形术后切除6根以上肋骨' } : fact);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, oppositeSide).met, true);
+
+  const description = '本次损伤后右侧胸廓成形术后，记录为一侧胸廓成形术后；右侧胸廓成形术后切除6根以上肋骨。';
+  const normalized = normalizeResult({ ...providerFixture('disability'), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.disability, description, treatmentStatus: 'stable' }, { clauses: [clause],
+    requestId: 'thoracoplasty-rib-count-binding', model: 'test-model', extractedFacts: facts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(normalized.grade, clause.grade);
+  assert.equal(normalized.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+});
+
+test('source-quoted postoperative states satisfy their own criterion without requiring another primary-injury organ anchor', () => {
+  const pancreasClause = catalogs.disability.clauses.find(item => item.id === '5.6.4.3');
+  const pancreasFacts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '胰腺部分切除术后', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '胰腺部分切除术后' },
+    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '功能障碍', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '胰腺部分切除术后出现胰腺功能障碍' },
+    { id: 'F3', eventId: 'E1', field: 'clinical_finding', value: '需药物治疗', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '胰腺部分切除术后胰腺功能障碍需药物治疗' },
+  ];
+  assert.equal(evaluateConditionLogic(pancreasClause.conditionLogic, pancreasFacts).met, true);
+
+  const esophagusClause = catalogs.disability.clauses.find(item => item.id === '5.8.3.3');
+  const esophagusFacts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '食管部分切除术后', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '食管部分切除术后' },
+    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '后遗胸腔胃', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '食管部分切除术后形成后遗胸腔胃' },
+  ];
+  assert.equal(evaluateConditionLogic(esophagusClause.conditionLogic, esophagusFacts).met, true);
+  assert.notEqual(evaluateConditionLogic(esophagusClause.conditionLogic,
+    esophagusFacts.map(fact => fact.id === 'F1' ? { ...fact, eventId: 'E2' } : fact)).met, true);
+
+  const heartClause = catalogs.disability.clauses.find(item => item.id === '5.8.3.7');
+  const unrelatedPostoperativeFinding = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '心脏修补术后', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '心脏修补术后' },
+    { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '心悸', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '心脏手术后出现心悸' },
+  ];
+  assert.notEqual(evaluateConditionLogic(heartClause.conditionLogic, unrelatedPostoperativeFinding).met, true);
+});
+
 test('heart and pericardial repair procedure names do not prove rupture without direct lesion evidence', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.6.2.b');
   const evaluate = (value, evidence, requestId) => {
@@ -1197,6 +1323,14 @@ test('surgery after an event requires an explicit causal statement or same-event
   const unrelatedOperation = { ...explicitlyCausedOperation,
     evidence: '因本次事故造成腹部挫伤，本次事故后行一侧肾切除术后' };
   assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [unrelatedOperation]).met, true);
+
+  const rightKidneyOperation = { id: 'K3', eventId: 'E1', field: 'treatment', value: '右肾切除术',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '因本次事故导致右肾损伤行右肾切除术，术后记录为一侧肾切除术后' };
+  const rightKidneyInjury = { ...sameEventKidneyInjury, id: 'K4', value: '右肾损伤',
+    evidence: '本次事故导致右肾损伤' };
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+    [rightKidneyOperation, rightKidneyInjury, sameEventKidneyInjury]).met, true);
 });
 
 test('mandibular body defect without a fracture cannot satisfy the jaw-fracture clause', () => {

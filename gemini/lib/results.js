@@ -773,21 +773,29 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
   const requiresOrganAnchor = /(?:破裂|裂口|裂伤|挫裂伤|损伤|血肿)[^。；;]{0,24}(?:手术|切除|修补|缝合)/u
     .test(node.conditionText || '');
   const factOrgan = clinicalOrgan(fact);
+  let explicitlyIndicatedSurgery = false;
   const explicitIndication = procedureText.match(/(?:因|由于|针对|为治疗|用于治疗)([^，,。；;\n]{1,28}?)(?=(?:行|接受|实施|进行|施行|予以))/u);
   if (explicitIndication) {
     const indication = { evidence: explicitIndication[1], value: '' };
+    const indicationText = normalize(indication.evidence);
+    const genericIndication = /^(?:(?:本次|此次|当前)?(?:交通)?(?:事故|外伤|受伤|损伤)(?:导致|造成|引起|所致|后)?|事故|外伤|受伤|损伤)$/u;
     const indicationIsLinked = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
       && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
       && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
       && clinicalOrgan(anchor) === factOrgan && compatibleLaterality(anchor, fact)
-      && sharedClinicalInjuryPhrase(anchor, indication));
+      && (sharedClinicalInjuryPhrase(anchor, indication)
+        || indicationText.length >= 4 && !genericIndication.test(indicationText)
+          && normalize(`${anchor.value ?? ''} ${anchor.evidence ?? ''}`).includes(indicationText)));
     if (!indicationIsLinked && !hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)) return false;
+    explicitlyIndicatedSurgery = indicationIsLinked && isPerformedSurgicalTreatmentFact(fact);
   }
   const sameEventOrganSideConflict = facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
     && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'anatomical_site'].includes(anchor.field)
     && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
     && factOrgan && clinicalOrgan(anchor) === factOrgan && !compatibleLaterality(anchor, fact));
   if (sameEventOrganSideConflict) return false;
+  if (explicitlyIndicatedSurgery) return true;
+  if (hasDirectPostoperativeOutcomeLink(fact, facts, node)) return true;
   if (hasExplicitCurrentEventLink(fact.evidence)
     && hasExplicitCurrentEventCausalProcedureLink(fact.evidence, factOrgan)
     && !requiresOrganAnchor
@@ -844,6 +852,19 @@ function hasCurrentEventLinkForProcedure(fact, facts, node) {
     && operationOrgans.has(clinicalOrgan(anchor)) && compatibleLaterality(anchor, fact));
 }
 
+function hasDirectPostoperativeOutcomeLink(fact, facts, node) {
+  const conditionText = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
+  if (!/(?:术后|手术治疗后)/u.test(conditionText)) return false;
+  const procedureQuote = node.conditionText || node.sourceText || '';
+  return facts.some(anchor => anchor.id !== fact.id && anchor.eventId === fact.eventId
+    && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type', 'functional_impairment'].includes(anchor.field)
+    && reliableCertainties.has(anchor.certainty) && anchor.source === 'description' && anchor.verification === 'quoted'
+    && includesEvidence(anchor.evidence, procedureQuote)
+    && /(?:术后|后遗|遗留|形成|出现|导致|引起)/u.test(anchor.evidence)
+    && !evidenceLabelsFindingAsHistorical(anchor.evidence, procedureQuote)
+    && compatibleLaterality(anchor, fact));
+}
+
 function clinicalOrgan(fact) {
   const text = normalize(`${fact?.value ?? ''} ${fact?.evidence ?? ''}`);
   if (/额叶/u.test(text)) return 'frontal_brain_lobe';
@@ -860,6 +881,7 @@ function clinicalOrgan(fact) {
   if (/胆囊/u.test(text)) return 'gallbladder';
   if (/(?:胆道|胆总管|胆管)/u.test(text)) return 'bile_duct';
   if (/肺/u.test(text)) return 'lung';
+  if (/(?:胸廓|胸壁|肋骨)/u.test(text)) return 'thoracic_cage';
   if (/子宫/u.test(text)) return 'uterus';
   if (/膀胱/u.test(text)) return 'bladder';
   if (/食管/u.test(text)) return 'esophagus';
@@ -882,6 +904,7 @@ function compatibleLaterality(left, right) {
       temporal_brain_lobe: /颞叶/u,
       parietal_brain_lobe: /顶叶/u,
       occipital_brain_lobe: /枕叶/u,
+      thoracic_cage: /(?:胸廓|胸壁|肋骨)/u,
     }[clinicalOrgan(fact)];
     if (!sitePattern) return null;
     const sides = new Set();
@@ -927,11 +950,21 @@ function isUnperformedProcedureEvidence(evidence) {
   return proposed.test(text) || cancelled.test(text);
 }
 
+function isPerformedSurgicalTreatmentFact(fact) {
+  if (fact?.field !== 'treatment' || fact.source !== 'description' || fact.verification !== 'quoted'
+    || !reliableCertainties.has(fact.certainty)) return false;
+  const evidence = normalize(String(fact.evidence || ''));
+  if (!evidence || isUnperformedProcedureEvidence(evidence)
+    || /(?:手术计划|拟行|拟施行|拟手术|术前准备)/u.test(evidence)) return false;
+  return /(?:行|接受|施行|实施|进行|完成|予以)[^。！？；;\n]{0,20}(?:手术|[\p{Script=Han}]{2,14}术(?!前|后))/u.test(evidence);
+}
+
 function requiresCurrentProcedureLink(node) {
   const conditionText = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
   const procedurePattern = /手术|切除术?|修补术?|摘除术|清除|引流|缝合|修复术|修复手术/u;
   const nonPerformedProcedure = /(?:难以|难于|不能|无法|不宜|不适宜|不适合|未予|未行|未接受|尚未|拟|计划|建议)[^。；;]{0,12}(?:手术|切除|修补|摘除|清除|引流|缝合|修复)|(?:手术|切除|修补|摘除|清除|引流|缝合|修复)[^。；;]{0,12}(?:困难|难以|不能|无法|不宜|不适宜)/u;
-  if (nonPerformedProcedure.test(conditionText)) return false;
+  const surgeryNeedForReplacement = /(?:需要|需|须)[^。；;]{0,8}手术(?:更换|修复)/u.test(conditionText);
+  if (nonPerformedProcedure.test(conditionText) || surgeryNeedForReplacement) return false;
   return procedurePattern.test(conditionText)
     || (node.factMatch?.values || []).some(value => typeof value === 'string' && procedurePattern.test(value));
 }
@@ -1386,7 +1419,9 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const genericBrainContusionValue = normalize(node.sourceText || '') === normalize('脑挫(裂)伤')
         && factValues.some(value => typeof value === 'string' && normalize(value) === normalize('挫伤'))
         && Boolean(evidenceAliasMatch);
-      const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue;
+      const performedSurgicalTreatment = acceptedFields.has('treatment') && requiresCurrentProcedureLink(node)
+        && isPerformedSurgicalTreatmentFact(fact);
+      const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue || performedSurgicalTreatment;
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1405,8 +1440,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
             && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
       const moderateShockCondition = node.factMatch.field === 'clinical_finding'
         && node.factMatch.values?.some(value => normalize(value) === normalize('各种损伤引起休克（中度）'));
-      const evidenceMatches = cardiacRuptureCondition || moderateShockCondition ? canonicalEvidence
-        : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence;
+      const evidenceMatches = performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
+        ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
         || !isUnperformedProcedureEvidence(fact.evidence) && hasCurrentEventLinkForProcedure(fact, facts, node);
       return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
