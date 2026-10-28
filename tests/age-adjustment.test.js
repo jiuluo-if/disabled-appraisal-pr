@@ -526,3 +526,26 @@ test('body-surface avulsion area uses the injury 6.18 age band for skin-damage c
   assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
   assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
 });
+
+test('localized face, neck and hand skin-area thresholds use the injury 6.18 age bands', () => {
+  const assess = (id, age, finding) => {
+    const description = `本次事故后受伤时年龄${age}周岁，${finding}`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const clause = catalogs.injury.clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.2.5.c', 6, '面部皮肤擦伤面积累计1平方厘米。'), true);
+  assert.equal(assess('5.2.5.c', 7, '面部皮肤擦伤面积累计1.2平方厘米。'), true);
+  assert.equal(assess('5.2.5.c', 10, '面部皮肤擦伤面积累计1.2平方厘米。'), true);
+  assert.equal(assess('5.2.5.c', 11, '面部皮肤擦伤面积累计1.6平方厘米。'), true);
+  assert.equal(assess('5.2.5.c', 14, '面部皮肤擦伤面积累计1.6平方厘米。'), true);
+  assert.equal(assess('5.2.5.c', 15, '面部皮肤擦伤面积累计2平方厘米。'), true);
+  assert.equal(assess('5.5.5.b', 6, '颈部擦伤面积累计2平方厘米。'), true);
+  assert.equal(assess('5.5.5.c', 11, '颈部挫伤面积累计1.6平方厘米。'), true);
+  assert.equal(assess('5.10.5.a', 6, '手擦伤面积累计5平方厘米。'), true);
+  assert.equal(assess('5.10.5.a', 6, '手挫伤面积累计3平方厘米。'), true);
+  assert.notEqual(assess('5.5.5.b', 6, '面部皮肤擦伤面积累计2平方厘米。'), true);
+  assert.notEqual(assess('5.2.5.c', 6, '面部皮肤擦伤面积累计0.99平方厘米。'), true);
+});

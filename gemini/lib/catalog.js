@@ -37,7 +37,8 @@ function validAgeAdjustment(ageAdjustment, type, clauseText) {
     && (clauseText.includes('体表面积') || /烧烫伤面积[^；。]*cm2/iu.test(clauseText)
       || /(?:瘢痕|疤痕|色素异常)[^；。]*面积[^；。]*cm2/iu.test(clauseText)
       || /头皮[^；。]*(?:创口|瘢痕|缺损|撕脱|擦伤)[^；。]*(?:cm|cm2)/iu.test(clauseText)
-      || /(?:皮肤缺损[^；。]*|(?:撕脱伤|擦伤|挫伤)面积[^；。]*)cm2/iu.test(clauseText));
+      || /(?:皮肤缺损[^；。]*|(?:撕脱伤|擦伤|挫伤)面积[^；。]*)cm2/iu.test(clauseText)
+      || /(?:擦伤|挫伤)[^；。]*面积[^；。]*cm2/iu.test(clauseText));
   if (ageAdjustment === DISABILITY_AGE_ADJUSTMENT) return type === 'disability'
     && /面部/u.test(clauseText) && /瘢痕|疤痕|色素/u.test(clauseText) && /(?:cm|％|%)/iu.test(clauseText);
   return false;
