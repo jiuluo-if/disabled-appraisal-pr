@@ -197,20 +197,22 @@ test('quoted standard text cannot stand in for a patient finding', () => {
 test('an isolated prior appraisal conclusion cannot stand in for source findings', () => {
   const clause = catalogs.injury.clauses.find(item => item.id === '5.9.1.a');
   const condition = clause.conditionLogic.logic.factMatch.values[0];
-  const assess = (description, requestId) => {
+  const assess = (description, requestId, responseOverrides = {}) => {
     const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: condition, certainty: 'reported',
       source: 'description', verification: 'quoted', evidence: condition };
-    return normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [],
+    return normalizeResult({ ...providerFixture('injury'), ...responseOverrides, status: 'preliminary', grade: clause.grade, facts: [],
       references: [{ clauseId: clause.id, relation: 'supports', evidence: condition, reasoning: '',
         conditions: [{ condition: clause.text, evidence: condition, factIds: ['F1'], met: true }] }] },
     { ...inputs.injury, description }, { clauses: [clause], requestId, model: 'test-model', extractedFacts: [fact],
       conflicts: [], requiresReview: false, factMissingMaterials: [] });
   };
 
-  const priorConclusion = assess(`合成资料，非真实病例。原鉴定意见：${condition}，原结论为重伤一级。`, 'isolated-prior-appraisal-conclusion');
+  const priorConclusion = assess(`合成资料，非真实病例。原鉴定意见：${condition}，原结论为重伤一级。`,
+    'isolated-prior-appraisal-conclusion', { summary: '原结论重伤一级，应按此定级。', reasoning: '引用原鉴定意见后认定重伤一级。' });
   assert.equal(priorConclusion.grade, null);
   assert.notEqual(priorConclusion.references.find(reference => reference.id === clause.id)?.relation, 'supports');
   assert.match([...priorConclusion.warnings, ...priorConclusion.nextSteps].join(' '), /鉴定结论|鉴定意见/u);
+  assert.doesNotMatch(`${priorConclusion.summary} ${priorConclusion.reasoning}`, /重伤一级/u);
   assert.equal(assess(`合成资料，非真实病例。鉴定意见记载：${condition}。`,
     'appraisal-conclusion-is-not-patient-finding').grade, null);
 
