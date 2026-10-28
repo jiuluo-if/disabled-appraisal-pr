@@ -396,7 +396,7 @@ function normalizeClinicalFindingFacts(inputText) {
           source_type: 'user_text', source_excerpt: skullBaseCsfLeak[0] });
       }
     }
-    const eyeGlobeLoss = /(?:一侧|左|右)(?:侧)?眼(?:球)?(?:已|已经)摘除|(?:一侧|左|右)(?:侧)?眼球缺失|一侧眼球萎缩|(?:行|实施|接受)(?:了)?(?:一侧|单侧|左|右)(?:侧)?眼(?:球)?摘除(?:术)?|(?:行|实施|接受)(?:了)?(?:一侧|单侧|左|右)(?:侧)?眼内容物(?:剜除|剜出)(?:术)?/u.exec(clause);
+    const eyeGlobeLoss = /(?:一侧|左|右)(?:侧)?眼(?:球)?(?:已|已经)摘除|(?:一侧|左|右)(?:侧)?眼球缺失|一侧眼球萎缩|(?:行|实施|接受)(?:了)?(?:一侧|单侧|左|右)(?:侧)?眼(?:球)?摘除(?:术)?/u.exec(clause);
     if (eyeGlobeLoss && !hasNonCurrentClinicalContext(text, clauseOffset + eyeGlobeLoss.index,
       clauseOffset + eyeGlobeLoss.index + eyeGlobeLoss[0].length)) {
       findings.push({ field: 'clinical_finding', value: /萎缩/u.test(eyeGlobeLoss[0]) ? '一侧眼球萎缩' : '一侧眼球缺失',
@@ -985,6 +985,22 @@ function normalizeOpenSkullDuralRuptureFacts(inputText) {
 export function hasSupportedOpenSkullDuralRuptureEvidence(inputText) {
   return normalizeOpenSkullDuralRuptureFacts(inputText)
     .some(fact => fact.value === '开放性颅骨骨折伴硬脑膜破裂');
+}
+
+function hasUnverifiedEyeContentEvisceration(sourceText) {
+  const text = normalizeInput(sourceText || '');
+  for (const clauseMatch of text.matchAll(/[^。！？；;\n]+/gu)) {
+    const clause = clauseMatch[0];
+    for (const match of clause.matchAll(/(?:左|右|一侧|单侧)?眼内容物(?:剜除|剜出)(?:术)?/gu)) {
+      const start = clauseMatch.index + match.index;
+      const end = start + match[0].length;
+      if (certaintyFor(clause, match.index, match.index + match[0].length) !== 'reported'
+        || hasNonCurrentClinicalContext(text, start, end)) continue;
+      if (/(?:眼球(?:缺失|缺如|不存在|摘除|摘除术|萎缩|保留|残留)|(?:缺失|缺如|不存在|萎缩|保留|残留)(?:的)?眼球)/u.test(clause)) continue;
+      return true;
+    }
+  }
+  return false;
 }
 
 function normalizeCheekPenetratingWoundFacts(inputText) {
@@ -4102,6 +4118,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     }),
   };
   const sourceTexts = { description: normalizeInput(description), image: normalizeInput(recognizedText) };
+  const eyeContentEviscerationNeedsReview = Object.values(sourceTexts).some(hasUnverifiedEyeContentEvisceration);
   const facts = [];
   const factsByKey = new Map();
   let invalidEvidence = false;
@@ -4912,6 +4929,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const missingMaterials = canonicalMissingMaterials(raw.missingMaterials).filter(item =>
     !hasExplicitFractureSiteCount || item !== '骨折处数未在原文中明确记载，需核实');
   const extractionWarnings = [
+    ...(eyeContentEviscerationNeedsReview
+      ? ['资料记载眼内容物剜除，但手术名称本身不能证实眼球整体缺失；系统不自动认定该条款，需核对术中所见及术后眼球/巩膜壳状态。'] : []),
     ...(invalidModelConflict ? ['模型冲突声明引用无效或无法映射到两个有效事实，已忽略；系统仍会根据可核验事实独立检查冲突。'] : []),
     ...unlinkedConflictWarnings.map(reason => `模型提供的未关联冲突提示已保留供核对，但未作为来源冲突依据：${reason}`),
     ...(invalidEvidence ? ['事实提取中有内容缺少可回查原文，已忽略，未作为评估依据。'] : []),

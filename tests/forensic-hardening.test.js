@@ -163,6 +163,35 @@ test('digit-separation descriptions surface a system-review warning without supp
     .warnings.some(warning => warning.includes('系统未能可靠归一每指的离断状态和关节平面')), false);
 });
 
+test('ocular-content evisceration alone cannot satisfy whole-eye loss', () => {
+  const description = '合成资料，非真实病例。2015年9月22日行右眼内容物剜除及羟基磷灰石义眼台植入。';
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.2.2.d');
+  const extracted = normalizeExtractedFacts(emptyExtraction, { description });
+  const unsupportedModelFact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '一侧眼球缺失',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '行右眼内容物剜除及羟基磷灰石义眼台植入' };
+  const raw = { ...providerFixture('injury'), status: 'preliminary', grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, relation: 'supports', evidence: unsupportedModelFact.evidence, reasoning: '',
+    conditions: [{ condition: clause.text, evidence: unsupportedModelFact.evidence, factIds: ['F1'], met: true }],
+  }] };
+  const result = normalizeResult(raw, { ...inputs.injury, description }, {
+    clauses: [clause], requestId: 'evisceration-is-not-globe-loss', model: 'test-model',
+    extractedFacts: extracted.facts.map(fact => ({ ...fact, verification: 'quoted' })),
+    conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
+    factMissingMaterials: extracted.missingMaterials, extractionWarnings: extracted.warnings,
+  });
+
+  assert.equal(extracted.facts.some(fact => fact.field === 'clinical_finding' && fact.value === '一侧眼球缺失'), false);
+  assert.notEqual(evaluateConditionLogic(clause.conditionLogic, [unsupportedModelFact]).met, true);
+  assert.equal(result.grade, null);
+  assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+  assert.ok(result.warnings.some(warning => warning.includes('眼内容物剜除') && warning.includes('不自动认定')));
+
+  const explicitGlobeStatus = normalizeExtractedFacts(emptyExtraction, { description:
+    `${description}术后检查明确记载右眼球缺失。` });
+  assert.ok(explicitGlobeStatus.facts.some(fact => fact.field === 'clinical_finding' && fact.value === '一侧眼球缺失'));
+});
+
 test('every quantitative clause predicate declares its measurement unit or dimensionless ratio', () => {
   const missingUnits = [];
   const mismatchedUnits = [];
