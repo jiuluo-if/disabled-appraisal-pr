@@ -266,6 +266,7 @@ function normalizeClinicalFindingFacts(inputText) {
   const findings = [];
   const explicitSevereHeadFindings = [
     /(?:外伤性|创伤性)蛛网膜下腔出血/gu,
+    /(?:外伤性|创伤性)迟发性癫痫/gu,
     /(?:广泛性|多发性)?脑挫(?:裂)?伤/gu,
     /(?:神志|意识)(?:浅|深)?昏迷|(?:神志|意识)(?:不清|模糊|障碍)|昏迷/gu,
     /嗜睡|瞳孔不等大|(?:(?:左|右|双侧)侧?)?(?:瞳孔)?(?:对光反射|光反射)(?:迟钝|消失)|(?:不能|无法)按(?:吩咐|指令|命令)动作/gu,
@@ -274,6 +275,20 @@ function normalizeClinicalFindingFacts(inputText) {
   for (const match of text.matchAll(/[^。；;\n]+/gu)) {
     const clause = match[0].trim();
     const clauseOffset = match.index + match[0].indexOf(clause);
+    const renalOperations = [
+      { pattern: /(?:左侧|右侧|左|右|单侧|一侧)?肾(?:脏)?切除术/gu, value: '一侧肾切除术后' },
+      { pattern: /(?:左侧|右侧|左|右)?肾(?:脏)?修补术/gu, value: '肾修补术后' },
+    ];
+    for (const { pattern, value } of renalOperations) for (const operation of clause.matchAll(pattern)) {
+      const start = clauseOffset + operation.index;
+      const end = start + operation[0].length;
+      const performed = /(?:手术记录|手术中|行|施行|实施|接受|进行|已做|完成)/u.test(clause)
+        && !/(?:未行|未实施|拟行|计划|建议|考虑|拒绝|尚未)/u.test(clause);
+      if (!performed || certaintyFor(clause, operation.index, operation.index + operation[0].length) !== 'reported'
+        || hasNonCurrentClinicalContext(text, start, end)) continue;
+      findings.push({ field: 'clinical_finding', value, certainty: 'reported', source_type: 'user_text',
+        source_excerpt: clause.trim().slice(-MAX_FACT_EVIDENCE_CHARS) });
+    }
     for (const pattern of explicitSevereHeadFindings) {
       for (const headFinding of clause.matchAll(new RegExp(pattern.source, pattern.flags))) {
         const start = clauseOffset + headFinding.index;
@@ -1298,7 +1313,7 @@ function normalizeSharedHeadingWoundLengthFacts(text) {
 }
 
 function woundLengthEvidenceStart(clause, measurementStart) {
-  const sitePattern = /(?:左侧|右侧|左|右|双侧|两侧)?(?:头顶部|额顶部|后枕部|颞枕部|顶枕部|颞顶部|头皮|头部|发际内|发际外|额部|前额|额头|颞部|枕部|眉弓|眉部|眼眶|眼上睑|眼下睑|下睑缘|上睑|眼睑|眼外侧|颧面部|面部|脸部|面颊|颊部|颊|颧部|鼻唇沟|鼻部|鼻背|鼻梁|鼻翼|耳廓|耳部|外耳|口唇|上唇|下唇|唇红|唇黏膜|口腔|下颌|颈部|颈前|锁骨|胸前|胸部|胸骨|背部|肩胛|肩部|上臂|肘部|前臂|腕部|手背|手指|掌部|腹部|腰部|臀部|髋部|大腿|股部|小腿|膝部|踝部|足背|足部|趾部|躯干|四肢)/gu;
+  const sitePattern = /(?:左侧|右侧|左|右|双侧|两侧)?(?:左耳|右耳|双耳|两耳|头顶部|额顶部|后枕部|颞枕部|顶枕部|颞顶部|头皮|头部|发际内|发际外|额部|前额|额头|颞部|枕部|眉弓|眉部|眼眶|眼上睑|眼下睑|下睑缘|上睑|眼睑|眼外侧|颧面部|面部|脸部|面颊|颊部|颊|颧部|鼻唇沟|鼻部|鼻背|鼻梁|鼻翼|耳廓|耳部|外耳|口唇|上唇|下唇|唇红|唇黏膜|口腔|下颌|颈部|颈前|锁骨|胸前|胸部|胸骨|背部|肩胛|肩部|上臂|肘部|前臂|腕部|手背|手指|掌部|腹部|腰部|臀部|髋部|大腿|股部|小腿|膝部|踝部|足背|足部|趾部|躯干|四肢)/gu;
   const preceding = clause.slice(0, measurementStart);
   const boundaries = [...preceding.matchAll(/[，、,；;]/gu)];
   for (let index = boundaries.length - 1; index >= 0; index -= 1) {
@@ -1309,6 +1324,9 @@ function woundLengthEvidenceStart(clause, measurementStart) {
   const locations = [...preceding.matchAll(sitePattern)];
   const prior = locations.at(-2);
   const last = locations.at(-1);
+  if (prior && last && /^(?:左耳|右耳|双耳|两耳)$/u.test(prior[0])
+    && /^(?:耳廓|耳部|外耳)$/u.test(last[0])
+    && !/[，、,；;]/u.test(preceding.slice(prior.index + prior[0].length, last.index))) return prior.index;
   if (last) {
     const contextStart = Math.max(0, last.index - 40);
     const context = clause.slice(contextStart, last.index);
@@ -2818,10 +2836,6 @@ function normalizeRibFacts(inputText) {
   let processedRibOccurrences = 0;
   let cachedRibClause = null;
   let cachedRibClauseHasFracture = false;
-  const fracturedRibSites = new Set();
-  const unspecifiedRibNumbers = new Set();
-  const ribSiteParents = new Set();
-  const explicitRibCountParents = [];
   const pattern = /肋骨|肋(?=\s*(?:及|和|与|、|，|,)\s*(?:(?:左|右|两侧|双侧)侧?\s*)?第\s*[0-9零〇一二两三四五六七八九十百]+\s*肋)/g;
   let match;
   while ((match = pattern.exec(text)) !== null) {
@@ -2929,22 +2943,11 @@ function normalizeRibFacts(inputText) {
     add('anatomical_site', '肋骨');
     if (side) add('laterality', side);
     if (isRibCount && numberTokens.length) {
-      const rootCountFact = add('fractured_rib_count', numberTokens[0]);
-      if (['reported', 'observed'].includes(certainty)) explicitRibCountParents.push({ fact: rootCountFact, side });
+      add('fractured_rib_count', numberTokens[0]);
     } else if (numberTokens.length) {
       const ribNumbersFact = add('fractured_rib_numbers', [...new Set(numberTokens)].sort((a, b) => a - b));
       ribNumbersFact.parserRibLaterality = side;
       const derivedCertainty = ['reported', 'observed'].includes(certainty) ? 'derived' : certainty;
-      if (['reported', 'observed'].includes(certainty)) {
-        ribSiteParents.add(ribNumbersFact.id);
-        for (const number of numberTokens) {
-          if (side === 'bilateral') {
-            fracturedRibSites.add(`left:${number}`);
-            fracturedRibSites.add(`right:${number}`);
-          } else if (side) fracturedRibSites.add(`${side}:${number}`);
-          else unspecifiedRibNumbers.add(number);
-        }
-      }
       if (!(aggregateCountCoversMultipleRibs && numberTokens.length === 1)) {
         const rootCount = side === 'bilateral' ? ribNumbersFact.value.length * 2 : ribNumbersFact.value.length;
         add('fractured_rib_count', rootCount, derivedCertainty, 'derived', [ribNumbersFact.id]);
@@ -2962,25 +2965,6 @@ function normalizeRibFacts(inputText) {
       const siteCountFact = add('fracture_site_count', siteCount);
       siteCountFact.source_excerpt = `${explicitSiteCount[1]}处`;
     }
-  }
-  const hasExplicitSiteCount = facts.some(fact => fact.field === 'fracture_site_count');
-  const rootCountsBySide = new Map();
-  let unspecifiedRootCount = 0;
-  for (const { fact, side } of explicitRibCountParents) {
-    if (side === 'left' || side === 'right') rootCountsBySide.set(side, Math.max(rootCountsBySide.get(side) || 0, fact.value));
-    else unspecifiedRootCount = Math.max(unspecifiedRootCount, fact.value);
-  }
-  const rootCountLowerBound = Math.max([...rootCountsBySide.values()].reduce((sum, value) => sum + value, 0),
-    unspecifiedRootCount);
-  if (explicitSingleRibEvent && !hasExplicitSiteCount
-    && fracturedRibSites.size + unspecifiedRibNumbers.size + rootCountLowerBound > 0) {
-    const scopedNumbers = new Set([...fracturedRibSites].map(site => Number(site.slice(site.indexOf(':') + 1))));
-    const numberedSiteLowerBound = fracturedRibSites.size
-      + [...unspecifiedRibNumbers].filter(number => !scopedNumbers.has(number)).length;
-    const inferredSiteCount = Math.max(numberedSiteLowerBound, rootCountLowerBound);
-    const parentIds = [...new Set([...ribSiteParents, ...explicitRibCountParents.map(item => item.fact.id)])];
-    facts.push({ id: `F${facts.length + 1}`, field: 'fracture_site_count', value: inferredSiteCount, certainty: 'derived',
-      source_type: 'derived', derived_from: parentIds, finding: factFinding('fracture_site_count', inferredSiteCount, 'derived') });
   }
   if (truncated) Object.defineProperty(facts, 'truncated', { value: true });
   return facts;
@@ -3849,8 +3833,10 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const rawFactIds = new Set(parsed.facts.map(fact => fact.id).filter(Boolean));
   let invalidModelConflict = parsed.conflicts.some(conflict => {
     const ids = [...new Set(conflict.factIds)];
-    return ids.length < 2 || ids.some(id => !rawFactIds.has(id));
+    return ids.length > 0 && ids.length < 2 || ids.some(id => !rawFactIds.has(id));
   });
+  const unlinkedConflictWarnings = parsed.conflicts.filter(conflict => conflict.factIds.length === 0
+    && typeof conflict.reason === 'string' && conflict.reason.trim()).map(conflict => normalizeInput(conflict.reason).slice(0, 1000));
   const raw = {
     ...parsed,
     conflicts: parsed.conflicts.filter(conflict => {
@@ -3864,6 +3850,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   let invalidEvidence = false;
   let invalidInjuryType = false;
   let invalidSymptomFact = false;
+  let unresolvedOtherSubjectFact = false;
   let invalidClinicalTemporalContext = false;
   let invalidEventLink = false;
   let unsupportedSiteCount = false;
@@ -4120,6 +4107,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (field === 'injury_date') value = normalizeInjuryDateValue(value);
     const scopedCertaintyEvidence = certaintyEvidenceForFact(field, value, fullEvidence);
     let certainty = canonicalCertainty(scopedCertaintyEvidence, sourceFact.certainty);
+    if (certainty === 'unknown' && hasUnresolvedOtherExperiencer(fullEvidence)) unresolvedOtherSubjectFact = true;
     if (sourceFact.certainty === 'uncertain' && typeof value === 'string' && fullEvidence.includes(value)
       && /不排除|不能排除|可疑|疑似|怀疑|疑问|存疑|待确认|待排|待查|考虑|可能|[?？]/u.test(fullEvidence)
       && !/不排除|不能排除|可疑|疑似|怀疑|疑问|存疑|待确认|待排|待查|考虑|可能|[?？]/u.test(scopedCertaintyEvidence)) {
@@ -4287,8 +4275,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         if (canonicalField(candidate.field) !== 'symptom' || candidate.source !== source) return false;
         const symptomQuote = normalizeInput(candidate.evidence);
         if (!symptomQuote || !sourceTexts[source].includes(symptomQuote)) return false;
-        const symptomClause = sourceClause(sourceTexts[source], symptomQuote);
-        const siteClause = sourceClause(sourceTexts[source], providedEvidence);
+        if (symptomQuote.includes(normalizeInput(value))) return true;
+        const symptomClause = sourceClause(sourceTexts[source], symptomQuote).replace(/[，,。；;]+$/u, '');
+        const siteClause = sourceClause(sourceTexts[source], providedEvidence).replace(/[，,。；;]+$/u, '');
         return Boolean(symptomClause && symptomClause === siteClause
           && normalizeInput(fullEvidence).includes(normalizeInput(value)));
       });
@@ -4315,9 +4304,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       || field === 'anatomical_site' && typeof value === 'string' && /肋骨/.test(value)) value = '肋骨';
     if (field === 'laterality' && typeof value === 'string') {
       const side = value.trim().toLowerCase();
-      if (/^(?:left|左|左侧|左边)$/.test(side)) value = 'left';
-      else if (/^(?:right|右|右侧|右边)$/.test(side)) value = 'right';
-      else if (/^(?:bilateral|both|双侧)$/.test(side)) value = 'bilateral';
+      const normalizedSide = /^(?:left|左|左侧|左边)$/.test(side) ? 'left'
+        : /^(?:right|右|右侧|右边)$/.test(side) ? 'right'
+          : /^(?:bilateral|both|双侧|两侧)$/.test(side) ? 'bilateral' : null;
+      if (normalizedSide) value = normalizedSide;
+      const quotedSides = [...new Set(deterministicFacts.filter(item => item.source === source
+        && item.field === 'laterality' && ['reported', 'observed', 'derived'].includes(item.certainty)
+        && (normalizeInput(fullEvidence).includes(normalizeInput(item.evidence))
+          || normalizeInput(item.evidence).includes(normalizeInput(fullEvidence))))
+        .map(item => item.value))];
+      if (quotedSides.length === 1) value = quotedSides[0];
     }
 
     if (field === 'fracture_site_count') {
@@ -4371,8 +4367,13 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       field = 'injury_type'; value = hasRibSpecificFractureStatement(fullEvidence) ? 'rib_fracture' : 'fracture';
     }
     if (field === 'symptom') {
-      const symptomValue = typeof value === 'string' ? normalizeInput(value) : '';
-      if (!symptomValue || !/(?:疼痛|痛感|耳鸣|听力(?:下降|减退|丧失)|耳聋|耳痛|头晕|眩晕|头痛|恶心|呕吐|麻木|乏力|咳嗽|胸闷|气促|呼吸困难|视物模糊|视力下降|肢体无力|活动受限|肿胀|流泪|溢泪|不适)/u.test(symptomValue)
+      let symptomValue = typeof value === 'string' ? normalizeInput(value) : '';
+      const chestPainAlias = String(sourceFact.field || '').toLowerCase().match(/^(left|right|bilateral)_chest_pain$/u);
+      if (!symptomValue && value === true && chestPainAlias) {
+        const phrase = { left: '左侧胸部疼痛', right: '右侧胸部疼痛', bilateral: '双侧胸部疼痛' }[chestPainAlias[1]];
+        if (normalizeInput(fullEvidence).includes(phrase)) symptomValue = phrase;
+      }
+      if (!symptomValue || !/(?:疼痛|痛感|耳鸣|听力(?:下降|减退|丧失)|耳聋|耳痛|头晕|眩晕|头痛|腰背痛|腰痛|背痛|恶心|呕吐|麻木|乏力|咳嗽|胸闷|气促|呼吸困难|视物模糊|视力下降|肢体无力|活动受限|肿胀|流泪|溢泪|不适)/u.test(symptomValue)
         || !normalizeInput(fullEvidence).includes(symptomValue)) {
         invalidSymptomFact = true;
         continue;
@@ -4397,7 +4398,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const deduplicatedFacts = new Map();
   for (const fact of facts) {
     const key = stableFactKey(fact);
-    const existing = deduplicatedFacts.get(key);
+    const overlappingRibNumbers = fact.field === 'fractured_rib_numbers'
+      ? [...deduplicatedFacts.values()].find(existingFact => existingFact.field === fact.field
+        && JSON.stringify(existingFact.value) === JSON.stringify(fact.value)
+        && existingFact.certainty === fact.certainty && existingFact.source === fact.source
+        && (existingFact.eventId || null) === (fact.eventId || null)
+        && (!existingFact.parserRibLaterality || !fact.parserRibLaterality
+          || existingFact.parserRibLaterality === fact.parserRibLaterality)
+        && (normalizeInput(existingFact.evidence).includes(normalizeInput(fact.evidence))
+          || normalizeInput(fact.evidence).includes(normalizeInput(existingFact.evidence)))) : null;
+    const existing = deduplicatedFacts.get(key) || overlappingRibNumbers;
     if (!existing) {
       deduplicatedFacts.set(key, fact);
       continue;
@@ -4419,6 +4429,11 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && (!fact.eventId || !candidate.eventId || fact.eventId === candidate.eventId)
       && /第\s*[0-9零〇一二两三四五六七八九十百]+\s*肋骨/.test(candidate.evidence));
   facts.splice(0, facts.length, ...facts.filter(fact => !scopedOtherRibExclusion(fact)));
+  const symptomClause = fact => sourceClause(sourceTexts[fact.source], fact.evidence || '');
+  facts.splice(0, facts.length, ...facts.filter(fact => !(fact.field === 'symptom' && fact.value === '疼痛'
+    && facts.some(other => other !== fact && other.field === 'symptom' && other.source === fact.source
+      && other.value !== '疼痛' && /(?:疼痛|痛感)$/u.test(String(other.value))
+      && symptomClause(other) === symptomClause(fact)))));
   aggregateRibRootCounts(facts, sourceTexts);
   for (const fact of facts) delete fact.parserRibLaterality;
   if (boundNormalizedFacts(facts)) factCountExceeded = true;
@@ -4496,6 +4511,10 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (onlyCrossLateralityRibCountDisagreement(referencedRawFacts)) continue;
     const mapped = conflict.factIds.flatMap(id => rawIdToFinalIds.get(id) || []);
     const uniqueMapped = [...new Set(mapped)];
+    if (uniqueMapped.length < 2) {
+      invalidModelConflict = true;
+      continue;
+    }
     const byEvent = new Map();
     for (const id of uniqueMapped) {
       const eventId = facts.find(fact => fact.id === id)?.eventId || '';
@@ -4514,10 +4533,6 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       }
     }
     const hasUnknownEvent = byEvent.has('');
-    if (uniqueMapped.length < 2) {
-      invalidModelConflict = true;
-      continue;
-    }
     const hasPotentialConflict = uniqueMapped.some((leftId, index) => uniqueMapped.slice(index + 1).some(rightId =>
       conflictingFactPair(facts.find(fact => fact.id === leftId), facts.find(fact => fact.id === rightId))));
     if (hasUnknownEvent && byEvent.size > 1 && !linkedConflict && hasPotentialConflict) unlinkedModelConflict = true;
@@ -4569,6 +4584,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     !hasExplicitFractureSiteCount || item !== '骨折处数未在原文中明确记载，需核实');
   const extractionWarnings = [
     ...(invalidModelConflict ? ['模型冲突声明引用无效或无法映射到两个有效事实，已忽略；系统仍会根据可核验事实独立检查冲突。'] : []),
+    ...unlinkedConflictWarnings.map(reason => `模型提供的未关联冲突提示已保留供核对，但未作为来源冲突依据：${reason}`),
     ...(invalidEvidence ? ['事实提取中有内容缺少可回查原文，已忽略，未作为评估依据。'] : []),
     ...(invalidInjuryType ? ['非损伤类型描述未作为损伤类型事实采用；保留的损伤事实仍须符合原文依据。'] : []),
     ...(invalidSymptomFact ? ['个别症状事实缺少肯定性原文依据或处于否定描述中，已忽略；可核对的症状表现仍予保留。'] : []),
@@ -4588,6 +4604,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const hasUncertain = facts.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
   const hasConflictedFact = facts.some(fact => fact.certainty === 'conflicted');
   const requiresReview = conflicts.length > 0 || invalidEventLink || factCountExceeded || openSkullDuralReviewIssue
+    || unresolvedOtherSubjectFact
     || unlinkedFractureStatusDisagreement;
   if (invalidEventLink) extractionWarnings.push('部分肋骨事实的受伤事件归属无法一致核验，需人工复核。');
   if (unlinkedFractureStatusDisagreement) extractionWarnings.push('骨折阳性与阴性记载无法可靠对应到同一事件，需人工复核。');

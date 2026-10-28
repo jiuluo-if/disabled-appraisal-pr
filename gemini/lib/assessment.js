@@ -44,7 +44,7 @@ export async function assess(input, { provider, config, signal, requestId }) {
   const extracted = normalizeExtractedFacts(factResponse, { description: input.description, recognizedText });
   extractionWarnings.push(...(extracted.warnings || []));
   const sourceText = `${input.description}\n${recognizedText}`;
-  const clauses = retrieveClauses(input.assessmentType, extracted.scopeText || sourceText);
+  const clauses = retrieveClauses(input.assessmentType, extracted.scopeText || sourceText, 40, extracted.facts);
   const model = config.textModel;
   const assessmentInput = {
     assessmentType: input.assessmentType,

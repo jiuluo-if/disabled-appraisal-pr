@@ -104,41 +104,14 @@ function explicitRibSiteCountStatus(conditionText, evidence) {
   return Number.isInteger(thresholdValue) && Number.isInteger(countValue) ? countValue >= thresholdValue : undefined;
 }
 
-function lowerBoundFromFracturedRibNumbers(facts) {
-  const sidesByRoot = new Map();
-  for (const fact of facts) {
-    if (fact.field !== 'fractured_rib_numbers' || !Array.isArray(fact.value)) continue;
-    const evidence = normalize(String(fact.evidence || ''));
-    for (const root of new Set(fact.value.filter(Number.isInteger))) {
-      const sides = sidesByRoot.get(root) || new Set();
-      const sidePattern = new RegExp(`(?:^|[^0-9])${root}(?![0-9])`, 'gu');
-      for (const match of evidence.matchAll(sidePattern)) {
-        const prefixStart = Math.max(0, match.index - 24);
-        const prefix = evidence.slice(prefixStart, match.index);
-        const clauseStart = Math.max(prefix.lastIndexOf('。'), prefix.lastIndexOf('；'), prefix.lastIndexOf(';'),
-          prefix.lastIndexOf('\n')) + 1;
-        const sideCues = [...prefix.slice(clauseStart).matchAll(/左右两侧|双侧|两侧|左侧|右侧|左|右/gu)];
-        const sideCue = sideCues.at(-1);
-        const suffix = evidence.slice(match.index + match[0].length, match.index + match[0].length + 24);
-        if (!sideCue || match.index - (prefixStart + sideCue.index) > 22 || !/肋骨/u.test(suffix)) continue;
-        const sideText = sideCue[0];
-        sides.add(/左右|双侧|两侧/u.test(sideText) ? 'bilateral' : /左/u.test(sideText) ? 'left' : 'right');
-      }
-      if (!sides.size) sides.add('unknown');
-      sidesByRoot.set(root, sides);
-    }
-  }
-  return [...sidesByRoot.values()].reduce((sum, sides) => sum
-    + (sides.has('bilateral') || sides.has('left') && sides.has('right') ? 2 : 1), 0);
-}
-
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
-const sameValue = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
+  ? left.normalize('NFKC') === right.normalize('NFKC')
+  : JSON.stringify(left) === JSON.stringify(right);
 
 function conditionFactFields(factMatch, predicate) {
   if (!factMatch) {
     const fields = new Set([predicate?.field]);
-    if (predicate?.field === 'fracture_site_count') fields.add('fractured_rib_numbers');
     if (predicate?.field === 'aggregate_wound_length_cm'
       && predicate.evidenceGroups?.some(group => group.includes('头皮'))) fields.add('wound_length_cm');
     return fields;
@@ -206,22 +179,6 @@ function explicitlySeparateBrainFindings(positiveFact, excludedFact) {
 }
 
 function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
-  if (predicate.field === 'fracture_site_count' && fact.field === 'fractured_rib_numbers'
-    && fact.source === 'description' && fact.verification === 'quoted'
-    && reliableCertainties.has(fact.certainty) && Array.isArray(fact.value)
-    && fact.value.every(value => Number.isInteger(value) && value > 0)) {
-    const evidence = normalize(String(fact.evidence || ''));
-    if (/(?:既往史|既往|既有|陈旧|原有|此前|术前)/u.test(evidence)
-      || /(?:肋骨|肋)[^。；;\n]{0,16}(?:旧骨折|旧性骨折|陈旧性骨折)/u.test(evidence)
-      || !/(?:肋骨|前肋|后肋)/u.test(evidence) || !/(?:骨折|骨折线|骨裂)/u.test(evidence)
-      || /(?:未见|未发现|排除|否认)[^。；;\n]{0,12}(?:肋骨)?骨折/u.test(evidence)) return null;
-    const roots = new Set();
-    for (const match of evidence.matchAll(/第?\s*([0-9零〇一二两三四五六七八九十百]+(?:\s*[、,，和及]\s*[0-9零〇一二两三四五六七八九十百]+)*)\s*(?:前|后)?肋骨?/gu)) {
-      for (const token of match[1].split(/\s*[、,，和及]\s*/u)) roots.add(parseNumber(token));
-    }
-    const listedRoots = new Set(fact.value);
-    return roots.size > 0 && [...listedRoots].every(value => roots.has(value)) ? listedRoots.size : null;
-  }
   if (!Number.isFinite(fact.value)) return null;
   if (predicate.field === 'gcs_score') {
     const evidence = normalize(String(fact.evidence || ''));
@@ -529,6 +486,12 @@ function woundLengthEvidenceSupportsPredicate(predicate, fact, facts = []) {
 
 function canonicalClinicalFindingEvidence(value, evidence, linkedToCurrentEvent = false) {
   if (/(?:既往史|既往|既有|陈旧|原有|此前|曾经|术前)/u.test(evidence)) return false;
+  if (value === '一侧肾切除术后') return /(?:左侧|右侧|左|右|单侧|一侧)?肾(?:脏)?切除术/u.test(evidence)
+    && !/部分肾(?:脏)?切除术/u.test(evidence)
+    && /(?:手术记录|手术中|行|施行|实施|接受|进行|已做|完成)/u.test(evidence)
+    && !/(?:未行|未实施|拟行|计划|建议|考虑|拒绝|尚未)/u.test(evidence);
+  if (value === '肾修补术后') return /(?:手术记录|手术中|行|施行|实施|接受|进行|已做|完成)[^。；;\n]{0,32}肾(?:脏)?修补术/u.test(evidence)
+    && !/(?:未行|未实施|拟行|计划|建议|考虑|拒绝|尚未)/u.test(evidence);
   if (value === '心包破裂' || value === '心脏破裂') return isCanonicalCardiacRuptureEvidence(value, evidence);
   if (value === '开颅术后') {
     const completedCraniotomy = /(?:手术(?:名称|为|记录)?|行|接受|施行|实施|进行|术后)[^。！？；;\n]{0,32}开颅[^。！？；;\n]{0,72}(?:清除|探查|减压|切除|修补|整复|手术|术)/u;
@@ -977,19 +940,6 @@ function evaluateConditionLeaf(node, facts) {
     return { met: null, evidence: '', factIds: [] };
   }
   if (node.predicate && positive.length) {
-    if (node.predicate.field === 'fracture_site_count'
-      && positive.some(fact => fact.field === 'fractured_rib_numbers')) {
-      const explicitCounts = positive.filter(fact => fact.field === 'fracture_site_count');
-      const states = explicitCounts.map(fact => comparePredicate(node.predicate,
-        predicateEvidenceValue(node.predicate, fact, facts)));
-      const ribLowerBound = lowerBoundFromFracturedRibNumbers(positive);
-      if (node.predicate.operator === 'gte' && comparePredicate(node.predicate, ribLowerBound) === true) states.push(true);
-      if (!states.length || states.some(state => state === null) || new Set(states).size > 1) {
-        return { met: null, evidence: '', factIds: [] };
-      }
-      return { met: states[0], evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
-        factIds: positive.map(fact => fact.id) };
-    }
     const states = positive.map(fact => comparePredicate(node.predicate, predicateEvidenceValue(node.predicate, fact, facts)));
     if (states.some(state => state === null)) return { met: null, evidence: '', factIds: [] };
     if (node.predicate.field === 'gcs_score') {
@@ -1486,6 +1436,7 @@ export function normalizeResult(raw, input, context) {
   const inlineIds = generated.reasoning.normalize('NFKC').match(/[456]\.\d+\.\d+(?:\.[a-z]|\.\d+|[a-z])?\b/g) || [];
   const unknownInlineCitation = inlineIds.some(id => !allowedIds.has(id) && !allowedIds.has(id.replace(/(\d)([a-z])$/, '$1.$2')));
   const warnings = [];
+  const unmappedConditionClauseIds = new Set();
   const conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
   const unsupportedDiscrepancyLanguage = /(?:冲突|矛盾|不一致|两种(?:测量|数据)|数据.{0,12}(?:存在差异|不一致))/u;
   const multipleDatedEvents = hasDistinctDatedInjuryEvents(input.description);
@@ -1717,6 +1668,7 @@ export function normalizeResult(raw, input, context) {
       }
       if (bound.invalid && !/肋骨骨折/.test(clause.text)) {
         warnings.push(`条款 ${clause.id} 的条件组存在重复或未映射文本，未用于等级判断。`);
+        if (proposed.relation !== 'differential') unmappedConditionClauseIds.add(clause.id);
       }
       const confirmed = bound.met === true;
       references.push({ ...clause, sourceUrl: standard.sourceUrl,
@@ -1951,11 +1903,20 @@ export function normalizeResult(raw, input, context) {
     const warning = warnings[index];
     const warningClauseId = warning.match(/条款\s+(\S+?)\s+的条件组存在重复或未映射文本/)?.[1];
     const warningClauseRetained = warningClauseId && references.some(reference => reference.id === warningClauseId);
+    const warningClauseGrade = catalogs[input.assessmentType].clauses.find(clause => clause.id === warningClauseId)?.grade;
+    const warningClauseRank = grades[input.assessmentType].indexOf(warningClauseGrade);
+    const supersededBySupportedGrade = warningClauseRank >= 0 && references.some(reference =>
+      reference.id !== warningClauseId && reference.relation === 'supports'
+      && grades[input.assessmentType].indexOf(reference.grade) >= 0
+      && grades[input.assessmentType].indexOf(reference.grade) < warningClauseRank);
+    const retainUnmappedWarning = warningClauseId && unmappedConditionClauseIds.has(warningClauseId)
+      && !supersededBySupportedGrade;
     const contradictsSupportedCondition = unavailableClauseWarning.test(warning)
       && verifiedSupportedConditions.some(condition => warning.includes(condition));
     const contradictsSupportedClauseId = unavailableClauseWarning.test(warning)
       && [...verifiedSupportedClauseIds].some(id => warning.includes(id));
-    if (warningClauseId && (!warningClauseRetained || verifiedSupportedClauseIds.has(warningClauseId))
+    if (warningClauseId && ((!warningClauseRetained || verifiedSupportedClauseIds.has(warningClauseId))
+      && !retainUnmappedWarning)
       || contradictsSupportedCondition || contradictsSupportedClauseId) {
       warnings.splice(index, 1);
     }

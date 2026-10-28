@@ -153,10 +153,37 @@ const indexes = Object.fromEntries(Object.entries(catalogs).map(([type, catalog]
   return [type, index];
 }));
 
-export function retrieveClauses(type, description, limit = 40) {
+function clauseMatchesFacts(clause, facts) {
+  const matchesNode = node => {
+    if (node.factMatch) {
+      const fields = new Set([node.factMatch.field, ...(node.factMatch.fields || [])].filter(Boolean));
+      const values = [...(node.factMatch.values || []), ...(node.factMatch.valueIncludes || [])];
+      const aliases = node.factMatch.evidenceAliases || [];
+      if (facts.some(fact => {
+        if (!fields.has(fact.field)) return false;
+        const factValues = Array.isArray(fact.value) ? fact.value : [fact.value];
+        const normalizedValues = factValues.filter(value => typeof value === 'string').map(normalizeClauseText);
+        const exact = values.some(value => factValues.some(item => JSON.stringify(item) === JSON.stringify(value)));
+        const included = (node.factMatch.valueIncludes || []).some(alias => normalizedValues.some(value => value.includes(normalizeClauseText(alias))));
+        const quotedAlias = aliases.some(alias => normalizeClauseText(String(fact.evidence || '')).includes(normalizeClauseText(alias)));
+        return exact || included || quotedAlias;
+      })) return true;
+    }
+    if (node.predicate && facts.some(fact => fact.field === node.predicate.field)) return true;
+    return (node.children || []).some(matchesNode);
+  };
+  return clause.conditionLogic.annotation === 'opaque'
+    ? false
+    : matchesNode(clause.conditionLogic.logic);
+}
+
+export function retrieveClauses(type, description, limit = 40, facts = []) {
   const catalog = catalogs[type];
   const matches = indexes[type].search(description, { combineWith: 'OR', boost: { text: 2 } });
   const ids = new Set(matches.slice(0, limit).map(match => match.id));
+  if (Array.isArray(facts) && facts.length) {
+    for (const clause of catalog.clauses) if (clauseMatchesFacts(clause, facts)) ids.add(clause.id);
+  }
   for (const matcher of supplementalClauseMatchers[type] || []) {
     if (matcher.pattern.test(description)) ids.add(matcher.id);
   }
