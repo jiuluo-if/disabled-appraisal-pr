@@ -91,9 +91,15 @@ function certaintyFor(text, start, end) {
   if (hasUnresolvedOtherExperiencer(context) || /若(?!干)|如果|假如|倘若|一旦|假设|如有|如出现|如发生|必要时/.test(context)) return 'unknown';
   if (/(?:建议|推荐|需要|拟|计划|应当|应).{0,24}(?:复查|检查|重建|排除)/.test(context)
     && !/(?:已排除|排除后|复查结果|检查结果)/.test(context)) return 'unknown';
-  if (/不排除|不能排除|可疑|疑似|怀疑|考虑|可能|待排|待查/.test(context)) return 'uncertain';
+  if (/不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|可疑|疑似|怀疑|考虑|可能|待排|待查/.test(context)) return 'uncertain';
   if (/排除|未见|未发现|不存在|没有|阴性|否认|无(?=(?:第\s*[0-9零〇一二两三四五六七八九十百]+\s*)?肋骨|骨折)/.test(context)) return 'excluded';
   return 'reported';
+}
+
+function certaintyForMention(text, start, end) {
+  const trailingQualifier = /^(?:\s*[，,：:]?\s*)(?:(?:诊断|性质|结果|明确|考虑)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|待核实|待确认|不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|存疑|排除|已排除|未见|未发现|阴性|否认|未明确|不明确|尚不明确|尚未明确))/u
+    .exec(text.slice(end));
+  return certaintyFor(text, start, end + (trailingQualifier?.[0].length || 0));
 }
 
 function hasUnresolvedOtherExperiencer(text) {
@@ -308,7 +314,7 @@ function normalizeClinicalFindingFacts(inputText) {
         const start = clauseOffset + headFinding.index;
         const end = start + headFinding[0].length;
         const value = headFinding[0];
-        if (certaintyFor(clause, headFinding.index, headFinding.index + headFinding[0].length) !== 'reported'
+        if (certaintyForMention(clause, headFinding.index, headFinding.index + headFinding[0].length) !== 'reported'
           || explicitNegationCoversTerm(clause, value)
           || hasNonCurrentClinicalContext(text, start, end)
           || findings.some(fact => fact.field === 'clinical_finding' && fact.value === value
@@ -698,8 +704,7 @@ function normalizeNasalFrontalProcessCombinationFacts(inputText) {
       if (!site) continue;
       const start = clauseMatch.index + match.index + site.index;
       const end = start + site[0].length;
-      const trailingQualifier = /^(?:\s|[，,：:]?)(?:可疑|疑似|怀疑|考虑|可能|待排|待查|不排除|不能排除|排除|未见|未发现|阴性|否认|不存在)/u.exec(text.slice(end));
-      const certainty = certaintyFor(text, start, end + (trailingQualifier?.[0].length || 0));
+      const certainty = certaintyForMention(text, start, end);
       if (certainty !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
       findings.push({ field: 'diagnosis', value: site[0], certainty, source_type: 'user_text',
         source_excerpt: match[0].trim() });
@@ -3218,7 +3223,7 @@ function canonicalCertainty(evidence, proposed) {
   if (/(?:未提及|未记载|未记录|无记载|没有记载|未说明|未描述)/u.test(evidence)) return 'unknown';
   if (/(?:建议|推荐|需要|拟|计划|应当|应).{0,24}(?:复查|检查|重建|排除)/.test(evidence)
     && !/(?:已排除|排除后|复查结果|检查结果)/.test(evidence)) return 'unknown';
-  if (/不排除|不能排除|可疑|疑似|怀疑|疑问|存疑|待确认|待排|待查|考虑|可能|[?？]/u.test(evidence)) return 'uncertain';
+  if (/不排除|不能排除|未排除|尚未排除|未能排除|不除外|不能除外|未能除外|可疑|疑似|怀疑|疑问|存疑|待确认|待排|待查|考虑|可能|[?？]/u.test(evidence)) return 'uncertain';
   if (/排除|未见|未发现|不存在|阴性|否认/.test(evidence)) return 'excluded';
   return ['reported', 'observed', 'derived', 'conflicted', 'unknown'].includes(proposed) ? proposed : 'reported';
 }

@@ -38,6 +38,45 @@ test('temporal lobe softening and secondary epilepsy do not imply traumatic late
     && fact.value === '外伤性迟发性癫痫'), true);
 });
 
+test('postposed epilepsy qualifiers cannot turn uncertain or excluded diagnoses into support', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.2.l');
+  const examples = [
+    ['影像示脑外伤后左颞叶软化灶，外伤性迟发性癫痫待排。', 'uncertain'],
+    ['诊断为外伤性迟发性癫痫可能。', 'uncertain'],
+    ['外伤性迟发性癫痫可疑。', 'uncertain'],
+    ['外伤性迟发性癫痫不除外。', 'uncertain'],
+    ['外伤性迟发性癫痫未排除。', 'uncertain'],
+    ['外伤性迟发性癫痫明确排除。', 'excluded'],
+  ];
+  for (const [description, certainty] of examples) {
+    const derived = normalizeExtractedFacts(emptyExtraction, { description }).facts
+      .filter(fact => fact.field === 'clinical_finding' && fact.value === '外伤性迟发性癫痫');
+    assert.equal(derived.some(fact => fact.certainty === 'reported'), false, description);
+    assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+      derived.map(fact => ({ ...fact, verification: 'quoted' }))).met, true, description);
+
+    const modelFact = { id: 'M1', field: 'diagnosis', value: '外伤性迟发性癫痫', certainty: 'reported',
+      source: 'description', evidence: '外伤性迟发性癫痫' };
+    const validated = normalizeExtractedFacts({ facts: [modelFact], missingMaterials: [], conflicts: [],
+      requiresReview: false }, { description }).facts.filter(fact => fact.value === '外伤性迟发性癫痫');
+    assert.ok(validated.some(fact => fact.certainty === certainty), description);
+    assert.notEqual(evaluateConditionLogic(clause.conditionLogic,
+      validated.map(fact => ({ ...fact, verification: 'quoted' }))).met, true, description);
+  }
+
+  const definitive = normalizeExtractedFacts(emptyExtraction, {
+    description: '法医诊断明确为外伤性迟发性癫痫。',
+  }).facts.filter(fact => fact.value === '外伤性迟发性癫痫')
+    .map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, definitive).met, true);
+
+  const sahClause = catalogs.injury.clauses.find(item => item.id === '5.1.2.f');
+  const uncertainSah = normalizeExtractedFacts(emptyExtraction, { description:
+    '合成资料，非真实病例。外伤性蛛网膜下腔出血可疑，伴头痛、呕吐和短暂意识不清。' })
+    .facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.notEqual(evaluateConditionLogic(sahClause.conditionLogic, uncertainSah).met, true);
+});
+
 test('rib ordinal lists do not create fracture-site counts', () => {
   const snapshot = normalizeExtractedFacts(emptyExtraction, {
     description: '左侧第3至第6肋骨骨折。',
