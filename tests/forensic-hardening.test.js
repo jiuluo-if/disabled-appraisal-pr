@@ -433,6 +433,27 @@ test('one quoted composite jaw conclusion cannot independently prove fracture, t
   assert.match(reference?.reasoning || '', /治疗后遗留的功能障碍/u);
 });
 
+test('one quoted composite nerve conclusion cannot independently prove nerve level and residual muscle grade', () => {
+  const conclusion = '四肢重要神经损伤（上肢肘关节以上，下肢膝关节以上），遗留相应肌群肌力3级以下';
+  const description = `合成资料，非真实病例。鉴定意见记载“${conclusion}”。`;
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.9.1.7');
+  const extraction = normalizeExtractedFacts({ facts: [{ id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: conclusion, certainty: 'reported', source: 'description', evidence: conclusion }],
+  missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const facts = extraction.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const result = normalizeResult({ ...providerFixture('disability'), status: 'preliminary', grade: clause.grade,
+    facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: conclusion, reasoning: '',
+      conditions: [{ condition: clause.text, evidence: conclusion, factIds: facts.map(fact => fact.id), met: true }] }] },
+  { ...inputs.disability, description }, { clauses: [clause], requestId: 'nerve-composite-conclusion-alone',
+    model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+  assert.equal(result.grade, null);
+  const reference = result.references.find(item => item.id === clause.id);
+  assert.equal(reference?.relation, 'incomplete');
+  assert.match(reference?.reasoning || '', /重要神经损伤及其解剖平面/u);
+  assert.match(reference?.reasoning || '', /客观检查确认残留肌力等级达到阈值/u);
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
