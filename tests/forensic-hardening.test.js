@@ -454,6 +454,39 @@ test('one quoted composite nerve conclusion cannot independently prove nerve lev
   assert.match(reference?.reasoning || '', /客观检查确认残留肌力等级达到阈值/u);
 });
 
+test('single-leaf compound organ and function clauses do not grade from one complete conclusion', async t => {
+  const cases = [
+    { assessmentType: 'injury', id: '5.4.5.a', reason: /眼球损伤和视功能影响/u },
+    { assessmentType: 'injury', id: '5.5.2.f', reason: /喉部损伤、遗留发声障碍及其重度程度/u },
+    { assessmentType: 'injury', id: '5.9.2.j', reason: /交叉韧带完全断裂及损伤后遗留旋转不稳/u },
+    { assessmentType: 'disability', id: '5.9.3.7', reason: /食管损伤及其造成的吞咽功能影响/u },
+    { assessmentType: 'disability', id: '5.10.1.6', reason: /重要神经损伤、与其对应的肌群及客观肌力等级/u },
+    { assessmentType: 'disability', id: '5.10.3.3', reason: /喉返神经损伤及其功能影响/u },
+    { assessmentType: 'disability', id: '5.10.6.1', reason: /齿状突骨折及其造成的功能影响/u },
+    { assessmentType: 'disability', id: '5.10.6.14', reason: /重要血管循环障碍、受累肢体与功能后果/u },
+  ];
+
+  for (const { assessmentType, id, reason } of cases) {
+    await t.test(`${assessmentType} ${id}`, () => {
+      const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+      const conclusion = clause.text.replace(/[。；;]$/u, '');
+      const description = `合成资料，非真实病例。鉴定意见记载“${conclusion}”。`;
+      const facts = [{ id: 'F1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+        certainty: 'reported', source: 'description', verification: 'quoted', evidence: conclusion }];
+      const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+        facts: [], references: [{ clauseId: id, relation: 'supports', evidence: conclusion, reasoning: '',
+          conditions: [{ condition: clause.text, evidence: conclusion, factIds: ['F1'], met: true }] }] },
+      { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `single-composite-${id}`,
+        model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+      assert.equal(result.grade, null);
+      const reference = result.references.find(item => item.id === id);
+      assert.equal(reference?.relation, 'incomplete');
+      assert.match(reference?.reasoning || '', reason);
+    });
+  }
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
