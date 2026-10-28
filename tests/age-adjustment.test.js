@@ -55,11 +55,11 @@ test('explicit age-at-injury evidence survives fact normalization and all TBSA b
     for (const child of node.children || []) collect(child);
   };
   for (const id of ['5.11.1.a', '5.11.2.a', '5.11.3.a', '5.12.1.a', '5.12.2.a', '5.12.3.a', '5.12.4.a',
-    '5.12.5.b', '5.12.5.c', '5.12.5.d']) {
+    '5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e']) {
     collect(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.logic);
   }
-  assert.equal(markedLeaves.length, 17);
-  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d']) {
+  assert.equal(markedLeaves.length, 19);
+  for (const id of ['5.12.5.b', '5.12.5.c', '5.12.5.d', '5.2.3.c', '5.2.4.e']) {
     assert.equal(catalogs.injury.clauses.find(item => item.id === id).conditionLogic.ageAdjustment, 'injury_standard_6_18');
   }
 });
@@ -300,4 +300,45 @@ test('local burn-area thresholds use source-bound degree and anatomical site mea
   const burnArea = linked.find(fact => fact.field === 'burn_area_face_first_degree_cm2');
   assert.ok(age?.eventId);
   assert.equal(burnArea?.eventId, age.eventId);
+});
+
+test('facial skin injury area thresholds use the age bands in injury standard 6.18', () => {
+  const assess = (id, age, area) => {
+    const description = `本次事故后受伤时年龄${age}周岁，面部色素异常面积累计${area}平方厘米。`;
+    const facts = normalizeExtractedFacts({ facts: [ageFact(age)], missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+  assert.equal(assess('5.2.4.e', 6, 4), true);
+  assert.equal(assess('5.2.4.e', 6, 3.99), false);
+  assert.equal(assess('5.2.4.e', 7, 4.8), true);
+  assert.equal(assess('5.2.4.e', 10, 4.8), true);
+  assert.equal(assess('5.2.4.e', 11, 6.4), true);
+  assert.equal(assess('5.2.4.e', 14, 6.4), true);
+  assert.equal(assess('5.2.4.e', 15, 7.99), false);
+  assert.equal(assess('5.2.4.e', 15, 8), true);
+  assert.equal(assess('5.2.3.c', 6, 15), true);
+  assert.equal(assess('5.2.3.c', 14, 24), true);
+  assert.equal(assess('5.2.3.c', 15, 29.99), false);
+  const noAge = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '面部色素异常面积累计5平方厘米。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.2.4.e').conditionLogic,
+    noAge).met, null);
+  const separateAreas = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, {
+    description: '面部色素异常面积累计2平方厘米。面部细小瘢痕面积累计2平方厘米。',
+  }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  assert.equal(evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === '5.2.4.e').conditionLogic,
+    separateAreas).met, null);
+  const faceClause = catalogs.injury.clauses.find(item => item.id === '5.2.4.e');
+  const faceFact = noAge.find(fact => fact.field === 'facial_skin_abnormality_area_cm2');
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: '轻伤二级', facts: [], references: [{
+    clauseId: faceClause.id, evidence: faceFact.evidence, reasoning: '模型认为面积达到阈值。', relation: 'supports',
+    conditions: [{ condition: faceClause.text, evidence: faceFact.evidence, factIds: [faceFact.id], met: true }],
+  }] }, { ...inputs.injury, description: '面部色素异常面积累计5平方厘米。' }, {
+    clauses: [faceClause], requestId: 'facial-area-age-review', model: 'test-model', extractedFacts: noAge,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === faceClause.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
 });

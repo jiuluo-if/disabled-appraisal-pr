@@ -105,10 +105,10 @@ function explicitRibSiteCountStatus(conditionText, evidence) {
 }
 
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
-const INJURY_TBSA_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
+const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
   'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent', 'burn_area_face_first_degree_cm2',
   'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
-  'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2']);
+  'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2']);
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
@@ -986,7 +986,7 @@ function verifiedAdultAgeForAdjustment(facts, eventId, ageAdjustment) {
 
 function adjustedAgePredicate(node, facts, eventId) {
   const predicate = node.predicate;
-  if (node.ageAdjustment !== 'injury_standard_6_18' || !INJURY_TBSA_MEASUREMENT_FIELDS.has(predicate?.field)
+  if (node.ageAdjustment !== 'injury_standard_6_18' || !INJURY_AGE_SCALED_MEASUREMENT_FIELDS.has(predicate?.field)
     || predicate.operator !== 'gte') return null;
   const age = ageAtInjury(facts, eventId);
   const measurementFacts = facts.filter(fact => fact.field === predicate.field && fact.eventId === eventId
@@ -995,9 +995,10 @@ function adjustedAgePredicate(node, facts, eventId) {
     const minimumThreshold = predicate.value * 0.5;
     const completeAggregate = predicate.field === 'contusion_tbsa_percent' && measurementFacts.length === 1
       && /(?:累计|总面积|合计|共计)/u.test(measurementFacts[0].evidence);
-    const localBurnMeasurementsBelowEveryAgeThreshold = predicate.field.startsWith('burn_area_')
+    const localSkinMeasurementsBelowEveryAgeThreshold = (predicate.field.startsWith('burn_area_')
+      || predicate.field === 'facial_skin_abnormality_area_cm2')
       && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
-    return (completeAggregate || localBurnMeasurementsBelowEveryAgeThreshold)
+    return (completeAggregate || localSkinMeasurementsBelowEveryAgeThreshold)
       && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;
   }
@@ -1011,7 +1012,7 @@ function ageAdjustmentFollowUp(logic, facts) {
     const observed = evaluateConditionLogic({ annotation: 'explicit', logic: node }, facts);
     let needsAgeReview = observed.met === true;
     if (node.ageAdjustment === 'injury_standard_6_18'
-      && INJURY_TBSA_MEASUREMENT_FIELDS.has(node.predicate?.field)) {
+      && INJURY_AGE_SCALED_MEASUREMENT_FIELDS.has(node.predicate?.field)) {
       const minimumThreshold = node.predicate.value * 0.5;
       const measurements = facts.filter(fact => fact.field === node.predicate.field && fact.source === 'description'
         && fact.verification === 'quoted' && Number.isFinite(predicateEvidenceValue(node.predicate, fact, facts))
@@ -1030,7 +1031,7 @@ function ageAdjustmentFollowUp(logic, facts) {
 function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled = false) {
   let predicate = node.predicate;
   if (ageAdjustmentEnabled && ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment)) {
-    if (node.ageAdjustment === 'injury_standard_6_18' && INJURY_TBSA_MEASUREMENT_FIELDS.has(predicate?.field)) {
+    if (node.ageAdjustment === 'injury_standard_6_18' && INJURY_AGE_SCALED_MEASUREMENT_FIELDS.has(predicate?.field)) {
       predicate = adjustedAgePredicate(node, facts, eventId);
       if (!predicate) return { met: null, evidence: '', factIds: [] };
     } else if (!verifiedAdultAgeForAdjustment(facts, eventId, node.ageAdjustment)) {
@@ -1122,7 +1123,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       return { met: states.some(state => state === true), evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
         factIds: positive.map(fact => fact.id) };
     }
-    if (INJURY_TBSA_MEASUREMENT_FIELDS.has(predicate.field) && positive.length > 1
+    if (INJURY_AGE_SCALED_MEASUREMENT_FIELDS.has(predicate.field) && positive.length > 1
       && states.every(state => state === false)) {
       return { met: null, evidence: '', factIds: [] };
     }

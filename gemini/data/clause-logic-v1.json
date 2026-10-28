@@ -4423,34 +4423,19 @@
       },
       "5.2.3.c": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
-          "op": "any",
+          "op": "condition",
           "sourceText": "面部片状细小瘢痕或者明显色素异常，面积累计30.0cm2以上",
           "conditionText": "面部片状细小瘢痕或者明显色素异常，面积累计30.0cm2以上",
-          "children": [
-            {
-              "op": "condition",
-              "sourceText": "面部片状细小瘢痕",
-              "conditionText": "面部片状细小瘢痕面积累计30.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕面积累计30.0cm2以上"
-                ]
-              }
-            },
-            {
-              "op": "condition",
-              "sourceText": "明显色素异常",
-              "conditionText": "面部明显色素异常面积累计30.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部明显色素异常面积累计30.0cm2以上"
-                ]
-              }
-            }
-          ]
+          "predicate": {
+            "field": "facial_skin_abnormality_area_cm2",
+            "operator": "gte",
+            "value": 30,
+            "unit": "cm2",
+            "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素异常", "色素沉着", "片状细小瘢痕", "细小瘢痕"], ["面积"]]
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.2.3.j": {
@@ -4642,6 +4627,7 @@
       },
       "5.2.4.e": {
         "annotation": "explicit",
+        "ageAdjustment": "injury_standard_6_18",
         "logic": {
           "op": "condition",
           "sourceText": "面部片状细小瘢痕或者色素异常，面积累计8.0cm2以上",
@@ -4650,8 +4636,10 @@
             "field": "facial_skin_abnormality_area_cm2",
             "operator": "gte",
             "value": 8,
-            "unit": "cm2"
-          }
+            "unit": "cm2",
+            "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素异常", "色素沉着", "片状细小瘢痕", "细小瘢痕"], ["面积"]]
+          },
+          "ageAdjustment": "injury_standard_6_18"
         }
       },
       "5.2.4.r": {
