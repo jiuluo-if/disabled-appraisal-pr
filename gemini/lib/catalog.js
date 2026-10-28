@@ -89,7 +89,7 @@ function validateLogicNode(node, clauseText, annotation) {
       'facial_skin_abnormality_area_cm2', 'aggregate_wound_length_cm', 'scalp_defect_area_cm2',
       'scalp_avulsion_area_cm2', 'skin_avulsion_area_cm2', 'skin_defect_area_cm2',
       'skin_abrasion_area_cm2', 'skin_contusion_area_cm2', 'scalp_abrasion_area_cm2', 'wound_length_cm',
-      'lip_through_wound_length_cm']
+      'lip_through_wound_length_cm', 'surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2']
       .includes(node.factMatch?.field || node.predicate?.field)
     || annotation !== 'explicit')) {
     throw new TypeError('年龄调整标记只能用于显式量化伤情或面部瘢痕条款');

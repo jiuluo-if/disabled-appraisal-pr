@@ -2638,6 +2638,43 @@ function normalizeFacialSkinAbnormalityAreaFacts(inputText) {
     .filter(fact => !isInternalOrganTearMeasurement(fact.source_excerpt));
 }
 
+function normalizeSurfaceScarAreaFacts(inputText) {
+  const text = normalizeInput(inputText);
+  const findings = [];
+  const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  const sitePattern = /颈前三角区|颈前部|颈前|颈部|面部|脸部|面颊|颊部|颧部|鼻部|耳廓/gu;
+  const scarPattern = /增生瘢痕|瘢痕|疤痕/gu;
+  const areaPattern = new RegExp(`(单块面积|单个面积|面积累计|累计面积|总面积|面积合计|面积)(?:约|为|达)?\\s*(${amount})\\s*(?:cm2|平方厘米)`, 'gu');
+  for (const clauseMatch of text.matchAll(/[^。；;]+/gu)) {
+    const clause = clauseMatch[0];
+    const sites = [...clause.matchAll(sitePattern)];
+    const siteNames = [...new Set(sites.map(site => site[0]))];
+    const scars = [...clause.matchAll(scarPattern)];
+    areaPattern.lastIndex = 0;
+    const areas = [...clause.matchAll(areaPattern)];
+    if (siteNames.length !== 1 || !scars.length || areas.length !== 1
+      || Math.min(...scars.map(scar => Math.abs(scar.index - sites[0].index))) > 80) continue;
+    const [area] = areas;
+    const beforeArea = clause.slice(Math.max(0, area.index - 20), area.index);
+    if (/(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:-|–|—|至|到)\s*$/u.test(beforeArea)) continue;
+    const areaMarker = area[1];
+    const aggregate = /累计|总面积|合计/u.test(areaMarker);
+    const multiple = /(?:多块|多处|多个|[两二三四五六七八九十百0-9]+\s*块)/u.test(clause.slice(sites[0].index, area.index));
+    if (multiple && !aggregate) continue;
+    const token = area[2];
+    const value = /^\d+(?:\.\d+)?$/u.test(token) ? Number(token) : parseNumber(token);
+    if (!Number.isFinite(value) || value < 0) continue;
+    const evidenceStart = sites[0].index;
+    const evidenceEnd = area.index + area[0].length;
+    const certainty = certaintyFor(clause, evidenceStart, evidenceEnd);
+    findings.push({ id: `SSA${clauseMatch.index + area.index}`, field: aggregate
+      ? 'aggregate_surface_scar_area_cm2' : 'surface_scar_area_cm2', value, certainty,
+    source_type: 'user_text', source_excerpt: clause.slice(evidenceStart, evidenceEnd).trim(),
+    regionEvidence: { site: siteNames[0] }, parserKey: `${clauseMatch.index + area.index}:${value}` });
+  }
+  return [...new Map(findings.map(fact => [fact.parserKey, fact])).values()];
+}
+
 function evidenceHasMeasurement(evidence, value, pattern) {
   if (!Number.isFinite(value)) return false;
   for (const match of evidence.matchAll(pattern)) {
@@ -3606,6 +3643,8 @@ function factFinding(field, value, certainty) {
     functional_impairment: '功能情况', prior_injury: '既往损伤',
     wound_length_cm: '创口或瘢痕长度（厘米）',
     aggregate_wound_length_cm: '多处创口累计长度（厘米）',
+    surface_scar_area_cm2: '瘢痕单块面积（平方厘米）',
+    aggregate_surface_scar_area_cm2: '瘢痕累计面积（平方厘米）',
     dental_loss_count: '牙齿缺失数',
     lip_wound_length_cm: '唇部创口或瘢痕长度（厘米）',
     lip_through_wound_length_cm: '唇部贯通创相关皮肤长度（厘米）',
@@ -4200,11 +4239,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...hairlineWoundSegmentFacts, ...normalizeCrossRegionWoundRatioFacts(sourceText, ratioLengthFacts),
       ...normalizeEarScalpWoundRatioFacts(sourceText),
       ...normalizeAuricleDefectRatioFacts(sourceText),
-      ...normalizeFacialSkinAbnormalityAreaFacts(sourceText)]) {
+      ...normalizeFacialSkinAbnormalityAreaFacts(sourceText),
+      ...normalizeSurfaceScarAreaFacts(sourceText)]) {
       if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
         'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(fact.field)
         || fact.field.startsWith('burn_tbsa_') || fact.field.startsWith('burn_area_')
-        || fact.field.startsWith('scalp_')) {
+        || fact.field.startsWith('scalp_')
+        || fact.field === 'surface_scar_area_cm2'
+        || fact.field === 'aggregate_surface_scar_area_cm2') {
         if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
       }
       const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
@@ -4219,6 +4261,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field === 'lip_wound_length_cm'
         || fact.field === 'lip_through_wound_length_cm'
         || fact.field === 'facial_skin_abnormality_area_cm2'
+        || fact.field === 'surface_scar_area_cm2'
+        || fact.field === 'aggregate_surface_scar_area_cm2'
         || fact.field.startsWith('scalp_')
         || fact.field === 'prior_injury' && fact.source_excerpt.includes('\n')
         ? fact.source_excerpt
@@ -4242,13 +4286,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && !fact.field.startsWith('burn_area_') && !fact.field.startsWith('scalp_')
       && !fact.field.startsWith('skin_')
       && !['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field)
+      && !['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(fact.field)
       || fact.source !== 'description' || fact.eventId) return null;
     const contextFor = text => fact.field.startsWith('burn_area_') || fact.field.startsWith('scalp_')
       || fact.field.startsWith('skin_')
-      || ['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field)
+      || ['wound_length_cm', 'aggregate_wound_length_cm', 'surface_scar_area_cm2',
+        'aggregate_surface_scar_area_cm2'].includes(fact.field)
       ? sourceSentence(sourceTexts.description, text) : sourceClause(sourceTexts.description, text);
     const factClause = contextFor(fact.evidence) || fact.evidence;
-    if ((fact.field.startsWith('skin_') || ['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field))
+    if ((fact.field.startsWith('skin_') || ['wound_length_cm', 'aggregate_wound_length_cm',
+      'surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(fact.field))
       && !hasSingleExplicitInjuryEvent(factClause)) return null;
     const eventIds = new Set(raw.facts.filter(modelFact => modelFact.source === 'description' && modelFact.eventId
       && ['age_at_injury_years', 'injury_date'].includes(canonicalField(modelFact.field))
@@ -4315,7 +4362,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     let value = stableJson(sourceFact.value);
     if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
       'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(field)
-      || field.startsWith('burn_tbsa_')) {
+      || field.startsWith('burn_tbsa_')
+      || field === 'surface_scar_area_cm2' || field === 'aggregate_surface_scar_area_cm2') {
       if (factIsOutsideAssessmentScope(sourceTexts[source], providedEvidence, String(value ?? ''))) continue;
     }
     if (['injury_date', 'prior_injury', 'other'].includes(field) && isNonInjuryDateClaim(fullEvidence, value)) continue;
@@ -4371,6 +4419,11 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       continue;
     }
     if (['wound_length_cm', 'facial_skin_abnormality_area_cm2'].includes(field)) {
+      const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
+        && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
+      if (!deterministicMatch) { invalidEvidence = true; continue; }
+    }
+    if (['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(field)) {
       const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
         && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
       if (!deterministicMatch) { invalidEvidence = true; continue; }

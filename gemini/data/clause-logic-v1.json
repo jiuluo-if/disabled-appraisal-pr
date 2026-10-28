@@ -3619,17 +3619,47 @@
             },
             {
               "op": "condition",
-              "sourceText": "面积累计30.0cm2以上",
-              "conditionText": "面积累计30.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面积累计30.0cm2以上"
+        "sourceText": "面积累计30.0cm2以上",
+              "conditionText": "颈前三角区增生瘢痕面积累计30.0cm2以上",
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 30,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "累计面积",
+                    "面积累计",
+                    "总面积",
+                    "合计"
+                  ],
+                  [
+                    "颈前三角区",
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部"
+                  ],
+                  [
+                    "增生瘢痕",
+                    "增生性瘢痕",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "累计",
+                    "总面积",
+                    "合计",
+                    "面积累计",
+                    "累计面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.6.1.a": {
         "annotation": "explicit",
@@ -10150,26 +10180,81 @@
               "op": "condition",
               "sourceText": "颈前三角区瘢痕，单块面积10.0cm2以上",
               "conditionText": "颈前三角区瘢痕，单块面积10.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前三角区瘢痕，单块面积10.0cm2以上"
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "颈前三角区",
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部"
+                  ],
+                  [
+                    "增生瘢痕",
+                    "增生性瘢痕",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "面积",
+                    "单块面积",
+                    "单个面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "多块面积累计12.0cm2以上",
-              "conditionText": "颈前三角区瘢痕多块面积累计12.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前三角区瘢痕多块面积累计12.0cm2以上"
+              "conditionText": "多块面积累计12.0cm2以上",
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 12,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "多块",
+                    "多处",
+                    "多个",
+                    "两块",
+                    "二块",
+                    "2块",
+                    "两块以上",
+                    "2块以上"
+                  ],
+                  [
+                    "颈前三角区",
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部"
+                  ],
+                  [
+                    "增生瘢痕",
+                    "增生性瘢痕",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "累计",
+                    "总面积",
+                    "合计",
+                    "面积累计",
+                    "累计面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.5.3.d": {
         "annotation": "explicit",
@@ -10330,26 +10415,81 @@
               "op": "condition",
               "sourceText": "颈前部瘢痕，单块面积4.0cm2以上",
               "conditionText": "颈前部瘢痕，单块面积4.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部瘢痕，单块面积4.0cm2以上"
+              "predicate": {
+                "field": "surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 4,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "颈前三角区",
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部"
+                  ],
+                  [
+                    "增生瘢痕",
+                    "增生性瘢痕",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "面积",
+                    "单块面积",
+                    "单个面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             },
             {
               "op": "condition",
               "sourceText": "两块以上面积累计6.0cm2以上",
-              "conditionText": "颈前部瘢痕两块以上面积累计6.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颈前部瘢痕两块以上面积累计6.0cm2以上"
+              "conditionText": "两块以上面积累计6.0cm2以上",
+              "predicate": {
+                "field": "aggregate_surface_scar_area_cm2",
+                "operator": "gte",
+                "value": 6,
+                "unit": "cm2",
+                "evidenceGroups": [
+                  [
+                    "多块",
+                    "多处",
+                    "多个",
+                    "两块",
+                    "二块",
+                    "2块",
+                    "两块以上",
+                    "2块以上"
+                  ],
+                  [
+                    "颈前三角区",
+                    "颈前部",
+                    "颈前正中",
+                    "颈前",
+                    "颈部"
+                  ],
+                  [
+                    "增生瘢痕",
+                    "增生性瘢痕",
+                    "瘢痕",
+                    "疤痕"
+                  ],
+                  [
+                    "累计",
+                    "总面积",
+                    "合计",
+                    "面积累计",
+                    "累计面积"
+                  ]
                 ]
-              }
+              },
+              "ageAdjustment": "injury_standard_6_18"
             }
           ]
-        }
+        },
+        "ageAdjustment": "injury_standard_6_18"
       },
       "5.6.2.c": {
         "annotation": "explicit",

@@ -111,7 +111,8 @@ const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 
   'burn_area_body_first_degree_cm2', 'burn_area_body_superficial_second_degree_cm2', 'facial_skin_abnormality_area_cm2',
   'aggregate_wound_length_cm', 'scalp_defect_area_cm2', 'scalp_avulsion_area_cm2',
   'skin_avulsion_area_cm2', 'skin_defect_area_cm2', 'skin_abrasion_area_cm2', 'skin_contusion_area_cm2',
-  'scalp_abrasion_area_cm2', 'wound_length_cm', 'lip_through_wound_length_cm']);
+  'scalp_abrasion_area_cm2', 'wound_length_cm', 'lip_through_wound_length_cm', 'surface_scar_area_cm2',
+  'aggregate_surface_scar_area_cm2']);
 const WOUND_SURFACE_SITE_ALIASES = new Set(['面部','脸部','额部','前额','额头','眉弓','眉部','面颊','颧部','鼻部','鼻背','鼻梁','鼻翼',
   '鼻唇沟','口唇','上唇','下唇','下颌','头部','头皮','额顶部','头顶部','颞顶部','顶枕部','后枕部','颞枕部','枕部','颞部',
   '耳廓','耳部','颈前部','颈前','颈部','颈','肢体','上肢','下肢','上臂','前臂','肘部','腕部','肩部','手部','手掌',
@@ -299,6 +300,19 @@ function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     if (fact.eventId && ribNumberParents.length + rootCountParents.length === parents.length
       && lowerBound > 0 && fact.value >= lowerBound && fact.value <= upperBound) return fact.value;
     return null;
+  }
+  if (['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(predicate.field)) {
+    const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*(?:cm2|平方厘米)`, 'gu'))];
+    const aggregate = predicate.field === 'aggregate_surface_scar_area_cm2';
+    const beforeMeasurement = measurements.length === 1
+      ? evidence.slice(Math.max(0, measurements[0].index - 24), measurements[0].index) : '';
+    if (measurements.length !== 1 || !/(?:瘢痕|疤痕)/u.test(evidence) || !/面积/u.test(evidence)
+      || aggregate && !/(?:累计|总面积|合计)/u.test(evidence)
+      || !aggregate && /(?:多块|多处|多个|累计|总面积|合计)/u.test(evidence)
+      || /(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:-|–|—|至|到)\s*$/u.test(beforeMeasurement)
+      || /(?:未达|低于|小于|不足|不超过|少于|超过|大于|至少|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除)/u.test(evidence)) return null;
+    const sourceValue = /^\d/u.test(measurements[0][1]) ? Number(measurements[0][1]) : parseNumber(measurements[0][1]);
+    return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 ? sourceValue : null;
   }
   for (const match of evidence.matchAll(new RegExp(`${number}\\s*${unit}`, 'gu'))) {
     const sourceValue = /^\d+(?:\.\d+)?$/.test(match[1]) ? Number(match[1]) : parseNumber(match[1]);
@@ -498,7 +512,7 @@ function predicateEvidenceValue(predicate, fact, facts = []) {
 }
 
 function aggregateWoundLengthSitesSupportPredicate(predicate, fact) {
-  if (fact.field !== 'aggregate_wound_length_cm') return true;
+  if (!['aggregate_wound_length_cm', 'aggregate_surface_scar_area_cm2'].includes(fact.field)) return true;
   const siteGroups = (predicate.evidenceGroups || []).filter(group => group.some(alias => WOUND_SURFACE_SITE_ALIASES.has(alias)));
   if (!siteGroups.length) return true;
   const mentionedSites = fact.regionEvidence?.sites || (fact.regionEvidence?.site ? [fact.regionEvidence.site] : []);
@@ -1045,11 +1059,14 @@ function adjustedAgePredicate(node, facts, eventId) {
       && /(?:多处|多个|[零〇一二两三四五六七八九十百0-9]+\s*(?:处|道))/u.test(measurementFacts[0].evidence)
       && /(?:创口|创痕|裂伤|伤口|瘢痕|疤痕)/u.test(measurementFacts[0].evidence)
       && /(?:总长(?:度)?|累计长(?:度)?|长度合计|长度累计)/u.test(measurementFacts[0].evidence);
+    const completeSurfaceScarAreaAggregate = predicate.field === 'aggregate_surface_scar_area_cm2'
+      && measurementFacts.length === 1 && measurementFacts[0].certainty === 'reported'
+      && /(?:累计|总面积|合计)/u.test(measurementFacts[0].evidence);
     const localSkinMeasurementsBelowEveryAgeThreshold = (predicate.field.startsWith('burn_area_')
-      || predicate.field === 'facial_skin_abnormality_area_cm2')
+      || predicate.field === 'facial_skin_abnormality_area_cm2' || predicate.field === 'surface_scar_area_cm2')
       && measurementFacts.length > 0 && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold);
     return (completeAggregate || completeScalpLengthAggregate || completeScalpAreaAggregate || completeSkinAreaAggregate
-      || completeSurfaceWoundLengthAggregate
+      || completeSurfaceWoundLengthAggregate || completeSurfaceScarAreaAggregate
       || localSkinMeasurementsBelowEveryAgeThreshold)
       && measurementFacts.every(fact => predicateEvidenceValue(predicate, fact, facts) < minimumThreshold)
       ? { ...predicate, value: minimumThreshold } : null;

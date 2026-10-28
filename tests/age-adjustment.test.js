@@ -752,3 +752,46 @@ test('conditional cheek, lip and auricle wound-length thresholds use injury stan
   assert.equal(assess('5.2.4.l', 6, '右耳廓皮肤2处创口累计长度3厘米。'), true);
   assert.notEqual(assess('5.2.4.l', 6, '右耳廓皮肤2处创口累计长度2.99厘米。'), true);
 });
+
+test('neck scar-area thresholds use source-measured scar areas and injury standard 6.18', () => {
+  const assess = (id, age, evidence) => {
+    const description = `本次事故后受伤时年龄${age}周岁，${evidence}`;
+    const sourceFacts = [ageFact(age)];
+    if (id === '5.5.2.i') sourceFacts.push({ id: 'F-hypertrophic', eventId: 'E1', field: 'clinical_finding',
+      value: '颈前三角区增生瘢痕', certainty: 'reported', source: 'description', evidence: '颈前三角区增生瘢痕' });
+    const facts = normalizeExtractedFacts({ facts: sourceFacts, missingMaterials: [], conflicts: [], requiresReview: false },
+      { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return evaluateConditionLogic(catalogs.injury.clauses.find(item => item.id === id).conditionLogic, facts).met;
+  };
+
+  assert.equal(assess('5.5.2.i', 6, '颈前三角区增生瘢痕面积累计15平方厘米。'), true);
+  assert.equal(assess('5.5.3.b', 6, '颈前三角区瘢痕单块面积5平方厘米。'), true);
+  assert.equal(assess('5.5.3.b', 7, '颈前三角区两块瘢痕面积累计7.2平方厘米。'), true);
+  assert.equal(assess('5.5.4.b', 6, '颈前部瘢痕单块面积2平方厘米。'), true);
+  assert.equal(assess('5.5.4.b', 7, '颈前部两块瘢痕面积累计3.6平方厘米。'), true);
+  assert.notEqual(assess('5.5.4.b', 6, '颈前部瘢痕单块面积1.99平方厘米。'), true);
+  assert.notEqual(assess('5.5.4.b', 6, '颈前部瘢痕单块面积1至3平方厘米。'), true);
+  assert.notEqual(assess('5.5.4.b', 6, '面部瘢痕单块面积2平方厘米。'), true);
+  const ambiguousSites = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: '本次事故后颈前部和面部瘢痕单块面积2平方厘米。' }).facts;
+  assert.equal(ambiguousSites.some(fact => fact.field === 'surface_scar_area_cm2'), false);
+  const repeatedSameSite = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: '本次事故后颈前部瘢痕，颈前部单块面积2平方厘米。' }).facts;
+  assert.ok(repeatedSameSite.some(fact => fact.field === 'surface_scar_area_cm2' && fact.value === 2));
+
+  const noAgeDescription = '本次事故后颈前部瘢痕单块面积2平方厘米。';
+  const noAgeFacts = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
+    { description: noAgeDescription }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.5.4.b');
+  const area = noAgeFacts.find(fact => fact.field === 'surface_scar_area_cm2');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, noAgeFacts).met, null);
+  const modelClaim = normalizeResult({ ...providerFixture('injury'), grade: clause.grade, facts: [], references: [{
+    clauseId: clause.id, evidence: area.evidence, reasoning: '模型认为瘢痕面积达到阈值。', relation: 'supports',
+    conditions: [{ condition: clause.text, evidence: area.evidence, factIds: [area.id], met: true }],
+  }] }, { ...inputs.injury, description: noAgeDescription }, {
+    clauses: [clause], requestId: 'neck-scar-area-age-review', model: 'test-model', extractedFacts: noAgeFacts,
+    conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  assert.equal(modelClaim.references.some(reference => reference.id === clause.id && reference.relation === 'supports'), false);
+  assert.ok(modelClaim.missingMaterials.some(material => material.includes('受伤时年龄') && material.includes('6.18')));
+});
