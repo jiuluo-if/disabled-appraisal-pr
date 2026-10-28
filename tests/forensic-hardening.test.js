@@ -5,7 +5,8 @@ import { createApp } from '../gemini/lib/app.js';
 import { loadProviderConfig } from '../gemini/lib/config.js';
 import { normalizeExtractedFacts } from '../gemini/lib/facts.js';
 import { catalogs, retrieveClauses } from '../gemini/lib/catalog.js';
-import { evaluateConditionLogic } from '../gemini/lib/results.js';
+import { evaluateConditionLogic, normalizeResult } from '../gemini/lib/results.js';
+import { inputs, providerFixture } from './fixtures.js';
 
 const emptyExtraction = { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
 
@@ -51,6 +52,33 @@ test('structured facts supplement text recall without proving an incomplete cond
   ]);
   assert.ok(candidates.some(clause => clause.id === '5.1.2.c'));
   assert.equal(candidates.find(clause => clause.id === '5.1.2.c').conditionLogic.annotation, 'explicit');
+});
+
+test('unrelated head evidence cannot be displayed as support for an uncertain rib-count clause', () => {
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.3.7');
+  const headEvidence = '本次头部软组织损伤';
+  const ribEvidence = '右侧肋骨骨折可疑';
+  const description = `合成资料，非真实病例。${headEvidence}；${ribEvidence}。`;
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: '头部软组织损伤', certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: headEvidence },
+    { id: 'F2', eventId: 'E1', field: 'injury_type', value: 'rib_fracture', certainty: 'uncertain',
+      source: 'description', verification: 'quoted', evidence: ribEvidence },
+  ];
+  const raw = { ...providerFixture('disability'), status: 'insufficient', grade: null, facts: [], references: [{
+    clauseId: clause.id, relation: 'supports', evidence: headEvidence, reasoning: '',
+    conditions: [{ condition: clause.text, evidence: headEvidence, factIds: ['F1'], met: true }],
+  }] };
+  const result = normalizeResult(raw, { ...inputs.disability, description }, {
+    clauses: [clause], requestId: 'unrelated-head-evidence-rib-count', model: 'test-model',
+    extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [],
+  });
+  const reference = result.references.find(item => item.id === clause.id);
+
+  assert.notEqual(reference?.relation, 'supports');
+  assert.equal(result.grade, null);
+  assert.equal(reference?.evidence, '');
+  assert.ok(reference?.conditions.every(condition => condition.evidence === '' && condition.factIds.length === 0));
 });
 
 test('pulmonary contusion and an unrelated operation do not prove lung rupture requiring surgery', () => {
