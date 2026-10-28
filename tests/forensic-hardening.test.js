@@ -600,6 +600,34 @@ test('not nodes preserve unknown and do not merge exclusion facts across events'
     [dislocation, { ...noFunctionalEffect, eventId: 'E2' }]).met, null);
 });
 
+test('all, any, and not apply three-valued truth tables without treating unknown as false', () => {
+  const factFor = (state, index) => {
+    const value = `事实${String.fromCharCode(65 + index)}`;
+    const certainty = state === 'true' ? 'reported' : state === 'false' ? 'excluded' : 'uncertain';
+    const qualifier = state === 'true' ? '影像证实' : state === 'false' ? '影像明确排除' : '影像考虑';
+    return { id: `F${index + 1}`, eventId: 'E1', field: 'clinical_finding', value, certainty,
+      source: 'description', verification: 'quoted', evidence: `${qualifier}${value}` };
+  };
+  const leaf = index => ({ op: 'condition', sourceText: `事实${String.fromCharCode(65 + index)}`,
+    conditionText: `事实${String.fromCharCode(65 + index)}`, factMatch: { field: 'clinical_finding',
+      values: [`事实${String.fromCharCode(65 + index)}`] } });
+  const truth = ['true', 'false', 'unknown'];
+  const combineExpected = (op, states) => op === 'all'
+    ? states.includes('false') ? false : states.every(state => state === 'true') ? true : null
+    : states.includes('true') ? true : states.every(state => state === 'false') ? false : null;
+
+  for (const left of truth) for (const right of truth) {
+    const facts = [factFor(left, 0), factFor(right, 1)];
+    for (const op of ['all', 'any']) {
+      const logic = { annotation: 'explicit', logic: { op, children: [leaf(0), leaf(1)] } };
+      assert.equal(evaluateConditionLogic(logic, facts).met, combineExpected(op, [left, right]), `${op}: ${left}, ${right}`);
+    }
+    const notLogic = { annotation: 'explicit', logic: { op: 'not', children: [leaf(0)] } };
+    assert.equal(evaluateConditionLogic(notLogic, [facts[0]]).met,
+      left === 'true' ? false : left === 'false' ? true : null, `not: ${left}`);
+  }
+});
+
 test('jaw defect and source-counted missing teeth satisfy separate parts of 5.9.2.23', () => {
   const description = '合成资料，非真实病例。本次事故后CT示左侧上颌骨部分缺损；检查记载7枚牙齿缺失。';
   const clause = catalogs.disability.clauses.find(item => item.id === '5.9.2.23');
