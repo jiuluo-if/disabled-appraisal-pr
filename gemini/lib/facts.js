@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import { factExtractionSchema } from './contracts.js';
 
-const FACT_SCHEMA_VERSION = '1.0';
+const FACT_SCHEMA_VERSION = '1.1';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_FACT_EVIDENCE_CHARS = 1000;
 const MAX_FACT_SNAPSHOT_JSON_CHARS = 250_000;
@@ -5382,18 +5382,24 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const uniqueMissing = [...new Set(missingMaterials)].sort((a, b) => a.localeCompare(b, 'zh-CN'));
   const hasUncertain = facts.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
   const hasConflictedFact = facts.some(fact => fact.certainty === 'conflicted');
-  const requiresReview = conflicts.length > 0 || invalidEventLink || factCountExceeded || openSkullDuralReviewIssue
-    || unresolvedOtherSubjectFact
-    || unlinkedFractureStatusDisagreement;
+  const reviewReasons = [
+    ...(conflicts.length ? ['fact_conflict'] : []),
+    ...(invalidEventLink ? ['invalid_event_link'] : []),
+    ...(factCountExceeded ? ['fact_limit_exceeded'] : []),
+    ...(openSkullDuralReviewIssue ? ['skull_dura_conflict'] : []),
+    ...(unresolvedOtherSubjectFact ? ['unresolved_subject'] : []),
+    ...(unlinkedFractureStatusDisagreement ? ['unlinked_fracture_status'] : []),
+  ];
+  const requiresReview = reviewReasons.length > 0;
   if (invalidEventLink) extractionWarnings.push('部分肋骨事实的受伤事件归属无法一致核验，需人工复核。');
   if (unlinkedFractureStatusDisagreement) extractionWarnings.push('骨折阳性与阴性记载无法可靠对应到同一事件，需人工复核。');
-  if (conflicts.length || hasConflictedFact) extractionWarnings.push('存在冲突事实，需人工复核。');
+  if (conflicts.length || hasConflictedFact) extractionWarnings.push('存在冲突事实，已保留并按其对候选条款的影响范围复核。');
   else if (hasUncertain) extractionWarnings.push('存在疑似或待核实事实，未作为已确认依据；请核对其是否影响评估。');
   if (factCountExceeded) extractionWarnings.push('事实数量超过单次安全处理上限，已截断并要求分段核对。');
   return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => ({ ...fact,
     ...(rawIds?.length ? { sourceFactIds: [...new Set(rawIds)].sort() } : {}) })),
     factAudit: factAudit.slice(0, 400), missingMaterials: uniqueMissing,
-    conflicts, requiresReview, warnings: extractionWarnings,
+    conflicts, requiresReview, reviewReasons, warnings: extractionWarnings,
     scopeText: removeOutOfScopeAssessmentSegments(`${sourceTexts.description}\n${sourceTexts.image}`) };
 }
 

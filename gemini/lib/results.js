@@ -139,6 +139,52 @@ function conditionFactFields(factMatch, predicate) {
   return fields;
 }
 
+function logicFactFields(node) {
+  const fields = conditionFactFields(node.factMatch, node.predicate);
+  if (node.confirmedBy?.field) fields.add(node.confirmedBy.field);
+  for (const field of node.confirmedBy?.fields || []) fields.add(field);
+  for (const child of node.children || []) {
+    for (const field of logicFactFields(child)) fields.add(field);
+  }
+  return fields;
+}
+
+function conflictCouldAffectGrade(conflicts, facts, assessmentType) {
+  const clauses = catalogs[assessmentType].clauses.filter(clause => clause.grade
+    && clause.conditionLogic?.annotation === 'explicit').map(clause => ({ clause,
+    fields: logicFactFields(clause.conditionLogic.logic) }));
+  for (const conflict of conflicts) {
+    const ids = [...new Set(conflict.factIds || conflict.fact_ids || conflict.between || [])];
+    if (!ids.length) return true;
+    const conflictFacts = facts.filter(fact => ids.includes(fact.id));
+    if (conflictFacts.length !== ids.length) return true;
+    const disputedIds = new Set(conflictFacts.map(fact => fact.id));
+    let expanded = true;
+    while (expanded) {
+      expanded = false;
+      for (const fact of facts) {
+        if (disputedIds.has(fact.id) || !fact.derivedFrom?.some(id => disputedIds.has(id))) continue;
+        disputedIds.add(fact.id);
+        expanded = true;
+      }
+    }
+    const disputed = facts.filter(fact => disputedIds.has(fact.id));
+    const affectedFields = new Set(facts.filter(fact => disputedIds.has(fact.id)).map(fact => fact.field));
+    const independent = facts.filter(fact => !disputedIds.has(fact.id));
+    const hypothetical = fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      ? { ...fact, certainty: 'reported' } : fact;
+    for (const { clause, fields } of clauses) {
+      if (![...fields].some(field => affectedFields.has(field))) continue;
+      if (evaluateConditionLogic(clause.conditionLogic, independent).met === true) continue;
+      const scenarios = [disputed.map(hypothetical)];
+      for (const fact of disputed) scenarios.push([hypothetical(fact)]);
+      if (scenarios.some(scenario => evaluateConditionLogic(clause.conditionLogic,
+        [...independent, ...scenario]).met === true)) return true;
+    }
+  }
+  return false;
+}
+
 function isReducedMuscleStrengthEvidence(evidence) {
   const text = String(evidence || '').normalize('NFKC');
   if (/(?:既往史|既往|既有|陈旧|原有|此前|术前|曾经)/u.test(text)) return false;
@@ -2748,7 +2794,9 @@ export function normalizeResult(raw, input, context) {
   const conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
   const unsupportedDiscrepancyLanguage = /(?:冲突|矛盾|不一致|两种(?:测量|数据)|数据.{0,12}(?:存在差异|不一致))/u;
   const multipleDatedEvents = hasDistinctDatedInjuryEvents(input.description);
-  const requiresReview = context.requiresReview === true || conflicts.length > 0 || multipleDatedEvents;
+  const reviewReasons = Array.isArray(context.reviewReasons) ? context.reviewReasons : [];
+  let requiresReview = multipleDatedEvents || reviewReasons.some(reason => reason !== 'fact_conflict')
+    || context.requiresReview === true && conflicts.length === 0 && reviewReasons.length === 0;
   if (multipleDatedEvents) warnings.push('材料涉及多个日期不同的受伤事件，当前事实未能可靠确定本次评估对象，需先核实事件归属。');
   if (hasExplicitAndRelativeInjuryDate(input.description)) {
     warnings.push('材料同时记载具体受伤日期与相对时间，请结合原始病历核实时间线及骨折与本次事件的关联；该提示本身不等同于骨折证据冲突。');
@@ -2792,6 +2840,9 @@ export function normalizeResult(raw, input, context) {
     if (sourceRefs && sourceRefs.length !== fact.sourceRefs.length) warnings.push('部分事实来源无法对应到原始页面，已移除无效来源链接。');
     facts.push({ ...fact, ...(sourceRefs ? { sourceRefs } : {}), finding: fact.finding || `${fact.field}：${Array.isArray(fact.value) ? fact.value.join('、') : String(fact.value ?? '')}`,
       verification: fact.source === 'image' ? 'image_pending' : 'quoted' });
+  }
+  if (!requiresReview && conflicts.length && conflictCouldAffectGrade(conflicts, facts, input.assessmentType)) {
+    requiresReview = true;
   }
   const contradictedAdvice = text => !requiresReview && contradictsVerifiedRibFacts(text, facts);
   const hasSourceFractureMention = /骨折|fracture/iu.test(`${input.description} ${recognizedText}`)

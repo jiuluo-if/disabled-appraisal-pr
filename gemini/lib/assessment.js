@@ -70,6 +70,7 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const model = config.textModel;
   const resultContext = { clauses, recognizedText, extractionWarnings, requestId, model,
     extractedFacts: extracted.facts, conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
+    reviewReasons: extracted.reviewReasons,
     factMissingMaterials: extracted.missingMaterials, factAudit: extracted.factAudit, analysisSnapshot };
   const deterministicSeed = {
     status: 'insufficient', grade: null, summary: '现有材料不足以形成可靠的等级评估。',

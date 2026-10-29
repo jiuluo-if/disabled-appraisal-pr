@@ -43,6 +43,7 @@ export function createAssessmentSnapshot(input, extracted, config, { factPromptV
     factAudit: extracted.factAudit,
     conflicts: extracted.conflicts,
     requiresReview: extracted.requiresReview,
+    reviewReasons: extracted.reviewReasons || [],
     missingMaterials: extracted.missingMaterials,
   });
   const versions = {
