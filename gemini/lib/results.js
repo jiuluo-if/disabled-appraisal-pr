@@ -3262,6 +3262,35 @@ export function normalizeResult(raw, input, context) {
       warnings.push('当前材料或条款依据不足，未保留模型给出的等级。');
     }
   }
+  const supportedGradeRank = supportedReference ? grades[input.assessmentType].indexOf(supportedReference.grade) : -1;
+  const unresolvedHigherReviewClauses = supportedGradeRank < 0 ? [] : (context.reviewClauseIds || [])
+    .map(id => catalogs[input.assessmentType].clauses.find(clause => clause.id === id))
+    .filter(clause => clause?.grade && grades[input.assessmentType].indexOf(clause.grade) < supportedGradeRank
+      && clause.conditionLogic?.annotation === 'explicit'
+      && evaluateConditionLogic(clause.conditionLogic, facts).met === null);
+  if (status === 'preliminary' && unresolvedHigherReviewClauses.length) {
+    status = 'insufficient';
+    grade = null;
+    missingMaterials.push('核实可能影响等级比较的较高等级条款所需事实后再评估。');
+    warnings.push('较高等级候选条款仍有必要条件未核实，暂不输出较低等级。');
+    for (const reference of references) {
+      if (reference.grade === supportedReference.grade && reference.relation === 'supports') {
+        reference.relation = 'differential';
+        reference.reasoning = '该条款条件有来源支持，但有可能影响等级比较的较高条款尚未核实。';
+      }
+    }
+    for (const clause of unresolvedHigherReviewClauses) {
+      if (references.some(reference => reference.id === clause.id)) continue;
+      const conditions = logicGroups(clause.conditionLogic.logic).map(group => {
+        const evaluated = evaluateLogicNode(group, facts, clause.conditionLogic.ageAdjustment);
+        return { condition: logicGroupText(group), evidence: evaluated.evidence, factIds: evaluated.factIds,
+          met: evaluated.met };
+      });
+      references.push({ ...clause, sourceUrl: standard.sourceUrl, evidence: conditions.map(item => item.evidence)
+        .filter(Boolean).join('；'), reasoning: '该较高等级候选条款仍有必要条件未核实，不用于当前定级。',
+      relation: 'incomplete', conditions });
+    }
+  }
   if (input.assessmentType === 'disability' && input.treatmentStatus !== 'stable' && status === 'preliminary') {
     status = 'insufficient';
     warnings.push('鉴定时机尚未确认原发损伤及相关并发症治疗终结或临床效果稳定；依据该标准第4.2条，暂不输出伤残等级。');

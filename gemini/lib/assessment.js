@@ -3,7 +3,7 @@ import { extractionSchema, factExtractionSchema, providerResultSchema } from './
 import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
 import { normalizeExtractedFacts } from './facts.js';
 import { catalogContext, catalogs, retrieveClauses } from './catalog.js';
-import { normalizeResult } from './results.js';
+import { evaluateConditionLogic, normalizeResult } from './results.js';
 import { ServiceError } from './provider.js';
 import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
 
@@ -20,6 +20,11 @@ references 必须引用给定 clauseId。逐条按官方条款附带的 conditio
 const targetedReviewInstruction = '只复核待核条件和给定候选条款，不重新分析无关事实；候选条件及事实均不构成等级结论，服务端将重新核验每个条件。';
 export const ASSESSMENT_PROMPT_VERSION = crypto.createHash('sha256')
   .update(`${rules}\n${targetedReviewInstruction}`, 'utf8').digest('hex');
+
+const gradeOrder = {
+  injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
+  disability: ['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残'],
+};
 
 function conditionFactFields(node, fields = new Set()) {
   if (node?.factMatch) {
@@ -78,15 +83,18 @@ export async function assess(input, { provider, config, signal, requestId, onMet
     missingMaterials: [], nextSteps: [], warnings: [],
   };
   const deterministicResult = normalizeResult(deterministicSeed, input, resultContext);
-  if (deterministicResult.status === 'preliminary') return deterministicResult;
   const conflictReview = deterministicResult.status === 'needs_review';
 
   const pendingReferences = deterministicResult.references.filter(reference => reference.grade
     && reference.relation === 'incomplete' && reference.conditions.some(condition => condition.met === true)
     && reference.conditions.some(condition => condition.met === null));
-  const availableFactFields = new Set(extracted.facts.filter(fact => fact.gradeEligible !== false).map(fact => fact.field));
+  const availableFactFields = new Set(deterministicResult.facts.filter(fact => fact.gradeEligible !== false)
+    .map(fact => fact.field));
+  const currentGradeRank = gradeOrder[input.assessmentType].indexOf(deterministicResult.grade);
   const semanticCandidates = clauses.filter(clause => clause.grade && clause.conditionLogic?.annotation === 'explicit'
-    && [...conditionFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field)));
+    && [...conditionFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field))
+    && (currentGradeRank < 0 || gradeOrder[input.assessmentType].indexOf(clause.grade) < currentGradeRank)
+    && evaluateConditionLogic(clause.conditionLogic, deterministicResult.facts).met !== false);
   const pendingIds = new Set([...pendingReferences.map(reference => reference.id),
     ...semanticCandidates.map(clause => clause.id)]);
   if (!pendingIds.size && !conflictReview) return deterministicResult;
@@ -120,6 +128,7 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const reviewedIds = new Set(reviewClauses.map(clause => clause.id));
   clauses = [...clauses.filter(clause => !reviewedIds.has(clause.id)), ...reviewClauses];
   resultContext.clauses = clauses;
+  resultContext.reviewClauseIds = [...reviewedIds];
 
   const result = await complete({ model, schema: providerResultSchema, name: 'assessment_result', signal, messages: [
     { role: 'system', content: `${rules}\n\n${targetedReviewInstruction}\n\n本次评估类型：${input.assessmentType}\n官方原文依据：${catalogContext(input.assessmentType, reviewClauses)}` },
