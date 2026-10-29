@@ -7,6 +7,7 @@ import { evaluateConditionLogic, gradeOrder, includesEvidence, normalizeResult }
 import { ServiceError } from './provider.js';
 import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
 import { logicFactFields } from './condition-fields.js';
+import { normalizeForMatching } from './text-normalization.js';
 
 const genericConditionTerms = new Set(['一侧', '双侧', '或者', '以及', '损伤', '外伤', '骨折', '治疗', '手术',
   '术后', '功能', '障碍', '症状', '体征', '程度', '以上', '以下', '影响', '异常', '形成', '缺失']);
@@ -22,7 +23,7 @@ function conditionEvidenceTerms(node, terms = []) {
 }
 
 function meaningfulTerms(value) {
-  const characters = [...value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')];
+  const characters = [...normalizeForMatching(value).replace(/[^\p{L}\p{N}]/gu, '')];
   const terms = new Set();
   for (let length = 2; length <= Math.min(6, characters.length); length += 1) {
     for (let start = 0; start + length <= characters.length; start += 1) {
@@ -35,7 +36,7 @@ function meaningfulTerms(value) {
 
 function hasQuotedConditionEvidence(clause, facts) {
   const terms = conditionEvidenceTerms(clause.conditionLogic.logic)
-    .filter(term => term.normalize('NFKC').replace(/\s+/gu, '').length >= 4);
+    .filter(term => normalizeForMatching(term).length >= 4);
   const clauseTerms = new Set(terms.flatMap(term => [...meaningfulTerms(term)]));
   const fields = logicFactFields(clause.conditionLogic.logic);
   return facts.some(fact => {

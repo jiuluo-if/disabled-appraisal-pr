@@ -3,6 +3,13 @@ import assert from 'node:assert/strict';
 import { assess } from '../gemini/lib/assessment.js';
 import { logicFactFields } from '../gemini/lib/condition-fields.js';
 import { retrieveClauses } from '../gemini/lib/catalog.js';
+import { includesEvidence } from '../gemini/lib/results.js';
+import { normalizeForMatching } from '../gemini/lib/text-normalization.js';
+
+test('rule evidence matching shares NFKC, whitespace, and Latin case normalization', () => {
+  assert.equal(normalizeForMatching('ＣＴ报告 记载5.0CM2'), 'ct报告记载5.0cm2');
+  assert.equal(includesEvidence('ＣＴ报告 记载5.0CM2', 'ct报告记载5.0cm2'), true);
+});
 
 test('assessment candidates inherit the same clinical-finding field aliases as rule evaluation', () => {
   const fields = logicFactFields({ op: 'condition', factMatch: { field: 'clinical_finding' } });

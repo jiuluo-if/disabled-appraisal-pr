@@ -1,6 +1,7 @@
 import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
 import { conditionFactFields, logicFactFields } from './condition-fields.js';
+import { includesNormalizedText, normalizeForMatching } from './text-normalization.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
@@ -26,8 +27,8 @@ export function deduplicateClauseReferences(references) {
   return [...byId.values()];
 }
 
-const normalize = value => value.normalize('NFKC').replace(/\s+/g, '').toLowerCase();
-export const includesEvidence = (source, quote) => Boolean(quote?.trim()) && normalize(source).includes(normalize(quote));
+const normalize = normalizeForMatching;
+export const includesEvidence = includesNormalizedText;
 
 function hasDistinctDatedInjuryEvents(text) {
   const anchors = [...String(text || '').matchAll(/(?<year>(?:19|20)\d{2})年(?:\s*(?<month>\d{1,2})月(?:\s*(?<day>\d{1,2})日)?)?(?:发生|因)?(?:交通)?(?:事故|外伤|车祸|受伤)/gu)]

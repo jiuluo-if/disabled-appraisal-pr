@@ -3,6 +3,7 @@ import crypto from 'node:crypto';
 import MiniSearch from 'minisearch';
 import { normalizeImplantedProsthesisDamageFacts, normalizeNeckAsphyxiaFacts } from './facts.js';
 import { conditionFactFields } from './condition-fields.js';
+import { normalizeForMatching } from './text-normalization.js';
 
 const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 const tokenize = value => [...segmenter.segment(value.normalize('NFKC'))]
@@ -29,7 +30,7 @@ const supplementalClauseMatchers = {
   ],
 };
 
-const normalizeClauseText = value => value.normalize('NFKC').replace(/\s+/g, '');
+const normalizeClauseText = normalizeForMatching;
 const isRecord = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const INJURY_AGE_ADJUSTMENT = 'injury_standard_6_18';
 const DISABILITY_AGE_ADJUSTMENT = 'disability_standard_6_11';
