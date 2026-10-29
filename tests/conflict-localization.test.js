@@ -48,3 +48,26 @@ test('a conflict on the decisive finding keeps the grade in manual review', () =
   assert.equal(result.grade, null);
   assert.equal(result.requiresReview, true);
 });
+
+test('a lower-grade conflict does not block an independently supported higher grade', () => {
+  const description = '诊断记载外伤性脑脓肿。CT记载左侧第3肋骨骨折；复查未见左侧第3肋骨骨折。';
+  const facts = [
+    { id: 'F1', field: 'clinical_finding', value: '外伤性脑脓肿', certainty: 'reported',
+      source: 'description', evidence: '诊断记载外伤性脑脓肿', verification: 'quoted', eventId: 'E1' },
+    { id: 'F2', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
+      evidence: 'CT记载左侧第3肋骨骨折', verification: 'quoted', eventId: 'E1' },
+    { id: 'F3', field: 'injury_type', value: 'rib_fracture', certainty: 'excluded', source: 'description',
+      evidence: '复查未见左侧第3肋骨骨折', verification: 'quoted', eventId: 'E1' },
+  ];
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.2.j');
+  const result = normalizeResult({ ...providerFixture(), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.injury, description }, {
+    clauses: [clause], requestId: 'lower-grade-conflict-test', model: 'test-model', extractedFacts: facts,
+    conflicts: [{ factIds: ['F2', 'F3'], reason: '肋骨骨折记载存在冲突。' }], requiresReview: true,
+    factMissingMaterials: [],
+  });
+
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, clause.grade);
+  assert.equal(result.requiresReview, false);
+});

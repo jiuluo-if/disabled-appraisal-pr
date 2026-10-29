@@ -171,10 +171,18 @@ function conflictCouldAffectGrade(conflicts, facts, assessmentType) {
     const disputed = facts.filter(fact => disputedIds.has(fact.id));
     const affectedFields = new Set(facts.filter(fact => disputedIds.has(fact.id)).map(fact => fact.field));
     const independent = facts.filter(fact => !disputedIds.has(fact.id));
+    const independentFields = new Set(independent.map(fact => fact.field));
+    const bestIndependentRank = clauses.reduce((best, { clause, fields }) => {
+      if (![...fields].some(field => independentFields.has(field))
+        || evaluateConditionLogic(clause.conditionLogic, independent).met !== true) return best;
+      return Math.min(best, grades[assessmentType].indexOf(clause.grade));
+    }, Number.POSITIVE_INFINITY);
     const hypothetical = fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
       ? { ...fact, certainty: 'reported' } : fact;
     for (const { clause, fields } of clauses) {
       if (![...fields].some(field => affectedFields.has(field))) continue;
+      const candidateRank = grades[assessmentType].indexOf(clause.grade);
+      if (candidateRank >= bestIndependentRank) continue;
       if (evaluateConditionLogic(clause.conditionLogic, independent).met === true) continue;
       const scenarios = [disputed.map(hypothetical)];
       for (const fact of disputed) scenarios.push([hypothetical(fact)]);
