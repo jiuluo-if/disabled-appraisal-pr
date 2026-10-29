@@ -67,3 +67,18 @@ test('a grade-changing missing condition requests only a targeted model review',
   assert.ok(reviewPayload.reviewConditions.some(item => item.clauseId === '5.6.4.b'));
   assert.match(requests[1].messages[0].content, /只复核待核条件/u);
 });
+
+test('facts with no grade-relevant rule candidate return insufficiency without a blind second call', async () => {
+  const calls = [];
+  const provider = { complete: async request => {
+    calls.push(request.name);
+    return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+  } };
+
+  const result = await assess({ ...input, description: '目前资料尚未提供诊断或检查结果。' },
+    { provider, config, requestId: 'no-relevant-candidate' });
+
+  assert.deepEqual(calls, ['fact_extraction']);
+  assert.equal(result.status, 'insufficient');
+  assert.equal(result.grade, null);
+});
