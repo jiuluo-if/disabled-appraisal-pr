@@ -15614,7 +15614,10 @@
             "field": "clinical_finding",
             "values": [
               "原位肠代膀胱术后"
-            ]
+            ],
+            "fields": ["treatment"],
+            "valueIncludes": ["原位肠代膀胱术"],
+            "evidenceAliases": ["原位肠代膀胱术"]
           }
         }
       },
@@ -17414,7 +17417,10 @@
                 "field": "clinical_finding",
                 "values": [
                   "肠代食管术后"
-                ]
+                ],
+                "fields": ["treatment"],
+                "valueIncludes": ["肠代食管术"],
+                "evidenceAliases": ["肠代食管术"]
               }
             }
           ]
@@ -20262,7 +20268,10 @@
             "field": "clinical_finding",
             "values": [
               "胰头合并十二指肠切除术后"
-            ]
+            ],
+            "fields": ["treatment"],
+            "valueIncludes": ["胰头合并十二指肠切除术"],
+            "evidenceAliases": ["胰头合并十二指肠切除术"]
           }
         }
       },

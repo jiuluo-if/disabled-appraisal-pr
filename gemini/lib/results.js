@@ -886,6 +886,8 @@ function clinicalOrgan(fact) {
   if (/肝/u.test(text)) return 'liver';
   if (/脾/u.test(text)) return 'spleen';
   if (/胰/u.test(text)) return 'pancreas';
+  if (/肠代食管/u.test(text)) return 'esophagus';
+  if (/肠代膀胱/u.test(text)) return 'bladder';
   if (/胃/u.test(text)) return 'stomach';
   if (/(?:小肠|大肠|结肠|直肠|十二指肠|肠)/u.test(text)) return 'intestine';
   if (/胆囊/u.test(text)) return 'gallbladder';

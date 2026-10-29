@@ -1825,6 +1825,41 @@ test('paired vestibular and hearing conditions require evidence from the same ea
   assert.notEqual(evaluateConditionLogic(thresholdClause.conditionLogic, [leftThreshold, rightVestibular]).met, true);
 });
 
+test('postoperative multi-organ clauses bind the documented procedure and current-event recipient organ', () => {
+  const makeFact = (id, field, value, evidence, eventId = 'E1') => ({ id, eventId, field, value,
+    certainty: 'reported', source: 'description', verification: 'quoted', evidence });
+  const assess = (clauseId, facts) => evaluateConditionLogic(catalogs.disability.clauses
+    .find(item => item.id === clauseId).conditionLogic, facts).met;
+
+  const pancreaticDuodenalFacts = [
+    makeFact('P1', 'diagnosis', '胰头损伤', '本次事故造成胰头损伤。'),
+    makeFact('P2', 'diagnosis', '十二指肠损伤', '本次事故造成十二指肠损伤。'),
+    makeFact('P3', 'treatment', '胰头合并十二指肠切除术',
+      '因本次事故造成胰头损伤和十二指肠损伤，行胰头合并十二指肠切除术。'),
+  ];
+  assert.equal(assess('5.5.4.1', pancreaticDuodenalFacts), true);
+  assert.notEqual(assess('5.5.4.1', [pancreaticDuodenalFacts[0],
+    pancreaticDuodenalFacts[1], { ...pancreaticDuodenalFacts[2], eventId: 'E2',
+      evidence: '既往病史：曾行胰头合并十二指肠切除术。' }]), true);
+  assert.notEqual(assess('5.5.4.1', [...pancreaticDuodenalFacts.slice(0, 2),
+    { ...pancreaticDuodenalFacts[2], value: '拟行胰头合并十二指肠切除术',
+      evidence: '手术计划拟行胰头合并十二指肠切除术。' }]), true);
+
+  const esophagealReplacement = [
+    makeFact('E1', 'diagnosis', '食管损伤', '本次事故造成食管损伤。'),
+    makeFact('E2', 'treatment', '肠代食管术', '因本次事故造成食管损伤，行肠代食管术。'),
+  ];
+  assert.equal(assess('5.5.3.4', esophagealReplacement), true);
+  assert.notEqual(assess('5.5.3.4', [esophagealReplacement[0],
+    { ...esophagealReplacement[1], eventId: 'E2' }]), true);
+
+  const bladderReplacement = [
+    makeFact('B1', 'diagnosis', '膀胱损伤', '本次事故造成膀胱损伤。'),
+    makeFact('B2', 'treatment', '原位肠代膀胱术', '因本次事故造成膀胱损伤，行原位肠代膀胱术。'),
+  ];
+  assert.equal(assess('5.7.5.3', bladderReplacement), true);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',
