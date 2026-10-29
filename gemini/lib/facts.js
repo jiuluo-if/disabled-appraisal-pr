@@ -224,11 +224,28 @@ function normalizeGcsScoreFacts(inputText) {
   for (const match of text.matchAll(pattern)) {
     const start = match.index;
     const end = start + match[0].length;
-    if (certaintyFor(text, start, end) !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
-    findings.push({ field: 'gcs_score', value: Number(match[1]), certainty: 'reported', source_type: 'user_text',
+    const certainty = certaintyFor(text, start, end);
+    if (certainty !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
+    const evidence = sourceSentence(text, match[0]) || match[0];
+    findings.push({ field: 'gcs_score', value: Number(match[1]),
+      certainty: hasConfoundedGcsMeasurementContext(evidence) ? 'unknown' : 'reported', source_type: 'user_text',
       source_excerpt: match[0] });
   }
   return findings;
+}
+
+function hasConfoundedGcsMeasurementContext(evidence) {
+  let context = normalizeInput(evidence || '');
+  if (!context) return false;
+  context = context.replace(/(?:未(?:使用|予以|予|行|接受|给予)?|无|否认|未见)(?:任何)?(?:全身麻醉|全麻|麻醉|镇静(?:药物|剂)?|肌松(?:药物|剂)?|气管插管|插管|机械通气|呼吸机)/gu, '');
+  const scoreIndex = context.search(/(?:GCS|格拉斯哥昏迷评分)/iu);
+  if (scoreIndex < 0) return false;
+  const beforeScore = context.slice(0, scoreIndex);
+  const confounderPattern = /全身麻醉|全麻|麻醉|镇静(?:药物|剂)?|肌松(?:药物|剂)?|气管插管|插管|机械通气|呼吸机/gu;
+  const confounders = [...beforeScore.matchAll(confounderPattern)];
+  if (!confounders.length) return false;
+  const lastConfounderEnd = confounders.at(-1).index + confounders.at(-1)[0].length;
+  return !/(?:苏醒|清醒|脱离镇静|停用镇静|拔管)后[^，,；;。！？\n]{0,24}$/u.test(beforeScore.slice(lastConfounderEnd));
 }
 
 function normalizeReportedSkullFractureDiagnosisFacts(inputText) {
@@ -4365,6 +4382,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const facts = [];
   const factsByKey = new Map();
   let invalidEvidence = false;
+  let confoundedGcsMeasurement = false;
   let invalidInjuryType = false;
   let invalidSymptomFact = false;
   let unresolvedOtherSubjectFact = false;
@@ -4695,6 +4713,10 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     if (field === 'injury_date') value = normalizeInjuryDateValue(value);
     const scopedCertaintyEvidence = certaintyEvidenceForFact(field, value, fullEvidence);
     let certainty = canonicalCertainty(scopedCertaintyEvidence, sourceFact.certainty);
+    if (field === 'gcs_score' && hasConfoundedGcsMeasurementContext(sourceSentence(sourceTexts[source], providedEvidence) || fullEvidence)) {
+      certainty = 'unknown';
+      confoundedGcsMeasurement = true;
+    }
     if (certainty === 'unknown' && hasUnresolvedOtherExperiencer(fullEvidence)) unresolvedOtherSubjectFact = true;
     if (sourceFact.certainty === 'uncertain' && typeof value === 'string' && fullEvidence.includes(value)
       && /不排除|不能排除|可疑|疑似|怀疑|疑问|存疑|待确认|待排|待查|考虑|可能|[?？]/u.test(fullEvidence)
@@ -5302,6 +5324,8 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   const missingMaterials = canonicalMissingMaterials(raw.missingMaterials).filter(item =>
     !hasExplicitFractureSiteCount || item !== '骨折处数未在原文中明确记载，需核实');
   const extractionWarnings = [
+    ...(confoundedGcsMeasurement
+      ? ['GCS评分记录在麻醉、镇静、肌松、插管或通气相关上下文中；原始记录已保留，但未作为神经系统体征依据。'] : []),
     ...(eyeContentEviscerationNeedsReview
       ? ['资料记载眼内容物剜除，但手术名称本身不能证实眼球整体缺失；系统不自动认定该条款，需核对术中所见及术后眼球/巩膜壳状态。'] : []),
     ...(invalidModelConflict ? ['模型冲突声明引用无效或无法映射到两个有效事实，已忽略；系统仍会根据可核验事实独立检查冲突。'] : []),
