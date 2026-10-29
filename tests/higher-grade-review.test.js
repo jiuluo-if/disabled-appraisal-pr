@@ -19,6 +19,14 @@ test('fact retrieval includes clauses whose clinical finding accepts a normalize
   assert.ok(clauses.some(clause => clause.id === '5.6.2.b'));
 });
 
+test('fact retrieval includes confirmedBy evidence used by a not-condition', () => {
+  const fact = { field: 'diagnosis', value: '眶底骨折', certainty: 'reported', source: 'description',
+    evidence: '影像诊断眶底骨折', verification: 'quoted', eventId: 'E1' };
+  const clauses = retrieveClauses('injury', '无关描述', 0, [fact]);
+
+  assert.ok(clauses.some(clause => clause.id === '5.2.4.f'));
+});
+
 test('a supported lower grade does not skip review of a recalled higher-grade candidate', async () => {
   const calls = [];
   const requests = [];
