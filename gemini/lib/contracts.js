@@ -62,6 +62,23 @@ export const factSourceReferenceSchema = z.object({
   source: z.enum(['description', 'image']),
   sourceId: z.string().trim().regex(/^(?:description|image-[1-6])$/).nullable(),
   evidence: shortText,
+  normalizedStart: z.number().int().nonnegative().optional(),
+  normalizedEnd: z.number().int().nonnegative().optional(),
+  positions: z.array(z.object({ normalizedStart: z.number().int().nonnegative(),
+    normalizedEnd: z.number().int().nonnegative() })).min(1).max(200).optional(),
+  positionsComplete: z.boolean().optional(),
+}).superRefine((reference, context) => {
+  const hasStart = Number.isInteger(reference.normalizedStart);
+  const hasEnd = Number.isInteger(reference.normalizedEnd);
+  if (hasStart !== hasEnd || hasStart && reference.normalizedEnd <= reference.normalizedStart) {
+    context.addIssue({ code: 'custom', message: '来源位置必须包含有效的规范化文本起止偏移。' });
+  }
+  if (reference.positions && (hasStart || hasEnd)) {
+    context.addIssue({ code: 'custom', message: '来源位置不能同时使用单点和多点格式。' });
+  }
+  if (reference.positions?.some(position => position.normalizedEnd <= position.normalizedStart)) {
+    context.addIssue({ code: 'custom', message: '重复引文的位置范围无效。' });
+  }
 });
 export const extractedFactSchema = z.object({
   id: z.string().trim().max(24).optional(),

@@ -4,7 +4,7 @@ import { BLUNT_OBJECT_BODY_IMPACT_CUE, currentEventAnchorBefore, CURRENT_EVENT_S
   hasNonCurrentClinicalContext, historicalSectionHeading, HEAD_IMPACT_EVENT_CUE_SOURCE, normalizeInjuryDateValue,
   parseEventDateAnchors, startsWithNonInjuryDateContext } from './event-date-logic.js';
 
-const FACT_SCHEMA_VERSION = '1.3';
+const FACT_SCHEMA_VERSION = '1.4';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_FACT_EVIDENCE_CHARS = 1000;
 const MAX_FACT_SNAPSHOT_JSON_CHARS = 250_000;
@@ -3674,17 +3674,41 @@ function imageTextSections(sourceText) {
 function sourceRefsForFact(source, evidence, sourceText) {
   const quote = normalizeInput(evidence).replace(/^【图片[1-6]】\s*/, '');
   if (!quote) return [];
-  if (source === 'description') return [{ source, sourceId: 'description', evidence: quote }];
+  const referencesAt = (sourceId, text) => {
+    const normalizedText = normalizeInput(text);
+    const positions = [];
+    let truncated = false;
+    for (let position = normalizedText.indexOf(quote); position >= 0;
+      position = normalizedText.indexOf(quote, position + Math.max(1, quote.length))) {
+      if (positions.length === 200) { truncated = true; break; }
+      positions.push({ normalizedStart: position, normalizedEnd: position + quote.length });
+    }
+    if (!positions.length) return [{ source, sourceId, evidence: quote }];
+    return [{ source, sourceId, evidence: quote,
+      ...(positions.length === 1 ? positions[0] : { positions }), ...(truncated ? { positionsComplete: false } : {}) }];
+  };
+  if (source === 'description') return referencesAt('description', sourceText);
   const matchingPages = imageTextSections(sourceText).filter(page => normalizeInput(page.text).includes(quote));
-  if (matchingPages.length) return matchingPages.map(page => ({ source: 'image', sourceId: page.sourceId, evidence: quote }));
-  return [{ source: 'image', sourceId: null, evidence: quote }];
+  if (matchingPages.some(page => page.sourceId === null)) return referencesAt(null, sourceText);
+  if (matchingPages.length) return matchingPages.flatMap(page => referencesAt(page.sourceId, page.text));
+  return referencesAt(null, sourceText);
 }
 
 function mergeSourceRefs(...referenceLists) {
   const references = new Map();
   for (const reference of referenceLists.flat()) {
     const key = JSON.stringify([reference.source, reference.sourceId, reference.evidence]);
-    references.set(key, reference);
+    const prior = references.get(key);
+    if (!prior) { references.set(key, reference); continue; }
+    const positionsForReference = item => item.positions || (Number.isInteger(item.normalizedStart)
+      && Number.isInteger(item.normalizedEnd) ? [{ normalizedStart: item.normalizedStart, normalizedEnd: item.normalizedEnd }] : []);
+    const positions = [...new Map([...positionsForReference(prior), ...positionsForReference(reference)]
+      .map(position => [JSON.stringify(position), position])).values()];
+    const { normalizedStart: _start, normalizedEnd: _end, positions: _positions, ...base } = prior;
+    references.set(key, { ...base, ...(positions.length === 1 ? positions[0]
+      : positions.length ? { positions: positions.slice(0, 200) } : {}),
+    ...(prior.positionsComplete === false || reference.positionsComplete === false
+      || positions.length > 200 ? { positionsComplete: false } : {}) });
   }
   return [...references.values()];
 }
@@ -3692,14 +3716,29 @@ function mergeSourceRefs(...referenceLists) {
 function sourceReferenceMatches(reference, { description = '', recognizedText = '' } = {}) {
   const quote = normalizeInput(reference?.evidence);
   if (!quote) return false;
+  const hasStart = Number.isInteger(reference.normalizedStart);
+  const hasEnd = Number.isInteger(reference.normalizedEnd);
+  if (reference.positionsComplete === false || hasStart !== hasEnd || Array.isArray(reference.positions) && (!reference.positions.length
+    || reference.positions.some(position => !Number.isInteger(position.normalizedStart)
+      || !Number.isInteger(position.normalizedEnd) || position.normalizedEnd <= position.normalizedStart))
+    || Array.isArray(reference.positions) && (hasStart || hasEnd)) return false;
+  const matchesAt = text => {
+    const normalizedText = normalizeInput(text);
+    const positions = Array.isArray(reference.positions) ? reference.positions : (hasStart && hasEnd
+      ? [{ normalizedStart: reference.normalizedStart, normalizedEnd: reference.normalizedEnd }] : []);
+    if (!positions.length) return normalizedText.includes(quote);
+    return positions.some(position => position.normalizedEnd - position.normalizedStart === quote.length
+      && normalizedText.slice(position.normalizedStart, position.normalizedEnd) === quote);
+  };
   if (reference.source === 'description') {
-    return (reference.sourceId === 'description' || reference.sourceId === null)
-      && normalizeInput(description).includes(quote);
+    if (reference.sourceId !== 'description' && reference.sourceId !== null) return false;
+    if (Number.isInteger(reference.normalizedStart) !== Number.isInteger(reference.normalizedEnd)) return false;
+    return matchesAt(description);
   }
   if (reference.source !== 'image') return false;
-  if (reference.sourceId === null) return normalizeInput(recognizedText).includes(quote);
-  return imageTextSections(recognizedText).some(page => page.sourceId === reference.sourceId
-    && normalizeInput(page.text).includes(quote));
+  if (Number.isInteger(reference.normalizedStart) !== Number.isInteger(reference.normalizedEnd)) return false;
+  if (reference.sourceId === null) return matchesAt(recognizedText);
+  return imageTextSections(recognizedText).some(page => page.sourceId === reference.sourceId && matchesAt(page.text));
 }
 
 function hasSingleExplicitCurrentRibEvent(text) {
@@ -5225,7 +5264,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       gradeEligible: normalizedFactIds.some(id => {
         const normalized = facts.find(fact => fact.id === id);
         return normalized?.source === 'description' && ['reported', 'observed', 'derived'].includes(normalized.certainty)
-          && Array.isArray(normalized.sourceRefs) && normalized.sourceRefs.length > 0;
+          && Array.isArray(normalized.sourceRefs) && normalized.sourceRefs.length > 0
+          && normalized.sourceRefs.every(reference => sourceReferenceMatches(reference,
+            { description: sourceTexts.description, recognizedText: sourceTexts.image }));
       }),
     };
   });
