@@ -666,13 +666,8 @@ function canonicalClinicalFindingEvidence(value, evidence, linkedToCurrentEvent 
     const quotedOperativeMeningealRupture = linkedToCurrentEvent && openFractureDiagnosis && operativeMeningealRupture;
     const fractureCsfFlow = /(?:骨折中心|骨折处|骨折断端|骨折缝|骨折裂隙)[^。；;\n]{0,24}脑脊液[^。；;\n]{0,20}(?:流出|外流)|脑脊液[^。；;\n]{0,20}(?:由|从)(?:骨折中心|骨折处|骨折断端|骨折缝|骨折裂隙)[^。；;\n]{0,16}(?:流出|外流)/u.test(evidence);
     const quotedFractureCsfFlow = linkedToCurrentEvent && openFractureDiagnosis && fractureCsfFlow;
-    const headWoundDeepToBone = /(?:头皮|头部)[^。！？\n]{0,32}(?:伤口|创口|裂伤|裂口)[^。！？\n]{0,20}(?:深至|深达|达至|达)骨(?:面|质)/u.test(evidence);
-    const intracranialGasInCollection = /(?:颅骨内板下|(?:硬膜下|硬膜外|颅内)血肿(?:内)?)[^。！？\n]{0,24}(?:见|有|伴)?[^。！？\n]{0,12}(?:气体(?:密度影)?|积气)/u.test(evidence);
-    const quotedDeepWoundWithIntracranialGas = linkedToCurrentEvent && headWoundDeepToBone
-      && /(?:颅骨[^。！？\n]{0,24}(?:骨折|骨裂)|(?:左|右|双侧)?(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨[^。！？\n]{0,16}(?:骨折|骨裂))/u.test(evidence)
-      && intracranialGasInCollection;
     return explicitDuralDiagnosis || normalizedOpenSkullEvidence || quotedDuralPenetration || quotedOperativeDuralDamage
-      || quotedOperativeMeningealRupture || quotedFractureCsfFlow || quotedDeepWoundWithIntracranialGas;
+      || quotedOperativeMeningealRupture || quotedFractureCsfFlow;
   }
   if (value === '胃非全层破裂') {
     return /胃[^。！？；;\n]{0,24}?(?:浆膜(?:层)?[^。！？；;\n]{0,12}(?:破裂|裂伤)|浆肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|肌层[^。！？；;\n]{0,12}(?:破裂|裂伤)|非全层破裂)/u.test(evidence)

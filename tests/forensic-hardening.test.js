@@ -10,6 +10,46 @@ import { inputs, providerFixture } from './fixtures.js';
 
 const emptyExtraction = { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
 
+test('intracranial gas at a separate cranial site cannot prove an open skull dural rupture', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.1.2.b');
+  for (const [description, label] of [
+    ['2020年5月4日本次事故后，右额头皮裂伤深达骨面；CT示右额骨线性骨折。左颞部硬膜下血肿内见少量气体。',
+      'gas on other side'],
+    ['2020年5月4日本次事故后，右额头皮裂伤深达骨面；CT示左颞骨线性骨折。左颞部硬膜下血肿内见少量气体。',
+      'wound on another region'],
+    ['2020年5月4日本次事故后，右额头皮裂伤深达骨面；CT示左颞骨线性骨折。右额部硬膜下血肿内见少量气体。',
+      'fracture on another region'],
+  ]) {
+    const extracted = normalizeExtractedFacts(emptyExtraction, { description });
+    const modelFact = { id: 'F1', eventId: 'E1', field: 'clinical_finding',
+      value: '开放性颅骨骨折伴硬脑膜破裂', certainty: 'reported', source: 'description',
+      verification: 'quoted', evidence: description,
+      sourceRefs: [{ source: 'description', sourceId: 'description', evidence: description }] };
+    const result = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs.injury, description }, { clauses: [clause], requestId: `separate-site-intracranial-gas-${label}`,
+      model: 'test-model', extractedFacts: [modelFact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(extracted.facts.some(fact => fact.value === '开放性颅骨骨折伴硬脑膜破裂'), false, label);
+    assert.equal(result.grade, null, label);
+    assert.notEqual(result.references.find(reference => reference.id === clause.id)?.relation, 'supports', label);
+  }
+
+  const alignedDescription = '2020年5月4日本次事故后，右额头皮裂伤深达骨面；CT示右额骨线性骨折，右额部硬膜下血肿内见少量气体。';
+  const aligned = normalizeExtractedFacts(emptyExtraction, { description: alignedDescription });
+  const alignedFacts = aligned.facts.map(fact => ({ ...fact, verification: 'quoted' }));
+  const alignedResult = normalizeResult({ ...providerFixture('injury'), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.injury, description: alignedDescription }, {
+    clauses: [clause], requestId: 'same-site-intracranial-gas', model: 'test-model', extractedFacts: alignedFacts,
+    conflicts: aligned.conflicts, requiresReview: aligned.requiresReview, factMissingMaterials: aligned.missingMaterials,
+  });
+
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, alignedFacts).met, true);
+  assert.equal(alignedResult.grade, clause.grade);
+  assert.equal(alignedResult.references[0].relation, 'supports');
+});
+
 test('generic subarachnoid hemorrhage and head trauma do not imply traumatic hemorrhage', () => {
   const generic = normalizeExtractedFacts(emptyExtraction, {
     description: '头部受伤后CT提示蛛网膜下腔出血，GCS评分12分。',

@@ -896,6 +896,41 @@ function hasOpenSkullDuralReviewIssue(inputText) {
     hasInterveningRepeatInjury(text, [scalp, skull, penetration]))));
 }
 
+function cranialSiteSignals(text, match) {
+  const sentenceStart = Math.max(text.lastIndexOf('。', match.index - 1), text.lastIndexOf('！', match.index - 1),
+    text.lastIndexOf('？', match.index - 1), text.lastIndexOf('；', match.index - 1),
+    text.lastIndexOf(';', match.index - 1), text.lastIndexOf('\n', match.index - 1)) + 1;
+  const before = text.slice(Math.max(sentenceStart, match.index - 24), match.index);
+  const ownRegionMatches = [...match[0].matchAll(/[额顶颞枕]/gu)];
+  const regionSource = ownRegionMatches.length ? match[0] : before;
+  const regionMatches = ownRegionMatches.length ? ownRegionMatches : [...before.matchAll(/[额顶颞枕]/gu)];
+  const regions = new Set();
+  if (regionMatches.length) {
+    let first = regionMatches.length - 1;
+    while (first > 0 && regionMatches[first].index - regionMatches[first - 1].index <= 2) first -= 1;
+    for (const region of regionMatches.slice(first)) regions.add(region[0]);
+    const sitePrefix = regionSource.slice(Math.max(0, regionMatches[first].index - 4), regionMatches[first].index);
+    const sideToken = [...sitePrefix.matchAll(/双侧|左|右/gu)].at(-1)?.[0];
+    if (sideToken === '双侧') return { sides: new Set(['左', '右']), regions };
+    if (sideToken) return { sides: new Set([sideToken]), regions };
+    return { sides: new Set(), regions };
+  }
+  const nearby = `${before}${match[0]}`;
+  const sideToken = [...nearby.matchAll(/双侧|左|右/gu)].at(-1)?.[0];
+  return {
+    sides: new Set(sideToken === '双侧' ? ['左', '右'] : sideToken ? [sideToken] : []),
+    regions,
+  };
+}
+
+function cranialSitesConflict(text, fracture, gas) {
+  const fractureSite = cranialSiteSignals(text, fracture);
+  const gasSite = cranialSiteSignals(text, gas);
+  const overlaps = (left, right) => [...left].some(value => right.has(value));
+  return fractureSite.sides.size && gasSite.sides.size && !overlaps(fractureSite.sides, gasSite.sides)
+    || fractureSite.regions.size && gasSite.regions.size && !overlaps(fractureSite.regions, gasSite.regions);
+}
+
 function normalizeOpenSkullDuralRuptureFacts(inputText) {
   const text = normalizeInput(inputText);
   const duraDamage = '(?:破口|开放|破损|破裂|撕裂|裂伤)';
@@ -1020,7 +1055,7 @@ function normalizeOpenSkullDuralRuptureFacts(inputText) {
   const scalpLacerations = [...text.matchAll(/头皮[^。！？\n]{0,32}(?:撕裂伤|撕裂|裂伤|裂创|裂口)/gu)]
     .filter(match => certaintyFor(text, match.index, match.index + match[0].length) === 'reported'
       && !hasNonCurrentClinicalContext(text, match.index, match.index + match[0].length));
-  const skullFractures = [...text.matchAll(new RegExp(`(?:颅骨[^。！？\\n]{0,24}(?:骨折|骨裂)|(?:左|右|双侧)?(?:额顶|额颞|顶枕|枕顶|额|顶|枕|颞)骨[^。！？\\n]{0,16}(?:骨折|骨裂))`, 'gu'))]
+  const skullFractures = [...text.matchAll(/(?:颅骨[^。！？\n]{0,24}(?:骨折|骨裂)|(?:左|右|双侧)?(?:额顶|额颞|颞顶|顶枕|枕顶|颞枕顶|颞枕|额|顶|颞|枕)(?:部|骨)?[^。！？\n]{0,8}(?:骨折|骨裂))/gu)]
     .filter(match => certaintyFor(text, match.index, match.index + match[0].length) === 'reported'
       && !hasNonCurrentClinicalContext(text, match.index, match.index + match[0].length));
   const headWoundsDeepToBone = [...text.matchAll(/(?:头皮|头部)[^。！？\n]{0,32}(?:伤口|创口|裂伤|裂口)[^。！？\n]{0,20}(?:深至|深达|深及|达至|达)(?:骨(?:面|质)|颅骨)/gu)]
@@ -1057,15 +1092,26 @@ function normalizeOpenSkullDuralRuptureFacts(inputText) {
       }
     }
   }
-  const intracranialGas = [...text.matchAll(/(?:颅骨内板下|(?:硬膜下|硬膜外|颅内)血肿(?:内)?)[^。！？\n]{0,24}(?:见|有|伴)?[^。！？\n]{0,12}(?:气体(?:密度影)?|积气)/gu)]
+  const intracranialGas = [...text.matchAll(/(?:(?:颅骨内板下|(?:硬膜下|硬膜外|颅内)血肿(?:内)?)[^，,。！？；;\n]{0,24}(?:见|有|伴)?[^，,。！？；;\n]{0,12}(?:气体(?:密度影)?|积气)|气颅)/gu)]
     .filter(match => certaintyFor(text, match.index, match.index + match[0].length) === 'reported'
-      && !explicitNegationCoversTerm(text.slice(match.index, match.index + match[0].length), '气体')
+      && !explicitNegationCoversTerm(text.slice(match.index, match.index + match[0].length), /气颅/u.test(match[0]) ? '气颅' : '气体')
       && !hasNonCurrentClinicalContext(text, match.index, match.index + match[0].length));
-  const gasNearSkullFracture = intracranialGas.find(gas => skullFractures.some(skull =>
-    Math.abs(gas.index - skull.index) <= 240));
-  if (headWoundsDeepToBone.length && skullFractures.length && gasNearSkullFracture && !duralNegation
-    && !eventDateAnchorsConflict(dateRanges)) {
-    const matches = [headWoundsDeepToBone[0], skullFractures[0], gasNearSkullFracture];
+  const siteSpecificSkullFractures = skullFractures.filter(skull => /[额顶颞枕]/u.test(skull[0]));
+  let linkedGasRuptureEvidence = null;
+  for (const gas of [...intracranialGas].reverse()) {
+    for (const fracture of siteSpecificSkullFractures) {
+      if (Math.abs(gas.index - fracture.index) > 240 || cranialSitesConflict(text, fracture, gas)) continue;
+      const wound = headWoundsDeepToBone.find(candidate => !cranialSitesConflict(text, candidate, fracture)
+        && !cranialSitesConflict(text, candidate, gas));
+      if (wound) {
+        linkedGasRuptureEvidence = { gas, fracture, wound };
+        break;
+      }
+    }
+    if (linkedGasRuptureEvidence) break;
+  }
+  if (linkedGasRuptureEvidence && !duralNegation && !eventDateAnchorsConflict(dateRanges)) {
+    const matches = [linkedGasRuptureEvidence.wound, linkedGasRuptureEvidence.fracture, linkedGasRuptureEvidence.gas];
     const start = Math.min(...matches.map(match => match.index));
     const end = Math.max(...matches.map(match => match.index + match[0].length));
     const evidence = text.slice(start, end);
