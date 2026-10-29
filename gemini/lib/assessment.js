@@ -3,9 +3,48 @@ import { extractionSchema, factExtractionSchema, providerResultSchema } from './
 import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
 import { normalizeExtractedFacts } from './facts.js';
 import { catalogContext, catalogs, retrieveClauses } from './catalog.js';
-import { evaluateConditionLogic, gradeOrder, normalizeResult } from './results.js';
+import { evaluateConditionLogic, gradeOrder, includesEvidence, normalizeResult } from './results.js';
 import { ServiceError } from './provider.js';
 import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
+import { logicFactFields } from './condition-fields.js';
+
+const genericConditionTerms = new Set(['一侧', '双侧', '或者', '以及', '损伤', '外伤', '骨折', '治疗', '手术',
+  '术后', '功能', '障碍', '症状', '体征', '程度', '以上', '以下', '影响', '异常', '形成', '缺失']);
+
+function conditionEvidenceTerms(node, terms = []) {
+  for (const value of [node?.sourceText, node?.conditionText,
+    ...(node?.factMatch?.values || []), ...(node?.factMatch?.valueIncludes || []),
+    ...(node?.factMatch?.evidenceAliases || [])]) {
+    if (typeof value === 'string' && value.trim()) terms.push(value);
+  }
+  for (const child of node?.children || []) conditionEvidenceTerms(child, terms);
+  return terms;
+}
+
+function meaningfulTerms(value) {
+  const characters = [...value.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]/gu, '')];
+  const terms = new Set();
+  for (let length = 2; length <= Math.min(6, characters.length); length += 1) {
+    for (let start = 0; start + length <= characters.length; start += 1) {
+      const term = characters.slice(start, start + length).join('');
+      if (!genericConditionTerms.has(term) && !/^\d+$/u.test(term)) terms.add(term);
+    }
+  }
+  return terms;
+}
+
+function hasQuotedConditionEvidence(clause, facts) {
+  const terms = conditionEvidenceTerms(clause.conditionLogic.logic)
+    .filter(term => term.normalize('NFKC').replace(/\s+/gu, '').length >= 4);
+  const clauseTerms = new Set(terms.flatMap(term => [...meaningfulTerms(term)]));
+  const fields = logicFactFields(clause.conditionLogic.logic);
+  return facts.some(fact => {
+    if (fact.gradeEligible === false || fact.source !== 'description' || fact.verification !== 'quoted'
+      || !fields.has(fact.field)) return false;
+    if (terms.some(term => includesEvidence(fact.evidence, term))) return true;
+    return [...meaningfulTerms(`${fact.value ?? ''} ${fact.evidence || ''}`)].some(term => clauseTerms.has(term));
+  });
+}
 
 const rules = `你提供的是基于已提交事实和给定标准的辅助评估，不是正式司法鉴定意见。
 必须区分损伤程度与致残等级，不得混用标准。只使用下方提供的官方条款与总则，不得凭记忆编造编号、阈值、标准正文或医学事实。
@@ -20,17 +59,6 @@ references 必须引用给定 clauseId。逐条按官方条款附带的 conditio
 const targetedReviewInstruction = '只复核待核条件和给定候选条款，不重新分析无关事实；候选条件及事实均不构成等级结论，服务端将重新核验每个条件。';
 export const ASSESSMENT_PROMPT_VERSION = crypto.createHash('sha256')
   .update(`${rules}\n${targetedReviewInstruction}`, 'utf8').digest('hex');
-
-function conditionFactFields(node, fields = new Set()) {
-  if (node?.factMatch) {
-    if (node.factMatch.field) fields.add(node.factMatch.field);
-    for (const field of node.factMatch.fields || []) fields.add(field);
-  }
-  if (node?.predicate?.field) fields.add(node.predicate.field);
-  if (node?.confirmedBy?.field) fields.add(node.confirmedBy.field);
-  for (const child of node?.children || []) conditionFactFields(child, fields);
-  return fields;
-}
 
 export async function assess(input, { provider, config, signal, requestId, onMetrics }) {
   const complete = request => provider.complete({ ...request, onMetrics });
@@ -86,10 +114,14 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const availableFactFields = new Set(deterministicResult.facts.filter(fact => fact.gradeEligible !== false)
     .map(fact => fact.field));
   const currentGradeRank = gradeOrder[input.assessmentType].indexOf(deterministicResult.grade);
-  const semanticCandidates = clauses.filter(clause => clause.grade && clause.conditionLogic?.annotation === 'explicit'
-    && [...conditionFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field))
-    && (currentGradeRank < 0 || gradeOrder[input.assessmentType].indexOf(clause.grade) < currentGradeRank)
-    && evaluateConditionLogic(clause.conditionLogic, deterministicResult.facts).met !== false);
+  const semanticCandidates = clauses.filter(clause => {
+    if (!clause.grade || clause.conditionLogic?.annotation !== 'explicit'
+      || ![...logicFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field))
+      || currentGradeRank >= 0 && gradeOrder[input.assessmentType].indexOf(clause.grade) >= currentGradeRank) return false;
+    const evaluation = evaluateConditionLogic(clause.conditionLogic, deterministicResult.facts);
+    return evaluation.met === true || evaluation.met === null
+      && (evaluation.factIds.length > 0 || hasQuotedConditionEvidence(clause, deterministicResult.facts));
+  });
   const pendingIds = new Set([...pendingReferences.map(reference => reference.id),
     ...semanticCandidates.map(clause => clause.id)]);
   if (!pendingIds.size && !conflictReview) return deterministicResult;
@@ -98,7 +130,7 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   if (!reviewClauses.length) return deterministicResult;
   const pendingFactIds = new Set(pendingReferences.flatMap(reference => reference.conditions
     .flatMap(condition => condition.factIds || [])));
-  const reviewFields = new Set(reviewClauses.flatMap(clause => [...conditionFactFields(clause.conditionLogic.logic)]));
+  const reviewFields = new Set(reviewClauses.flatMap(clause => [...logicFactFields(clause.conditionLogic.logic)]));
   const factsById = new Map(extracted.facts.map(fact => [fact.id, fact]));
   const relevantFactIds = new Set(pendingFactIds);
   for (const id of pendingFactIds) for (const parentId of factsById.get(id)?.derivedFrom || []) relevantFactIds.add(parentId);

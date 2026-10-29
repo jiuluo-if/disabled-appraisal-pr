@@ -1,5 +1,6 @@
 import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
+import { conditionFactFields, logicFactFields } from './condition-fields.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
   explicitScalpScarCountTotal, findExplicitOpenSkullDuralDiagnoses, hasSupportedOpenSkullDuralRuptureEvidence,
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
@@ -126,30 +127,6 @@ const WOUND_SURFACE_SITE_ALIASES = new Set(['面部','脸部','额部','前额',
 const sameValue = (left, right) => typeof left === 'string' && typeof right === 'string'
   ? left.normalize('NFKC') === right.normalize('NFKC')
   : JSON.stringify(left) === JSON.stringify(right);
-
-function conditionFactFields(factMatch, predicate) {
-  if (!factMatch) {
-    const fields = new Set([predicate?.field]);
-    if (predicate?.field === 'aggregate_wound_length_cm'
-      && predicate.evidenceGroups?.some(group => group.includes('头皮'))) fields.add('wound_length_cm');
-    return fields;
-  }
-  const fields = new Set([factMatch.field, ...(factMatch.fields || [])]);
-  if (factMatch.field === 'clinical_finding' && !factMatch.fields?.length) {
-    for (const field of ['diagnosis', 'imaging_finding', 'symptom', 'treatment', 'functional_impairment', 'injury_type']) fields.add(field);
-  }
-  return fields;
-}
-
-function logicFactFields(node) {
-  const fields = conditionFactFields(node.factMatch, node.predicate);
-  if (node.confirmedBy?.field) fields.add(node.confirmedBy.field);
-  for (const field of node.confirmedBy?.fields || []) fields.add(field);
-  for (const child of node.children || []) {
-    for (const field of logicFactFields(child)) fields.add(field);
-  }
-  return fields;
-}
 
 function conflictCouldAffectGrade(conflicts, facts, assessmentType) {
   const clauses = catalogs[assessmentType].clauses.filter(clause => clause.grade

@@ -1,6 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assess } from '../gemini/lib/assessment.js';
+import { logicFactFields } from '../gemini/lib/condition-fields.js';
+
+test('assessment candidates inherit the same clinical-finding field aliases as rule evaluation', () => {
+  const fields = logicFactFields({ op: 'condition', factMatch: { field: 'clinical_finding' } });
+
+  assert.deepEqual([...fields].sort(), ['clinical_finding', 'diagnosis', 'functional_impairment',
+    'imaging_finding', 'injury_type', 'symptom', 'treatment'].sort());
+});
 
 test('a supported lower grade does not skip review of a recalled higher-grade candidate', async () => {
   const calls = [];
