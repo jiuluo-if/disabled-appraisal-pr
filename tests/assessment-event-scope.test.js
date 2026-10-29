@@ -1,12 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { catalogs, retrieveClauses } from '../gemini/lib/catalog.js';
-import { normalizeResult } from '../gemini/lib/results.js';
+import { evaluateConditionLogic, normalizeResult } from '../gemini/lib/results.js';
 import { normalizeExtractedFacts } from '../gemini/lib/facts.js';
 import { inputs, providerFixture } from './fixtures.js';
 
 test('a selected injury date scopes grading to its verified event when other dated events are present', () => {
-  const description = '2014年1月1日交通事故后左侧第3肋骨骨折、左侧第4肋骨骨折，共2处骨折。2020年2月2日交通事故后头部受伤。';
+  const description = '2014年1月1日交通事故后左侧第3肋骨骨折、左侧第4肋骨骨折，共2处骨折。2020年2月2日交通事故后头部受伤，CT示外伤性蛛网膜下腔出血、脑挫裂伤，入院昏迷，GCS评分5分。';
   const extracted = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false },
     { description });
   const facts = extracted.facts.map(fact => ({ ...fact, verification: 'quoted' }));
@@ -26,6 +26,10 @@ test('a selected injury date scopes grading to its verified event when other dat
   assert.equal(reference?.relation, 'supports');
   assert.ok(reference.conditions.flatMap(condition => condition.factIds || []).every(id =>
     facts.find(fact => fact.id === id)?.eventId === 'E1'));
+  const secondEventFacts = facts.filter(fact => fact.eventId === 'E2');
+  const severeBrainClause = catalogs.injury.clauses.find(item => item.id === '5.1.2.f');
+  assert.equal(evaluateConditionLogic(severeBrainClause.conditionLogic, secondEventFacts).met, true);
+  assert.equal(selected.references.some(item => item.id === severeBrainClause.id && item.relation === 'supports'), false);
 
   const ambiguous = evaluate('');
   assert.equal(ambiguous.status, 'needs_review');

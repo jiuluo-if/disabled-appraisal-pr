@@ -110,7 +110,7 @@ test('a source-matched injury date permits deterministic grading of only that ev
     calls.push(request.name);
     return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
   } };
-  const description = '2014年1月1日交通事故后左侧第3肋骨骨折、左侧第4肋骨骨折，共2处骨折。2020年2月2日交通事故后头部受伤。';
+  const description = '2014年1月1日交通事故后左侧第3肋骨骨折、左侧第4肋骨骨折，共2处骨折。2020年2月2日交通事故后头部受伤，CT示外伤性蛛网膜下腔出血、脑挫裂伤，入院昏迷，GCS评分5分。';
 
   const result = await assess({ ...input, description, injuryDate: '2014-01-01' },
     { provider, config, requestId: 'selected-event-deterministic-grade' });

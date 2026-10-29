@@ -11,7 +11,9 @@ import { normalizeForMatching } from './text-normalization.js';
 import { eventIdForSelectedInjuryDate } from './event-date-logic.js';
 
 const genericConditionTerms = new Set(['一侧', '双侧', '或者', '以及', '损伤', '外伤', '骨折', '治疗', '手术',
-  '术后', '功能', '障碍', '症状', '体征', '程度', '以上', '以下', '影响', '异常', '形成', '缺失']);
+  '术后', '功能', '障碍', '症状', '体征', '程度', '以上', '以下', '影响', '异常', '形成', '缺失', '骨骨', '骨骨折']);
+const genericEnglishConditionTerms = new Set(['condition', 'damage', 'finding', 'fracture', 'fractured', 'fractures',
+  'function', 'impairment', 'injuries', 'injury', 'loss', 'sign', 'signs', 'surgery', 'symptom', 'symptoms', 'treatment']);
 
 function conditionEvidenceTerms(node, terms = []) {
   for (const value of [node?.sourceText, node?.conditionText,
@@ -24,13 +26,19 @@ function conditionEvidenceTerms(node, terms = []) {
 }
 
 function meaningfulTerms(value) {
-  const characters = [...normalizeForMatching(value).replace(/[^\p{L}\p{N}]/gu, '')];
+  const normalized = normalizeForMatching(value).toLowerCase();
   const terms = new Set();
-  for (let length = 2; length <= Math.min(6, characters.length); length += 1) {
-    for (let start = 0; start + length <= characters.length; start += 1) {
-      const term = characters.slice(start, start + length).join('');
-      if (!genericConditionTerms.has(term) && !/^\d+$/u.test(term)) terms.add(term);
+  for (const run of normalized.matchAll(/\p{Script=Han}+/gu)) {
+    const characters = [...run[0]];
+    for (let length = 2; length <= Math.min(6, characters.length); length += 1) {
+      for (let start = 0; start + length <= characters.length; start += 1) {
+        const term = characters.slice(start, start + length).join('');
+        if (!genericConditionTerms.has(term)) terms.add(term);
+      }
     }
+  }
+  for (const token of normalized.match(/[a-z]+/gu) || []) {
+    if (token.length >= 4 && !genericEnglishConditionTerms.has(token)) terms.add(token);
   }
   return terms;
 }
