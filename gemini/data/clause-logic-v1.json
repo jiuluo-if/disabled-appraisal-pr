@@ -23263,11 +23263,12 @@
               "op": "condition",
               "sourceText": "颅骨缺损25.0cm2以上",
               "conditionText": "颅骨缺损25.0cm2以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "颅骨缺损25.0cm2以上"
-                ]
+              "predicate": {
+                "field": "skull_defect_area_cm2",
+                "operator": "gte",
+                "value": 25,
+                "unit": "cm2",
+                "evidenceGroups": [["颅骨"], ["缺损"]]
               }
             },
             {

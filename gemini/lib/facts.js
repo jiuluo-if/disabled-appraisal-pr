@@ -3888,6 +3888,7 @@ function factFinding(field, value, certainty) {
     burn_area_body_first_degree_cm2: '体表I度烧烫伤面积（平方厘米）',
     burn_area_body_superficial_second_degree_cm2: '体表浅II度烧烫伤面积（平方厘米）',
     scalp_defect_area_cm2: '头皮皮肤缺损面积（平方厘米）',
+    skull_defect_area_cm2: '颅骨缺损面积（平方厘米）',
     scalp_avulsion_area_cm2: '头皮撕脱伤面积（平方厘米）',
     skin_avulsion_area_cm2: '皮肤撕脱伤面积（平方厘米）',
     skin_defect_area_cm2: '皮肤缺损面积（平方厘米）',
@@ -4279,6 +4280,7 @@ function normalizeSkinSurfaceAreaFacts(inputText) {
   const facts = [];
   const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
   const descriptors = [
+    { field: 'skull_defect_area_cm2', pattern: /颅骨缺损/u },
     { field: 'skin_avulsion_area_cm2', pattern: /撕脱(?:伤|创)?/u },
     { field: 'skin_defect_area_cm2', pattern: /(?:皮肤(?:组织)?|头皮)缺损/u },
     { field: 'skin_abrasion_area_cm2', pattern: /擦伤/u },
@@ -4384,6 +4386,11 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       factsByKey.set(key, target);
     }
     target.sourceRefs = mergeSourceRefs(target.sourceRefs || [], fact.sourceRefs || []);
+    if (!target.verification && typeof target.source === 'string' && typeof target.evidence === 'string'
+      && target.sourceRefs.some(reference => reference.source === target.source
+        && normalizeInput(reference.evidence).includes(normalizeInput(target.evidence)))) {
+      target.verification = 'quoted';
+    }
     if (rawId) {
       target.rawIds ||= [];
       target.rawIds.push(rawId);
@@ -4697,7 +4704,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
       if (!deterministicMatch) { invalidEvidence = true; continue; }
     }
-    if (['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(field)) {
+    if (['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2', 'skull_defect_area_cm2'].includes(field)) {
       const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
         && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
       if (!deterministicMatch) { invalidEvidence = true; continue; }
