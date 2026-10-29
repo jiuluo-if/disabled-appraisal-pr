@@ -790,16 +790,6 @@ function hasExplicitCurrentEventCausalProcedureLink(evidence, expectedOrgan) {
   });
 }
 
-function hasCurrentInjuryEventCue(evidence) {
-  const text = normalize(evidence);
-  const cues = [...text.matchAll(/(?:本次|此次|当前)(?:交通)?(?:事故|外伤|受伤|损伤)(?:后|中)?/gu)];
-  return cues.some(cue => {
-    const nearby = text.slice(cue.index + cue[0].length, cue.index + cue[0].length + 40);
-    return /(?:骨折|破裂|损伤|挫伤|创口|穿透创|贯通伤|出血|脱位|撕裂|断裂)/u.test(nearby)
-      && !/(?:未见|未发现|排除|否认)/u.test(nearby);
-  });
-}
-
 function hasCurrentEventLinkForProcedure(fact, facts, node) {
   const procedureText = normalize(`${fact.value ?? ''} ${fact.evidence ?? ''}`);
   const operationTerms = [...new Set([...(node.factMatch?.values || []), ...(node.factMatch?.valueIncludes || []),
