@@ -2,12 +2,21 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { assess } from '../gemini/lib/assessment.js';
 import { logicFactFields } from '../gemini/lib/condition-fields.js';
+import { retrieveClauses } from '../gemini/lib/catalog.js';
 
 test('assessment candidates inherit the same clinical-finding field aliases as rule evaluation', () => {
   const fields = logicFactFields({ op: 'condition', factMatch: { field: 'clinical_finding' } });
 
   assert.deepEqual([...fields].sort(), ['clinical_finding', 'diagnosis', 'functional_impairment',
     'imaging_finding', 'injury_type', 'symptom', 'treatment'].sort());
+});
+
+test('fact retrieval includes clauses whose clinical finding accepts a normalized diagnosis field', () => {
+  const fact = { field: 'diagnosis', value: '心脏破裂', certainty: 'reported', source: 'description',
+    evidence: '手术记录记载心脏破裂', verification: 'quoted', eventId: 'E1' };
+  const clauses = retrieveClauses('injury', '无关描述', 0, [fact]);
+
+  assert.ok(clauses.some(clause => clause.id === '5.6.2.b'));
 });
 
 test('a supported lower grade does not skip review of a recalled higher-grade candidate', async () => {

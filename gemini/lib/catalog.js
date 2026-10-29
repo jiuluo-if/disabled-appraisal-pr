@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import MiniSearch from 'minisearch';
 import { normalizeImplantedProsthesisDamageFacts, normalizeNeckAsphyxiaFacts } from './facts.js';
+import { conditionFactFields } from './condition-fields.js';
 
 const segmenter = new Intl.Segmenter('zh-CN', { granularity: 'word' });
 const tokenize = value => [...segmenter.segment(value.normalize('NFKC'))]
@@ -191,22 +192,24 @@ const indexes = Object.fromEntries(Object.entries(catalogs).map(([type, catalog]
 }));
 
 function clauseMatchesFacts(clause, facts) {
+  const matchesFactMatch = (factMatch, predicate) => {
+    const fields = conditionFactFields(factMatch, predicate);
+    if (!fields.size) return false;
+    const values = [...(factMatch?.values || []), ...(factMatch?.valueIncludes || [])];
+    const aliases = factMatch?.evidenceAliases || [];
+    return facts.some(fact => {
+      if (!fields.has(fact.field)) return false;
+      if (predicate && !factMatch) return true;
+      const factValues = Array.isArray(fact.value) ? fact.value : [fact.value];
+      const normalizedValues = factValues.filter(value => typeof value === 'string').map(normalizeClauseText);
+      const exact = values.some(value => factValues.some(item => JSON.stringify(item) === JSON.stringify(value)));
+      const included = (factMatch?.valueIncludes || []).some(alias => normalizedValues.some(value => value.includes(normalizeClauseText(alias))));
+      const quotedAlias = aliases.some(alias => normalizeClauseText(String(fact.evidence || '')).includes(normalizeClauseText(alias)));
+      return exact || included || quotedAlias;
+    });
+  };
   const matchesNode = node => {
-    if (node.factMatch) {
-      const fields = new Set([node.factMatch.field, ...(node.factMatch.fields || [])].filter(Boolean));
-      const values = [...(node.factMatch.values || []), ...(node.factMatch.valueIncludes || [])];
-      const aliases = node.factMatch.evidenceAliases || [];
-      if (facts.some(fact => {
-        if (!fields.has(fact.field)) return false;
-        const factValues = Array.isArray(fact.value) ? fact.value : [fact.value];
-        const normalizedValues = factValues.filter(value => typeof value === 'string').map(normalizeClauseText);
-        const exact = values.some(value => factValues.some(item => JSON.stringify(item) === JSON.stringify(value)));
-        const included = (node.factMatch.valueIncludes || []).some(alias => normalizedValues.some(value => value.includes(normalizeClauseText(alias))));
-        const quotedAlias = aliases.some(alias => normalizeClauseText(String(fact.evidence || '')).includes(normalizeClauseText(alias)));
-        return exact || included || quotedAlias;
-      })) return true;
-    }
-    if (node.predicate && facts.some(fact => fact.field === node.predicate.field)) return true;
+    if (matchesFactMatch(node.factMatch, node.predicate) || matchesFactMatch(node.confirmedBy)) return true;
     return (node.children || []).some(matchesNode);
   };
   return clause.conditionLogic.annotation === 'opaque'
