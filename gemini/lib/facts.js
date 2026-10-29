@@ -3260,7 +3260,7 @@ function normalizeRibFacts(inputText) {
       ? matchedFractureEnd : text.indexOf('骨折', pattern.lastIndex);
     let assertionEnd = fractureEnd >= 0 && fractureEnd < clauseEnd ? fractureEnd + 2 : clauseEnd;
     const postposedQualifier = text.slice(assertionEnd, clauseEnd)
-      .match(/^\s*(?:(?:[（(【\[]\s*)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|存疑|待确认|既往(?:史)?|曾经|曾有|陈旧性?|旧伤))/u);
+      .match(/^\s*(?:(?:[（(【\[]\s*)?(?:(?:为|系|属)\s*)?(?:可疑|疑似|怀疑|考虑|可能|待排|待查|存疑|待确认|既往(?:史)?|曾经|曾有|陈旧性?|旧伤))/u);
     if (postposedQualifier) assertionEnd += postposedQualifier[0].length;
     const assertionContext = text.slice(clauseStart, assertionEnd);
     const temporalCues = [...assertionContext.matchAll(/既往(?:史)?|曾经|曾有|陈旧性?|旧伤|本次(?:事故后)?|此次(?:事故后)?|当前|目前/g)];
