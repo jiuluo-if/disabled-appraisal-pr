@@ -1879,6 +1879,12 @@ test('carotid thrombosis and stenosis conditions must bind the same artery and s
   assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, rightInternalAboveThreshold]), true);
   assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftCommonAtThreshold]), true);
   assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalBelowThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
+    stenosisClaim('S12', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄未达到50%')]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
+    stenosisClaim('S13', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄不超过50%')]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
+    stenosisClaim('S14', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄50%以下')]), true);
   assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalAtThreshold, leftInternalBelowThreshold]), true);
   assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
     stenosisClaim('S11', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄四十九%')]), true);

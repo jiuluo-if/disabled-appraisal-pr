@@ -1579,13 +1579,19 @@ function carotidObservations(fact, kind) {
       if (kind === 'thrombosis' && !/血栓形成|血栓/u.test(tail)
         || kind === 'stenosis' && !/狭窄/u.test(tail)) continue;
       const context = sentence.slice(Math.max(0, match.index - 18), match.index + match[0].length + tail.length + 16);
-      const negated = /(?:未见|未发现|未查见|未提示|没有|不存在|排除|阴性)[^，,。！？；;\n]{0,16}$/u
+      let negated = /(?:未见|未发现|未查见|未提示|没有|不存在|排除|阴性)[^，,。！？；;\n]{0,16}$/u
         .test(sentence.slice(Math.max(0, match.index - 18), match.index));
-      const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定|约|大约|左右|接近|估计)/u.test(context);
+      let uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定|约|大约|左右|接近|估计)/u.test(context);
       let value = null;
       if (kind === 'stenosis') {
         const percent = /狭窄[^，,。！？；;\n]{0,12}?([\d.]+|[零〇一二两三四五六七八九十百]+)\s*%/u.exec(tail);
         if (!percent) continue;
+        const valueOffset = percent.index + percent[0].lastIndexOf(percent[1]);
+        const beforeValue = tail.slice(percent.index, valueOffset);
+        const afterValue = tail.slice(percent.index + percent[0].length);
+        if (/(?:未达到|未达|低于|小于|不足|少于|<|＜)\s*$/u.test(beforeValue)) negated = true;
+        if (/(?:不超过|不高于|不大于|至多|上限|≤|<=)\s*$/u.test(beforeValue)
+          || /^(?:以下|以内|及以下|不超过|至多|≤|<=)/u.test(afterValue)) uncertain = true;
         value = /^[\d.]+$/u.test(percent[1]) ? Number(percent[1]) : parseNumber(percent[1]);
         if (!Number.isFinite(value) || value < 0 || value > 100) continue;
       }
