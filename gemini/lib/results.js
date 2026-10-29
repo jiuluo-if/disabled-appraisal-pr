@@ -3384,7 +3384,9 @@ export function normalizeResult(raw, input, context) {
     summary: stableSummary,
     reasoning: status === 'insufficient' || status !== generated.status || unknownInlineCitation || requiresReview || status === 'preliminary' && Boolean(supportedReference)
       ? stableReasoning : generated.reasoning,
-    facts: serializedFacts, conflicts, requiresReview, references, warnings: [...new Set(warnings)].slice(-20), missingMaterials: [...new Set(missingMaterials)].slice(-20),
+    facts: serializedFacts, factAudit: context.factAudit || [], conflicts, requiresReview, references,
+    warnings: [...new Set(warnings)].slice(-20), missingMaterials: [...new Set(missingMaterials)].slice(-20),
+    ...(context.analysisSnapshot ? { analysisSnapshot: context.analysisSnapshot } : {}),
     standard, recognizedText, createdAt: new Date().toISOString(), requestId: context.requestId, model: context.model,
   });
 }

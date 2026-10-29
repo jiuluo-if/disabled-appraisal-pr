@@ -1,9 +1,11 @@
+import crypto from 'node:crypto';
 import { extractionSchema, factExtractionSchema, providerResultSchema } from './contracts.js';
 import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
 import { normalizeExtractedFacts } from './facts.js';
-import { catalogContext, retrieveClauses } from './catalog.js';
+import { catalogContext, catalogs, retrieveClauses } from './catalog.js';
 import { normalizeResult } from './results.js';
 import { ServiceError } from './provider.js';
+import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
 
 const rules = `你提供的是基于已提交事实和给定标准的辅助评估，不是正式司法鉴定意见。
 必须区分损伤程度与致残等级，不得混用标准。只使用下方提供的官方条款与总则，不得凭记忆编造编号、阈值、标准正文或医学事实。
@@ -15,12 +17,27 @@ references 必须引用给定 clauseId。逐条按官方条款附带的 conditio
 有可靠事实且满足完整条款条件时 status 为 preliminary，grade 必须完全等于相应条款的 grade 字段；必要资料缺失时 status 为 insufficient 且 grade=null；有关键冲突时 status 为 needs_review 且 grade=null；标准不适用时 status 为 not_applicable 且 grade=null。
 不得仅凭材料不足输出“不构成伤残”或“轻微伤”。不得输出无校准依据的概率、赔偿金额、诊疗或用药建议。缺失资料和不确定性应客观、简洁说明。
 必须返回完整 JSON 对象，含 status、grade、summary、reasoning、facts、references、missingMaterials、nextSteps、warnings，不要返回 Markdown 或 JSON 之外文字。`;
+const targetedReviewInstruction = '只复核待核条件和给定候选条款，不重新分析无关事实；候选条件及事实均不构成等级结论，服务端将重新核验每个条件。';
+export const ASSESSMENT_PROMPT_VERSION = crypto.createHash('sha256')
+  .update(`${rules}\n${targetedReviewInstruction}`, 'utf8').digest('hex');
 
-export async function assess(input, { provider, config, signal, requestId }) {
+function conditionFactFields(node, fields = new Set()) {
+  if (node?.factMatch) {
+    if (node.factMatch.field) fields.add(node.factMatch.field);
+    for (const field of node.factMatch.fields || []) fields.add(field);
+  }
+  if (node?.predicate?.field) fields.add(node.predicate.field);
+  if (node?.confirmedBy?.field) fields.add(node.confirmedBy.field);
+  for (const child of node?.children || []) conditionFactFields(child, fields);
+  return fields;
+}
+
+export async function assess(input, { provider, config, signal, requestId, onMetrics }) {
+  const complete = request => provider.complete({ ...request, onMetrics });
   let recognizedText = '';
   const extractionWarnings = [];
   if (input.images.length) {
-    const extraction = await provider.complete({ model: config.visionModel, schema: extractionSchema,
+    const extraction = await complete({ model: config.visionModel, schema: extractionSchema,
       name: 'medical_report_transcription', signal, messages: [
         { role: 'system', content: '只转录报告图片中能够清晰辨认的文字，不进行伤情诊断，不猜测模糊数字、单位或阴阳性。无法辨认时保留为空并列入issues。X光或CT影像本身不含可读诊断文字时说明需要正式影像报告，不自行诊断。每张图片输出一项pages，含imageIndex（从1开始）、text、issues。只输出完整JSON。' },
         { role: 'user', content: input.images.flatMap((image, index) => [
@@ -35,7 +52,7 @@ export async function assess(input, { provider, config, signal, requestId }) {
     if (pages.length !== input.images.length) extractionWarnings.push('部分图片没有得到完整转录，请核对或补充文字报告。');
   }
 
-  const factResponse = await provider.complete({ model: config.textModel, schema: factExtractionSchema,
+  const factResponse = await complete({ model: config.textModel, schema: factExtractionSchema,
     name: 'fact_extraction', signal, messages: [
       { role: 'system', content: `${FACT_EXTRACTION_PROMPT}\n\n输出版本：${FACT_EXTRACTION_PROMPT_VERSION}` },
       { role: 'user', content: JSON.stringify({ description: input.description, recognizedText }) },
@@ -43,21 +60,17 @@ export async function assess(input, { provider, config, signal, requestId }) {
   });
   const extracted = normalizeExtractedFacts(factResponse, { description: input.description, recognizedText });
   extractionWarnings.push(...(extracted.warnings || []));
+  const analysisSnapshot = createAssessmentSnapshot(input, extracted, config, {
+    factPromptVersion: FACT_EXTRACTION_PROMPT_VERSION,
+    assessmentPromptVersion: ASSESSMENT_PROMPT_VERSION,
+    codeVersion: config.codeVersion || process.env.APP_CODE_VERSION || process.env.GIT_COMMIT || ASSESSMENT_CODE_VERSION,
+  });
   const sourceText = `${input.description}\n${recognizedText}`;
-  const clauses = retrieveClauses(input.assessmentType, extracted.scopeText || sourceText, 40, extracted.facts);
+  let clauses = retrieveClauses(input.assessmentType, extracted.scopeText || sourceText, 40, extracted.facts);
   const model = config.textModel;
-  const assessmentInput = {
-    assessmentType: input.assessmentType,
-    facts: extracted.facts,
-    conflicts: extracted.conflicts,
-    requiresReview: extracted.requiresReview,
-    missingMaterials: extracted.missingMaterials,
-    injuryDate: input.injuryDate,
-    treatmentStatus: input.treatmentStatus,
-  };
   const resultContext = { clauses, recognizedText, extractionWarnings, requestId, model,
     extractedFacts: extracted.facts, conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
-    factMissingMaterials: extracted.missingMaterials };
+    factMissingMaterials: extracted.missingMaterials, factAudit: extracted.factAudit, analysisSnapshot };
   const deterministicSeed = {
     status: 'insufficient', grade: null, summary: '现有材料不足以形成可靠的等级评估。',
     reasoning: '等待服务端依据来源核验后的事实和完整条款条件计算。', facts: [], references: [],
@@ -65,9 +78,50 @@ export async function assess(input, { provider, config, signal, requestId }) {
   };
   const deterministicResult = normalizeResult(deterministicSeed, input, resultContext);
   if (deterministicResult.status === 'preliminary') return deterministicResult;
+  const conflictReview = deterministicResult.status === 'needs_review';
 
-  const result = await provider.complete({ model, schema: providerResultSchema, name: 'assessment_result', signal, messages: [
-    { role: 'system', content: `${rules}\n\n本次评估类型：${input.assessmentType}\n官方原文依据：${catalogContext(input.assessmentType, clauses)}` },
+  const pendingReferences = deterministicResult.references.filter(reference => reference.grade
+    && reference.relation === 'incomplete' && reference.conditions.some(condition => condition.met === true)
+    && reference.conditions.some(condition => condition.met === null));
+  const availableFactFields = new Set(extracted.facts.filter(fact => fact.gradeEligible !== false).map(fact => fact.field));
+  const semanticCandidates = clauses.filter(clause => clause.grade && clause.conditionLogic?.annotation === 'explicit'
+    && [...conditionFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field)));
+  const pendingIds = new Set([...pendingReferences.map(reference => reference.id),
+    ...semanticCandidates.map(clause => clause.id)]);
+  if (!pendingIds.size && !conflictReview) return deterministicResult;
+  const reviewClauses = conflictReview ? clauses
+    : catalogs[input.assessmentType].clauses.filter(clause => pendingIds.has(clause.id));
+  if (!reviewClauses.length) return deterministicResult;
+  const pendingFactIds = new Set(pendingReferences.flatMap(reference => reference.conditions
+    .flatMap(condition => condition.factIds || [])));
+  const reviewFields = new Set(reviewClauses.flatMap(clause => [...conditionFactFields(clause.conditionLogic.logic)]));
+  const factsById = new Map(extracted.facts.map(fact => [fact.id, fact]));
+  const relevantFactIds = new Set(pendingFactIds);
+  for (const id of pendingFactIds) for (const parentId of factsById.get(id)?.derivedFrom || []) relevantFactIds.add(parentId);
+  const targetedFacts = conflictReview ? extracted.facts : extracted.facts.filter(fact => relevantFactIds.has(fact.id)
+    || availableFactFields.has(fact.field) && reviewFields.has(fact.field));
+  const referencesById = new Map(deterministicResult.references.map(reference => [reference.id, reference]));
+  const assessmentInput = {
+    assessmentType: input.assessmentType,
+    facts: targetedFacts,
+    conflicts: conflictReview ? extracted.conflicts : [],
+    requiresReview: conflictReview,
+    missingMaterials: extracted.missingMaterials,
+    injuryDate: input.injuryDate,
+    treatmentStatus: input.treatmentStatus,
+    reviewConditions: conflictReview ? [] : reviewClauses.map(clause => {
+      const reference = referencesById.get(clause.id);
+      const conditions = reference?.conditions.filter(condition => condition.met === null);
+      return { clauseId: clause.id, conditionLogic: clause.conditionLogic.logic,
+        conditions: conditions?.length ? conditions : [{ condition: clause.text, evidence: '', factIds: [], met: null }] };
+    }),
+  };
+  const reviewedIds = new Set(reviewClauses.map(clause => clause.id));
+  clauses = [...clauses.filter(clause => !reviewedIds.has(clause.id)), ...reviewClauses];
+  resultContext.clauses = clauses;
+
+  const result = await complete({ model, schema: providerResultSchema, name: 'assessment_result', signal, messages: [
+    { role: 'system', content: `${rules}\n\n${targetedReviewInstruction}\n\n本次评估类型：${input.assessmentType}\n官方原文依据：${catalogContext(input.assessmentType, reviewClauses)}` },
     { role: 'user', content: `<verified_facts>\n${JSON.stringify(assessmentInput)}\n</verified_facts>` },
   ] });
   try {

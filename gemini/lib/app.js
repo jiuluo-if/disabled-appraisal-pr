@@ -1,13 +1,16 @@
 import express from 'express';
 import cors from 'cors';
-import { randomUUID } from 'node:crypto';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { assessmentTypeSchema, requestSchema } from './contracts.js';
-import { catalogs } from './catalog.js';
+import { catalogs, RULES_VERSION } from './catalog.js';
 import { createProvider, ServiceError } from './provider.js';
-import { assess } from './assessment.js';
-import { validateImage } from './facts.js';
+import { assess, ASSESSMENT_PROMPT_VERSION } from './assessment.js';
+import { ASSESSMENT_CODE_VERSION } from './assessment-snapshot.js';
+import { FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
+import { FACT_SCHEMA_VERSION, validateImage } from './facts.js';
 import { legacyResponse } from './results.js';
+
+const ANALYSIS_CACHE_SCOPE_PATTERN = /^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu;
 
 function legacyInput(body) {
   const parts = body?.contents?.[0]?.parts;
@@ -24,14 +27,14 @@ function validateImages(images) {
   }
 }
 
-export function createAnalysisCache({ ttlMs = 900_000, capacity = 200, now = Date.now } = {}) {
+export function createAnalysisCache({ ttlMs = 900_000, capacity = 200, now = Date.now, versions = {} } = {}) {
   const entries = new Map();
   const inFlight = new Map();
   let hits = 0;
   let misses = 0;
-  const keyFor = input => {
+  const keyFor = (input, scope) => {
     const { forceReanalysis, ...cacheInput } = input;
-    return createHash('sha256').update(JSON.stringify(cacheInput), 'utf8').digest('hex');
+    return createHash('sha256').update(JSON.stringify({ scope, versions, input: cacheInput }), 'utf8').digest('hex');
   };
   function get(key) {
     const entry = entries.get(key);
@@ -69,22 +72,25 @@ export function createAnalysisCache({ ttlMs = 900_000, capacity = 200, now = Dat
       entry.promise.then(value => { if (release()) resolve(value); }, error => { if (release()) reject(error); });
     });
   }
-  async function run(input, requestId, produce, { signal } = {}) {
+  async function run(input, requestId, produce, { signal, scope, onCache } = {}) {
     if (signal?.aborted) throw signal.reason || new Error('Request aborted');
-    if (ttlMs === 0 || capacity === 0) {
+    if (ttlMs === 0 || capacity === 0 || typeof scope !== 'string' || !scope.trim() || scope.length > 128) {
+      onCache?.(ttlMs === 0 || capacity === 0 ? 'disabled' : 'unscoped_bypass');
       misses += 1;
       return { ...(await produce(signal)), requestId };
     }
-    const key = keyFor(input);
+    const key = keyFor(input, scope);
     if (!input.forceReanalysis) {
       const cached = get(key);
-      if (cached) { hits += 1; return { ...cached, requestId }; }
+      if (cached) { onCache?.('hit'); hits += 1; return { ...cached, requestId }; }
       const existing = inFlight.get(key);
       if (existing) {
+        onCache?.('coalesced');
         hits += 1;
         return { ...(await subscribe(existing, signal)), requestId };
       }
     }
+    onCache?.('miss');
     misses += 1;
     const controller = new AbortController();
     const entry = { key, controller, subscribers: 0, settled: false, promise: null };
@@ -222,8 +228,17 @@ function isLoopbackAddress(address = '') {
 export function createApp(config, options = {}) {
   const app = express();
   const provider = options.provider || createProvider(config, options.fetchImpl);
+  const cacheVersions = options.cacheVersions || {
+    code: config.codeVersion || process.env.APP_CODE_VERSION || process.env.GIT_COMMIT || ASSESSMENT_CODE_VERSION,
+    provider: config.provider || 'unknown', textModel: config.textModel, visionModel: config.visionModel,
+    temperature: config.temperature ?? null, maxTokens: config.maxTokens ?? null,
+    thinking: config.thinking ?? null, jsonMode: config.jsonMode ?? null,
+    factSchema: FACT_SCHEMA_VERSION, factPrompt: FACT_EXTRACTION_PROMPT_VERSION,
+    assessmentPrompt: ASSESSMENT_PROMPT_VERSION, rules: RULES_VERSION,
+  };
   const analysisCache = options.analysisCache || createAnalysisCache({
     ttlMs: config.cacheTtlMs ?? 900_000, capacity: config.cacheCapacity ?? 200, now: options.now || Date.now,
+    versions: cacheVersions,
   });
   const analysisRateLimiter = createAnalysisRateLimiter(options.analysisRateLimit || {
     windowMs: config.analysisRateLimitWindowMs,
@@ -274,6 +289,25 @@ export function createApp(config, options = {}) {
   });
   app.post('/api/analyze', async (req, res, next) => {
     const started = Date.now();
+    const modelMetrics = { requests: 0, completed: 0, failed: 0, inputTokens: 0, outputTokens: 0,
+      tokenReports: 0, providerLatencyMs: 0, providerReportedCost: 0, costReports: 0 };
+    let cacheDisposition = 'unscoped_bypass';
+    const recordModelMetrics = event => {
+      if (event.type === 'request_start') modelMetrics.requests += 1;
+      if (event.type !== 'request_end') return;
+      modelMetrics.providerLatencyMs += event.durationMs || 0;
+      if (event.failed) modelMetrics.failed += 1;
+      else modelMetrics.completed += 1;
+      if (Number.isFinite(event.inputTokens) && Number.isFinite(event.outputTokens)) {
+        modelMetrics.inputTokens += event.inputTokens;
+        modelMetrics.outputTokens += event.outputTokens;
+        modelMetrics.tokenReports += 1;
+      }
+      if (Number.isFinite(event.providerCost)) {
+        modelMetrics.providerReportedCost += event.providerCost;
+        modelMetrics.costReports += 1;
+      }
+    };
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(new ServiceError(504, 'ANALYSIS_TIMEOUT', '本次分析超时，未生成结论，请稍后重试或精简材料。')), config.timeoutMs);
     const disconnected = () => { if (!res.writableEnded) controller.abort(new ServiceError(499, 'CLIENT_CANCELLED', '本次分析已取消。')); };
@@ -282,9 +316,12 @@ export function createApp(config, options = {}) {
       const parsed = requestSchema.safeParse(legacyInput(req.body));
       if (!parsed.success) throw new ServiceError(400, 'INVALID_REQUEST', parsed.error.issues[0].message);
       validateImages(parsed.data.images);
+      const cacheScopeHeader = req.get('x-analysis-cache-scope') || '';
+      const cacheScope = ANALYSIS_CACHE_SCOPE_PATTERN.test(cacheScopeHeader) ? cacheScopeHeader : null;
       const result = await analysisCache.run(parsed.data, req.requestId,
         signal => analysisConcurrencyLimiter(req.ip || req.socket.remoteAddress,
-          () => assess(parsed.data, { provider, config, signal, requestId: req.requestId })), { signal: controller.signal });
+          () => assess(parsed.data, { provider, config, signal, requestId: req.requestId, onMetrics: recordModelMetrics })),
+        { signal: controller.signal, scope: cacheScope, onCache: value => { cacheDisposition = value; } });
       if (!res.destroyed) res.json({ result, candidates: [{ content: { parts: [{ text: JSON.stringify(legacyResponse(result)) }] } }] });
     } catch (error) {
       if (!res.destroyed) next(controller.signal.aborted ? controller.signal.reason : error);
@@ -292,7 +329,11 @@ export function createApp(config, options = {}) {
       clearTimeout(timeout);
       res.off('close', disconnected);
       console.log(JSON.stringify({ event: 'analysis', requestId: req.requestId, durationMs: Date.now() - started,
-        status: controller.signal.aborted && res.destroyed ? 499 : res.statusCode, cancelled: controller.signal.aborted }));
+        status: controller.signal.aborted && res.destroyed ? 499 : res.statusCode, cancelled: controller.signal.aborted,
+        cache: cacheDisposition, ...modelMetrics, providerReportedCost: modelMetrics.costReports > 0
+          ? modelMetrics.providerReportedCost : null,
+        tokenUsageComplete: modelMetrics.requests > 0 && modelMetrics.failed === 0
+          && modelMetrics.completed === modelMetrics.tokenReports }));
     }
   });
   app.use((error, req, res, next) => {

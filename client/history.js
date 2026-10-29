@@ -16,7 +16,11 @@ export function readHistory(type, storage) {
 
 export function saveHistory(type, item, storage) {
   try { storage ??= globalThis.localStorage; } catch { throw new Error('本机存储不可用，记录未保存。'); }
-  const records = [item, ...readHistory(type, storage).filter(record => record.id !== item.id)].slice(0, 50);
+  const storedResult = { ...item.result };
+  delete storedResult.factAudit;
+  delete storedResult.analysisSnapshot;
+  const storedItem = { ...item, result: storedResult };
+  const records = [storedItem, ...readHistory(type, storage).filter(record => record.id !== item.id)].slice(0, 50);
   try { storage.setItem(key(type), JSON.stringify(records)); } catch { throw new Error('本机存储空间不足或不可用，记录未保存。'); }
   return records;
 }

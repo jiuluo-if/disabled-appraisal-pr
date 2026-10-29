@@ -470,7 +470,8 @@ function normalizeClinicalFindingFacts(inputText) {
     if (eyeGlobeLoss && !hasNonCurrentClinicalContext(text, clauseOffset + eyeGlobeLoss.index,
       clauseOffset + eyeGlobeLoss.index + eyeGlobeLoss[0].length)) {
       findings.push({ field: 'clinical_finding', value: /萎缩/u.test(eyeGlobeLoss[0]) ? '一侧眼球萎缩' : '一侧眼球缺失',
-        certainty: 'reported', source_type: 'user_text', source_excerpt: clause });
+        certainty: 'reported', source_type: 'user_text',
+        source_excerpt: evidenceExcerptForScope(text, clause, clauseOffset + eyeGlobeLoss.index, eyeGlobeLoss[0].length) });
     }
     const subgalealHematomaArea = /帽状腱膜下血肿[^。；;\n]{0,120}?(?:血肿)?(?:范围|面积)[^。；;\n]{0,24}?(\d+(?:\.\d+)?)\s*(?:cm\s*2|平方厘米)(?:以上|及以上)?/u.exec(clause);
     if (subgalealHematomaArea) {
@@ -3133,6 +3134,12 @@ function factIsOutsideAssessmentScope(text, evidence, value) {
   });
 }
 
+function evidenceExcerptForScope(text, fallback, factStart, factLength) {
+  const explicitlyIncluded = assessmentScopeExclusions(text).some(exclusion => exclusion.includedStart != null
+    && factStart >= exclusion.includedStart && factStart < exclusion.includedEnd);
+  return explicitlyIncluded ? text.slice(factStart, factStart + factLength) : fallback;
+}
+
 function removeOutOfScopeAssessmentSegments(text) {
   const exclusions = assessmentScopeExclusions(text);
   const segments = /[^。；;，,\n]+(?:[。；;，,\n]|$)/gu;
@@ -4524,6 +4531,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   };
 
   const deterministicFacts = [];
+  const excludedDeterministicFacts = [];
   for (const [source, sourceText] of Object.entries(sourceTexts)) {
     if (source === 'description' && hasOpenSkullDuralReviewIssue(sourceText)) openSkullDuralReviewIssue = true;
     const explicitInjuryDates = normalizeExplicitInjuryDateFacts(sourceText);
@@ -4600,7 +4608,14 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field.startsWith('scalp_')
         || fact.field === 'surface_scar_area_cm2'
         || fact.field === 'aggregate_surface_scar_area_cm2') {
-        if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) continue;
+        if (factIsOutsideAssessmentScope(sourceText, fact.source_excerpt, String(fact.value ?? ''))) {
+          excludedDeterministicFacts.push({ parserId: fact.id || `P${excludedDeterministicFacts.length + 1}`,
+            field: fact.field, value: fact.value, certainty: fact.certainty, source,
+            evidence: String(fact.source_excerpt || '').slice(0, MAX_FACT_EVIDENCE_CHARS),
+            sourceRefs: sourceRefsForFact(source, fact.source_excerpt, sourceText).slice(0, 200)
+              .map(reference => ({ ...reference, evidence: reference.evidence.slice(0, MAX_FACT_EVIDENCE_CHARS) })) });
+          continue;
+        }
       }
       const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
         || fact.id?.startsWith('BF')
@@ -5187,6 +5202,59 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       fact.finding = factFinding('wound_length_cm', fact.value, fact.certainty);
     }
   }
+  const factAudit = raw.facts.map(rawFact => {
+    const normalizedFactIds = [...new Set(rawIdToFinalIds.get(rawFact.id) || [])].sort(compareFactIds);
+    const evidence = normalizeInput(rawFact.evidence || '');
+    const sourceText = sourceTexts[rawFact.source] || '';
+    let reasonCode = null;
+    if (!normalizedFactIds.length) {
+      if (Array.isArray(rawFact.sourceRefs) && rawFact.sourceRefs.length
+        && !rawFact.sourceRefs.some(reference => sourceReferenceMatches(reference,
+          { description: sourceTexts.description, recognizedText: sourceTexts.image }))) {
+        reasonCode = 'source_reference_invalid';
+      } else if (!evidence || !sourceText.includes(evidence)) {
+        reasonCode = 'evidence_not_found';
+      } else if (factIsOutsideAssessmentScope(sourceText, rawFact.evidence, String(rawFact.value ?? ''))) {
+        reasonCode = 'out_of_scope';
+      } else if (!['reported', 'observed', 'derived'].includes(rawFact.certainty)) {
+        reasonCode = 'not_confirmed';
+      } else {
+        reasonCode = 'canonicalization_rejected';
+      }
+    }
+    return {
+      rawFactId: rawFact.id,
+      proposedField: rawFact.field,
+      field: canonicalField(rawFact.field),
+      proposedValue: rawFact.value,
+      certainty: rawFact.certainty,
+      source: rawFact.source,
+      evidence: rawFact.evidence,
+      ...(rawFact.sourceRefs?.length ? { sourceRefs: rawFact.sourceRefs } : {}),
+      status: normalizedFactIds.length ? 'normalized' : 'excluded',
+      reasonCode,
+      normalizedFactIds,
+      gradeEligible: normalizedFactIds.some(id => {
+        const normalized = facts.find(fact => fact.id === id);
+        return normalized?.source === 'description' && ['reported', 'observed', 'derived'].includes(normalized.certainty)
+          && Array.isArray(normalized.sourceRefs) && normalized.sourceRefs.length > 0;
+      }),
+    };
+  });
+  factAudit.push(...excludedDeterministicFacts.slice(0, 200).map(fact => ({
+    rawFactId: fact.parserId,
+    proposedField: fact.field,
+    field: canonicalField(fact.field),
+    proposedValue: fact.value,
+    certainty: fact.certainty,
+    source: fact.source,
+    evidence: fact.evidence,
+    ...(fact.sourceRefs?.length ? { sourceRefs: fact.sourceRefs } : {}),
+    status: 'excluded',
+    reasonCode: 'out_of_scope',
+    normalizedFactIds: [],
+    gradeEligible: false,
+  })));
   const conflictsByIds = new Map();
   let unlinkedModelConflict = false;
   const conflictEvidenceSignature = ids => {
@@ -5322,7 +5390,9 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
   if (conflicts.length || hasConflictedFact) extractionWarnings.push('存在冲突事实，需人工复核。');
   else if (hasUncertain) extractionWarnings.push('存在疑似或待核实事实，未作为已确认依据；请核对其是否影响评估。');
   if (factCountExceeded) extractionWarnings.push('事实数量超过单次安全处理上限，已截断并要求分段核对。');
-  return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => fact), missingMaterials: uniqueMissing,
+  return { facts: facts.map(({ rawIds, parserId, parserDerivedFrom, ...fact }) => ({ ...fact,
+    ...(rawIds?.length ? { sourceFactIds: [...new Set(rawIds)].sort() } : {}) })),
+    factAudit: factAudit.slice(0, 400), missingMaterials: uniqueMissing,
     conflicts, requiresReview, warnings: extractionWarnings,
     scopeText: removeOutOfScopeAssessmentSegments(`${sourceTexts.description}\n${sourceTexts.image}`) };
 }

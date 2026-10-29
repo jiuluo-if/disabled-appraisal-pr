@@ -20,7 +20,10 @@ async function withApp(options, run, overrides = {}) {
 const provider = { complete: async request => request.name === 'fact_extraction'
   ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
   : providerFixture(), readiness: async () => ({ status: 'ready', configuredModelsAvailable: true }) };
-const post = (url, input, signal) => fetch(url + '/api/analyze', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input), signal });
+const post = (url, input, signal, scope = '00000000-0000-4000-8000-000000000001') => fetch(url + '/api/analyze', {
+  method: 'POST', headers: { 'Content-Type': 'application/json', ...(scope ? { 'X-Analysis-Cache-Scope': scope } : {}) },
+  body: JSON.stringify(input), signal,
+});
 
 test('analysis returns validated result and legacy envelope; live and ready are separate', async () => {
   const evidence = 'CT报告明确记载左侧第3、4肋骨骨折，共2处骨折，均为本次外伤导致，无既往损伤。';
@@ -224,7 +227,7 @@ test('valid legacy contents requests remain compatible and preserve the uploaded
     const body = await response.json();
     assert.equal(response.status, 200);
     assert.equal(body.result.assessmentType, 'disability');
-    assert.deepEqual(calls, ['medical_report_transcription', 'fact_extraction', 'assessment_result']);
+    assert.deepEqual(calls, ['medical_report_transcription', 'fact_extraction']);
   });
 });
 
@@ -343,6 +346,26 @@ test('Agnes text requests send the configured low-variance sampling temperature'
   assert.equal(payload.temperature, 0);
 });
 
+test('provider metrics report per-request latency and upstream token usage without prompt content', async () => {
+  const metrics = [];
+  const mocked = createProvider(config, async () => Response.json({
+    choices: [{ message: { content: JSON.stringify(providerFixture()) }, finish_reason: 'stop' }],
+    usage: { prompt_tokens: 120, completion_tokens: 45, total_tokens: 165 },
+  }));
+  await mocked.complete({ model: 'test-text', schema: providerResultSchema, name: 'assessment_result',
+    messages: [{ role: 'system', content: 'sensitive prompt must not appear in metrics' }],
+    onMetrics: event => metrics.push(event) });
+
+  assert.equal(metrics.length, 2);
+  assert.deepEqual(metrics[0], { type: 'request_start', model: 'test-text' });
+  assert.equal(metrics[1].type, 'request_end');
+  assert.equal(metrics[1].failed, false);
+  assert.equal(metrics[1].inputTokens, 120);
+  assert.equal(metrics[1].outputTokens, 45);
+  assert.ok(metrics[1].durationMs >= 0);
+  assert.equal(JSON.stringify(metrics).includes('sensitive prompt'), false);
+});
+
 test('upstream status errors never expose provider response bodies', async () => {
   const cases = [[401, 'PROVIDER_CONFIGURATION'], [403, 'PROVIDER_CONFIGURATION'], [404, 'MODEL_UNAVAILABLE'], [429, 'UPSTREAM_RATE_LIMIT'], [503, 'UPSTREAM_FAILURE']];
   for (const [status, code] of cases) {
@@ -450,18 +473,42 @@ test('analysis cache isolates every normalized assessment input and ignores only
   let calls = 0;
   const produce = async () => ({ value: ++calls });
 
-  const first = await cache.run(base, 'first', produce);
+  const first = await cache.run(base, 'first', produce, { scope: 'test-session-a' });
   for (const [index, variant] of variants.entries()) {
-    const result = await cache.run(variant, `variant-${index}`, produce);
+    const result = await cache.run(variant, `variant-${index}`, produce, { scope: 'test-session-a' });
     assert.notEqual(result.value, first.value);
   }
   assert.equal(calls, 1 + variants.length);
 
-  const forced = await cache.run({ ...base, forceReanalysis: true }, 'forced', produce);
+  const forced = await cache.run({ ...base, forceReanalysis: true }, 'forced', produce, { scope: 'test-session-a' });
   assert.equal(calls, 2 + variants.length);
   assert.equal(forced.value, calls);
-  assert.equal((await cache.run(base, 'after-forced', produce)).value, forced.value);
+  assert.equal((await cache.run(base, 'after-forced', produce, { scope: 'test-session-a' })).value, forced.value);
   assert.equal(calls, 2 + variants.length);
+});
+
+test('analysis cache is session-scoped and invalidates when analysis versions change', async () => {
+  const input = { assessmentType: 'injury', description: 'same verified input', images: [],
+    injuryDate: '', treatmentStatus: 'unknown' };
+  let calls = 0;
+  const produce = async () => ({ value: ++calls });
+  const firstVersion = createAnalysisCache({ ttlMs: 1000, capacity: 10, versions: { rules: 'rules-v1' } });
+  const first = await firstVersion.run(input, 'a1', produce, { scope: 'session-a' });
+  const isolated = await firstVersion.run(input, 'b1', produce, { scope: 'session-b' });
+  const reused = await firstVersion.run(input, 'a2', produce, { scope: 'session-a' });
+  assert.deepEqual([first.value, isolated.value, reused.value], [1, 2, 1]);
+
+  const upgradedVersion = createAnalysisCache({ ttlMs: 1000, capacity: 10, versions: { rules: 'rules-v2' } });
+  const upgraded = await upgradedVersion.run(input, 'a3', produce, { scope: 'session-a' });
+  assert.equal(upgraded.value, 3);
+
+  const restartedService = createAnalysisCache({ ttlMs: 1000, capacity: 10, versions: { rules: 'rules-v1' } });
+  assert.equal((await restartedService.run(input, 'a4', produce, { scope: 'session-a' })).value, 4);
+
+  const anonymous = await firstVersion.run(input, 'anonymous', produce);
+  assert.equal(anonymous.value, 5);
+  assert.equal((await firstVersion.run(input, 'anonymous-again', produce)).value, 6);
+  assert.equal(calls, 6);
 });
 
 test('zero cache configuration causes every repeated analysis to call the provider again', async () => {
@@ -501,6 +548,23 @@ test('twenty concurrent identical requests share one fact and assessment run', a
   });
 });
 
+test('analysis results are not shared between browser sessions or anonymous API callers', async () => {
+  let calls = 0;
+  const provider = { async complete(request) {
+    calls += 1;
+    return request.name === 'fact_extraction'
+      ? { facts: [], missingMaterials: [], conflicts: [], requiresReview: false }
+      : { ...providerFixture('injury'), facts: [] };
+  } };
+  await withApp({ provider }, async url => {
+    assert.equal((await post(url, inputs.injury, undefined, '00000000-0000-4000-8000-000000000001')).status, 200);
+    assert.equal((await post(url, inputs.injury, undefined, '00000000-0000-4000-8000-000000000002')).status, 200);
+    assert.equal((await post(url, inputs.injury, undefined, null)).status, 200);
+    assert.equal((await post(url, inputs.injury, undefined, null)).status, 200);
+    assert.equal(calls, 4);
+  });
+});
+
 test('cancelling one identical-request waiter leaves the shared analysis for other waiters', async () => {
   const cache = createAnalysisCache({ ttlMs: 1000, capacity: 2 });
   const firstRequest = new AbortController();
@@ -515,9 +579,11 @@ test('cancelling one identical-request waiter leaves the shared analysis for oth
     producerSignal.addEventListener('abort', () => reject(producerSignal.reason), { once: true });
     started();
   });
-  const first = cache.run({ description: 'same input' }, 'first', producer, { signal: firstRequest.signal });
+  const first = cache.run({ description: 'same input' }, 'first', producer,
+    { signal: firstRequest.signal, scope: 'test-session-a' });
   await producerStarted;
-  const second = cache.run({ description: 'same input' }, 'second', producer, { signal: secondRequest.signal });
+  const second = cache.run({ description: 'same input' }, 'second', producer,
+    { signal: secondRequest.signal, scope: 'test-session-a' });
   const secondOutcome = second.then(value => ({ value }), error => ({ error }));
 
   firstRequest.abort(new Error('first client cancelled'));
@@ -539,7 +605,7 @@ test('a request cancelled as its provider completes does not leave an unconsumed
   const pending = cache.run({ description: 'completion cancellation race' }, 'race', async () => {
     started();
     return providerResult;
-  }, { signal: request.signal });
+  }, { signal: request.signal, scope: 'test-session-a' });
 
   await producerStarted;
   finishProducer({ value: 'unconsumed' });
@@ -558,7 +624,7 @@ test('an already cancelled request does not start a new cached analysis', async 
   await assert.rejects(cache.run({ description: 'same input' }, 'cancelled', async () => {
     calls += 1;
     return { value: 'unexpected' };
-  }, { signal: request.signal }), /client already cancelled/);
+  }, { signal: request.signal, scope: 'test-session-a' }), /client already cancelled/);
   assert.equal(calls, 0);
   assert.deepEqual(cache.stats(), { entries: 0, inFlight: 0, hits: 0, misses: 0 });
 });
@@ -568,15 +634,15 @@ test('analysis cache expires entries and enforces its bounded capacity', async (
   const cache = createAnalysisCache({ ttlMs: 10, capacity: 1, now: () => now });
   let calls = 0;
   const producer = async () => ({ value: ++calls });
-  assert.deepEqual(await cache.run({ description: 'A' }, 'r1', producer), { value: 1, requestId: 'r1' });
-  assert.deepEqual(await cache.run({ description: 'A' }, 'r2', producer), { value: 1, requestId: 'r2' });
+  assert.deepEqual(await cache.run({ description: 'A' }, 'r1', producer, { scope: 'test-session-a' }), { value: 1, requestId: 'r1' });
+  assert.deepEqual(await cache.run({ description: 'A' }, 'r2', producer, { scope: 'test-session-a' }), { value: 1, requestId: 'r2' });
   assert.equal(calls, 1);
-  await cache.run({ description: 'B' }, 'r3', producer);
+  await cache.run({ description: 'B' }, 'r3', producer, { scope: 'test-session-a' });
   assert.equal(cache.stats().entries, 1);
-  await cache.run({ description: 'A' }, 'r4', producer);
+  await cache.run({ description: 'A' }, 'r4', producer, { scope: 'test-session-a' });
   assert.equal(calls, 3);
   now += 11;
-  await cache.run({ description: 'A' }, 'r5', producer);
+  await cache.run({ description: 'A' }, 'r5', producer, { scope: 'test-session-a' });
   assert.equal(calls, 4);
 });
 

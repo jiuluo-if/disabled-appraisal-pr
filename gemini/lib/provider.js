@@ -37,7 +37,8 @@ function waitForRetry(milliseconds, signal) {
 }
 
 export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetry) {
-  async function complete({ model, schema, name, messages, signal, repair = false }) {
+  async function complete({ model, schema, name, messages, signal, repair = false, onMetrics }) {
+    const reportMetrics = event => { try { onMetrics?.(event); } catch { /* Metrics must not affect assessment. */ } };
     const jsonSchema = z.toJSONSchema(schema);
     const format = config.jsonMode === 'object' ? { type: 'json_object' } : {
       type: 'json_schema', json_schema: { name, strict: true, schema: jsonSchema },
@@ -54,24 +55,31 @@ export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetr
       body: JSON.stringify(payload), signal };
     let response;
     let attempts = 0;
+    let requestStarted = 0;
     while (true) {
+      requestStarted = Date.now();
+      reportMetrics({ type: 'request_start', model });
       try { response = await fetchImpl(config.apiUrl, init); } catch {
+        reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted, failed: true });
         if (signal?.aborted) throw signal.reason;
         throw new ServiceError(502, 'UPSTREAM_CONNECTION', '暂时无法连接分析服务，请稍后重试。');
       }
       if (response.status !== 429) break;
       const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
       if (attempts === 0 && retryAfter !== null && retryAfter <= 2) {
+        reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted, failed: true });
         attempts += 1;
         await waitImpl(retryAfter * 1000, signal);
         continue;
       }
+      reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted, failed: true });
       response.body?.cancel().catch(() => {});
       throw new ServiceError(503, 'UPSTREAM_RATE_LIMIT', '分析请求触发上游限流，请稍后重试。', {
         upstreamStatus: response.status, retryAfterSeconds: retryAfter,
       });
     }
     if (!response.ok) {
+      reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted, failed: true });
       const status = response.status;
       response.body?.cancel().catch(() => {});
       const metadata = { upstreamStatus: status };
@@ -82,9 +90,19 @@ export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetr
     }
     let body;
     try { body = await response.json(); } catch {
+      reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted, failed: true });
       if (signal?.aborted) throw signal.reason;
       throw new ServiceError(502, 'UPSTREAM_FORMAT', '分析服务返回了无法识别的响应，请稍后重试。');
     }
+    const usage = body.usage || body.usageMetadata || {};
+    const inputTokens = [usage.prompt_tokens, usage.input_tokens, usage.promptTokenCount]
+      .find(value => Number.isFinite(value) && value >= 0) ?? null;
+    const outputTokens = [usage.completion_tokens, usage.output_tokens, usage.candidatesTokenCount]
+      .find(value => Number.isFinite(value) && value >= 0) ?? null;
+    const providerCost = [body.cost, usage.cost, usage.total_cost]
+      .find(value => Number.isFinite(value) && value >= 0) ?? null;
+    reportMetrics({ type: 'request_end', model, durationMs: Date.now() - requestStarted,
+      failed: false, inputTokens, outputTokens, providerCost });
     const choice = body.choices?.[0];
     if (choice?.finish_reason === 'length') throw new ServiceError(502, 'OUTPUT_TRUNCATED', '分析回复未完成，本次未形成有效结论；请稍后重试。');
     const content = choice?.message?.content;
@@ -94,7 +112,7 @@ export function createProvider(config, fetchImpl = fetch, waitImpl = waitForRetr
       if (name === 'fact_extraction') value = normalizeFactExtractionResponse(value);
       return schema.parse(value);
     } catch {
-      if (!repair) return complete({ model, schema, name, signal, repair: true, messages: [
+      if (!repair) return complete({ model, schema, name, signal, repair: true, onMetrics, messages: [
         ...messages, { role: 'assistant', content },
         { role: 'user', content: '刚才的回复未通过JSON结构校验。请只修正JSON格式与字段类型，输出完整对象，不得增加材料中没有的事实。所有必填字段必须存在，未知项使用空数组或null。' },
       ] });

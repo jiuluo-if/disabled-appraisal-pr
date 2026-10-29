@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import crypto from 'node:crypto';
 import MiniSearch from 'minisearch';
 import { normalizeImplantedProsthesisDamageFacts, normalizeNeckAsphyxiaFacts } from './facts.js';
 
@@ -181,6 +182,7 @@ export function applyClauseLogicMetadata(catalogs, metadata) {
 }
 
 export const catalogs = applyClauseLogicMetadata(rawCatalogs, clauseLogicMetadata);
+export const RULES_VERSION = crypto.createHash('sha256').update(JSON.stringify(catalogs), 'utf8').digest('hex');
 
 const indexes = Object.fromEntries(Object.entries(catalogs).map(([type, catalog]) => {
   const index = new MiniSearch({ fields: ['text', 'category'], storeFields: ['id'], tokenize });

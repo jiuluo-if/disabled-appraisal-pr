@@ -27,25 +27,43 @@ test('complete source-verified criteria skip the assessment model call', async (
   assert.deepEqual(calls, ['fact_extraction']);
   assert.equal(result.status, 'preliminary');
   assert.equal(result.grade, '轻伤二级');
+  assert.equal(result.analysisSnapshot?.rules.length, 64);
+  assert.match(result.analysisSnapshot?.snapshotId, /^[a-f0-9]{64}$/u);
   assert.ok(result.references.some(reference => reference.relation === 'supports'
     && reference.grade === result.grade));
+
+  const repeated = await assess(input, { provider, config, requestId: 'deterministic-short-circuit-repeat' });
+  assert.equal(repeated.grade, result.grade);
+  assert.equal(repeated.analysisSnapshot.snapshotId, result.analysisSnapshot.snapshotId);
+  assert.deepEqual(calls, ['fact_extraction', 'fact_extraction']);
 });
 
-test('incomplete facts still request targeted model assessment', async () => {
+test('a grade-changing missing condition requests only a targeted model review', async () => {
   const calls = [];
+  const requests = [];
   const provider = { complete: async request => {
     calls.push(request.name);
+    requests.push(request);
     if (request.name === 'fact_extraction') {
-      return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+      return { facts: [
+        { id: 'M1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported',
+          source: 'description', evidence: '左侧第3肋骨骨折', eventId: 'E1' },
+        { id: 'M2', field: 'fractured_rib_numbers', value: [3], certainty: 'reported',
+          source: 'description', evidence: '左侧第3肋骨骨折', eventId: 'E1' },
+      ], missingMaterials: [], conflicts: [], requiresReview: false };
     }
     return { status: 'insufficient', grade: null, summary: '资料不足', reasoning: '未发现可核验条款',
       facts: [], references: [], missingMaterials: [], nextSteps: [], warnings: [] };
   } };
 
-  const result = await assess({ ...input, description: '病历资料已提交。' },
+  const result = await assess({ ...input, description: 'CT报告明确记载左侧第3肋骨骨折。' },
     { provider, config, requestId: 'assessment-review-fallback' });
 
   assert.deepEqual(calls, ['fact_extraction', 'assessment_result']);
   assert.notEqual(result.status, 'preliminary');
   assert.equal(result.grade, null);
+  const reviewPayload = JSON.parse(requests[1].messages[1].content.match(/<verified_facts>\s*([\s\S]*?)\s*<\/verified_facts>/u)[1]);
+  assert.equal(reviewPayload.facts.length, 1);
+  assert.ok(reviewPayload.reviewConditions.some(item => item.clauseId === '5.6.4.b'));
+  assert.match(requests[1].messages[0].content, /只复核待核条件/u);
 });

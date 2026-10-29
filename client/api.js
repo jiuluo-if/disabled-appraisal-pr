@@ -3,6 +3,17 @@ import { CLIENT_ANALYSIS_TIMEOUT_MS } from '../gemini/lib/request-timeouts.js';
 
 export const apiBase = import.meta.env.VITE_API_BASE || '/api';
 
+function analysisCacheScope() {
+  try {
+    const key = 'disabled-appraisal-analysis-cache-scope-v1';
+    const existing = sessionStorage.getItem(key);
+    if (/^[a-f0-9]{8}-[a-f0-9]{4}-[1-8][a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/iu.test(existing || '')) return existing;
+    const created = crypto.randomUUID();
+    sessionStorage.setItem(key, created);
+    return created;
+  } catch { return null; }
+}
+
 export async function analyze(input, signal) {
   const timeout = new AbortController();
   const timer = setTimeout(() => timeout.abort(new DOMException('分析超时，请稍后重试。', 'TimeoutError')),
@@ -13,8 +24,10 @@ export async function analyze(input, signal) {
   try {
     let response;
     try {
+      const scope = analysisCacheScope();
       response = await fetch(`${apiBase}/analyze`, { method: 'POST',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input),
+        headers: { 'Content-Type': 'application/json', ...(scope ? { 'X-Analysis-Cache-Scope': scope } : {}) },
+        body: JSON.stringify(input),
         signal: timeout.signal });
     } catch {
       if (timeout.signal.aborted) throw timeout.signal.reason;
