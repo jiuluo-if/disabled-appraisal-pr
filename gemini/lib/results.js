@@ -1,6 +1,8 @@
 import { providerResultSchema, resultSchema } from './contracts.js';
 import { catalogs } from './catalog.js';
 import { conditionFactFields, logicFactFields } from './condition-fields.js';
+import { evaluateConditionTree, factDateKeys, uniqueEvidenceText } from './condition-logic.js';
+import { reliableCertainties } from './fact-certainty.js';
 import { quotedPredicateEvidenceValue } from './numeric-evidence.js';
 import { includesNormalizedText, normalizeForMatching } from './text-normalization.js';
 import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, normalizeNeckAsphyxiaFacts,
@@ -110,7 +112,6 @@ function explicitRibSiteCountStatus(conditionText, evidence) {
   return Number.isInteger(thresholdValue) && Number.isInteger(countValue) ? countValue >= thresholdValue : undefined;
 }
 
-const reliableCertainties = new Set(['reported', 'observed', 'derived']);
 const INJURY_AGE_SCALED_MEASUREMENT_FIELDS = new Set(['contusion_tbsa_percent', 'burn_tbsa_ii_plus_percent',
   'burn_tbsa_deep_ii_plus_percent', 'burn_tbsa_iii_percent', 'burn_area_face_first_degree_cm2',
   'burn_area_neck_first_degree_cm2', 'burn_area_neck_superficial_second_degree_cm2',
@@ -1022,19 +1023,6 @@ function isWholeMeasurementWithRegionSegments(fact, facts) {
   const hasScalp = relatedSegments.some(candidate => candidate.regionEvidence.site === '头皮');
   const segmentTotal = Math.round(relatedSegments.reduce((sum, candidate) => sum + candidate.value, 0) * 100) / 100;
   return (hasFace && hasOutsideFace || hasAuricle && hasScalp) && segmentTotal === fact.value;
-}
-
-function uniqueEvidenceText(values) {
-  const seen = new Set();
-  const unique = [];
-  for (const value of values) {
-    for (const evidence of String(value || '').split('；').map(item => item.trim()).filter(Boolean)) {
-      if (seen.has(evidence)) continue;
-      seen.add(evidence);
-      unique.push(evidence);
-    }
-  }
-  return unique.join('；');
 }
 
 function conditionFactIsExplicitlyNegated(node, fact) {
@@ -2063,154 +2051,59 @@ function vertebralLevelKey(value) {
   return Number.isInteger(number) && number > 0 ? `${region}${number}` : normalize(text);
 }
 
-function combineLogicResults(op, results, eventId = null, allowSharedFact = false) {
-  const states = results.map(result => result.met);
-  const sharedFactIds = results.map(result => new Set(result.factIds || []))
-    .reduce((shared, ids, index) => index === 0 ? ids : new Set([...shared].filter(id => ids.has(id))), new Set());
-  const sharedQuotedEvidence = results.map(result => new Set(String(result.evidence || '').split('；')
-    .map(evidence => normalize(evidence)).filter(Boolean)))
-    .reduce((shared, evidence, index) => index === 0 ? evidence
-      : new Set([...shared].filter(quote => evidence.has(quote))), new Set());
-  let met = op === 'all'
-    ? states.includes(false) ? false : states.every(state => state === true) ? true : null
-    : states.includes(true) ? true : states.every(state => state === false) ? false : null;
+function reconcileMedicalConditionGroup(op, results, met) {
+  if (op !== 'all' || met !== true) return met;
   const eyeAssertions = results.flatMap(result => result.eyeAssertions || []);
   const hearingAssertions = results.flatMap(result => result.hearingAssertions || []);
   const earSideAssertions = results.flatMap(result => result.earSideAssertions || []);
   const carotidAssertions = results.flatMap(result => result.carotidAssertions || []);
-  if (op === 'all' && met === true) {
-    const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
-    const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
-    if (oppositeEyeMeasurements.some(measurement => !completeSides.some(side => side !== measurement.side))) met = null;
-    const oneEarSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
-    const otherEarRequirements = hearingAssertions.filter(item => item.role === 'other');
-    if (otherEarRequirements.some(requirement => !oneEarSides.some(side =>
-      requirement.sides.some(otherSide => side !== otherSide)))) met = null;
-    const sameSideRequirements = earSideAssertions.filter(item => item.role === 'same-side');
-    for (const requirement of sameSideRequirements) {
-      const hearingSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
-      const otherFindingSides = earSideAssertions.filter(item => item.role === 'unilateral'
-        && item.system !== requirement.system).flatMap(item => item.sides);
-      const matchingSides = requirement.system === 'vestibular' ? hearingSides : otherFindingSides;
-      if (!requirement.sides.some(side => matchingSides.includes(side))) met = null;
-    }
-    const thrombosis = carotidAssertions.filter(item => item.kind === 'thrombosis'
-      && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain);
-    const stenosis = carotidAssertions.filter(item => item.kind === 'stenosis'
-      && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain
-      && item.value >= item.threshold);
-    if (thrombosis.length && stenosis.length) {
-      const sameVessel = thrombosis.some(clot => stenosis.some(narrowing =>
-        narrowing.artery === clot.artery && narrowing.side === clot.side));
-      const conflictedVessel = thrombosis.some(clot => carotidAssertions.some(assertion =>
-        assertion.artery === clot.artery && assertion.side === clot.side
-        && (assertion.negated || assertion.uncertain
-          || ['uncertain', 'unknown', 'conflicted', 'excluded'].includes(assertion.certainty))));
-      if (!sameVessel || conflictedVessel) met = null;
-    }
+  const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
+  const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
+  if (oppositeEyeMeasurements.some(measurement => !completeSides.some(side => side !== measurement.side))) met = null;
+  const oneEarSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
+  const otherEarRequirements = hearingAssertions.filter(item => item.role === 'other');
+  if (otherEarRequirements.some(requirement => !oneEarSides.some(side =>
+    requirement.sides.some(otherSide => side !== otherSide)))) met = null;
+  const sameSideRequirements = earSideAssertions.filter(item => item.role === 'same-side');
+  for (const requirement of sameSideRequirements) {
+    const hearingSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
+    const otherFindingSides = earSideAssertions.filter(item => item.role === 'unilateral'
+      && item.system !== requirement.system).flatMap(item => item.sides);
+    const matchingSides = requirement.system === 'vestibular' ? hearingSides : otherFindingSides;
+    if (!requirement.sides.some(side => matchingSides.includes(side))) met = null;
   }
-  if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
-    && sharedQuotedEvidence.size === 0) met = null;
-  const decisive = op === 'all' && met === false ? results.filter(result => result.met === false)
-    : op === 'any' && met === true ? results.filter(result => result.met === true)
-      : results;
-  return { met, evidence: uniqueEvidenceText(decisive.map(result => result.evidence)),
-    factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId,
-    eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []),
-    hearingAssertions: decisive.flatMap(result => result.hearingAssertions || []),
-    earSideAssertions: decisive.flatMap(result => result.earSideAssertions || []),
-    carotidAssertions: decisive.flatMap(result => result.carotidAssertions || []) };
+  const thrombosis = carotidAssertions.filter(item => item.kind === 'thrombosis'
+    && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain);
+  const stenosis = carotidAssertions.filter(item => item.kind === 'stenosis'
+    && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain
+    && item.value >= item.threshold);
+  if (thrombosis.length && stenosis.length) {
+    const sameVessel = thrombosis.some(clot => stenosis.some(narrowing =>
+      narrowing.artery === clot.artery && narrowing.side === clot.side));
+    const conflictedVessel = thrombosis.some(clot => carotidAssertions.some(assertion =>
+      assertion.artery === clot.artery && assertion.side === clot.side
+      && (assertion.negated || assertion.uncertain
+        || ['uncertain', 'unknown', 'conflicted', 'excluded'].includes(assertion.certainty))));
+    if (!sameVessel || conflictedVessel) met = null;
+  }
+  return met;
 }
 
-function factDateKeys(fact) {
-  const text = [fact.value, fact.evidence].flatMap(value => Array.isArray(value) ? value : [value])
-    .filter(Boolean).join(' ').normalize('NFKC');
-  return [...text.matchAll(/(?:19|20)\d{2}(?:年\s*\d{1,2}月\s*\d{1,2}日|[-/.]\s*\d{1,2}[-/.]\s*\d{1,2})/gu)]
-    .map(([date]) => {
-      const [year, month, day] = date.match(/\d+/gu).map(Number);
-      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-    });
+function collectMedicalConditionAssertions(results) {
+  return {
+    eyeAssertions: results.flatMap(result => result.eyeAssertions || []),
+    hearingAssertions: results.flatMap(result => result.hearingAssertions || []),
+    earSideAssertions: results.flatMap(result => result.earSideAssertions || []),
+    carotidAssertions: results.flatMap(result => result.carotidAssertions || []),
+  };
 }
 
 export function evaluateConditionLogic(conditionLogic, facts) {
-  if (conditionLogic?.annotation !== 'explicit' || !conditionLogic.logic || !Array.isArray(facts)) {
-    return { met: null, evidence: '', factIds: [] };
-  }
-  const ageAdjustmentEnabled = ['injury_standard_6_18', 'disability_standard_6_11']
-    .includes(conditionLogic.ageAdjustment);
-  const evaluate = (node, scopedFacts, eventId) => {
-    if (node.op === 'condition') return evaluateConditionLeaf(node, scopedFacts, eventId, ageAdjustmentEnabled);
-    if (node.op === 'not') {
-      if (node.confirmedBy) {
-        const confirmed = evaluateConditionLeaf({ op: 'condition', sourceText: node.sourceText,
-          conditionText: node.conditionText, factMatch: node.confirmedBy }, scopedFacts);
-        if (confirmed.met === true) return confirmed;
-      }
-      const result = evaluate(node.children[0], scopedFacts, eventId);
-      return { ...result, met: result.met === true ? false : result.met === false ? true : null };
-    }
-    if (node.op === 'all' || node.op === 'any') {
-      return combineLogicResults(node.op, node.children.map(child => evaluate(child, scopedFacts, eventId)), eventId,
-        node.allowSharedFact === true);
-    }
-    return { met: null, evidence: '', factIds: [] };
-  };
-  const eventIds = [...new Set(facts.map(fact => fact.eventId).filter(Boolean))].sort();
-  const unscopedFacts = facts.filter(fact => !fact.eventId);
-  const eventIdsByDate = new Map();
-  const hasQuotedSource = fact => fact.source === 'description' && fact.verification === 'quoted'
-    && reliableCertainties.has(fact.certainty);
-  for (const fact of facts.filter(item => item.eventId && hasQuotedSource(item))) {
-    for (const date of factDateKeys(fact)) {
-      const owners = eventIdsByDate.get(date) || new Set();
-      owners.add(fact.eventId);
-      eventIdsByDate.set(date, owners);
-    }
-  }
-  const linkedUnscopedFacts = new Map(eventIds.map(eventId => [eventId, []]));
-  const linkedFacts = new Set();
-  for (const fact of unscopedFacts.filter(hasQuotedSource)) {
-    const owners = new Set();
-    let ambiguousDate = false;
-    for (const date of factDateKeys(fact)) {
-      const matchingEvents = eventIdsByDate.get(date);
-      if (!matchingEvents) continue;
-      if (matchingEvents.size !== 1) ambiguousDate = true;
-      else owners.add([...matchingEvents][0]);
-    }
-    if (!ambiguousDate && owners.size === 1) {
-      const [eventId] = owners;
-      linkedUnscopedFacts.get(eventId)?.push(fact);
-      linkedFacts.add(fact);
-    }
-  }
-  const remainingUnscopedFacts = unscopedFacts.filter(fact => !linkedFacts.has(fact));
-  const scopes = [...eventIds.map(eventId => ({ eventId, facts: facts.filter(fact => fact.eventId === eventId) }))];
-  const conditionFields = new Set();
-  const collectFields = node => {
-    if (node.op === 'condition') {
-      for (const field of conditionFactFields(node.factMatch, node.predicate)) conditionFields.add(field);
-    }
-    if (node.confirmedBy) {
-      for (const field of conditionFactFields(node.confirmedBy)) conditionFields.add(field);
-    }
-    for (const child of node.children || []) collectFields(child);
-  };
-  collectFields(conditionLogic.logic);
-  const supportingFactIds = new Set(facts.filter(fact => conditionFields.has(fact.field))
-    .flatMap(fact => fact.derivedFrom || []));
-  const relevantUnscopedFacts = unscopedFacts.filter(fact => conditionFields.has(fact.field)
-    || supportingFactIds.has(fact.id));
-  for (const scope of scopes) scope.facts.push(...(linkedUnscopedFacts.get(scope.eventId) || [])
-    .filter(fact => conditionFields.has(fact.field) || supportingFactIds.has(fact.id)));
-  const remainingRelevantFacts = relevantUnscopedFacts.filter(fact => remainingUnscopedFacts.includes(fact));
-  if (eventIds.length === 0) scopes.push({ eventId: null, facts: remainingRelevantFacts });
-  const results = scopes.map(scope => evaluate(conditionLogic.logic, scope.facts, scope.eventId));
-  return results.find(result => result.met === true)
-    || results.every(result => result.met === false) && results[0]
-    || { met: null, evidence: '', factIds: [] };
+  return evaluateConditionTree(conditionLogic, facts,
+    (node, scopedFacts, eventId, ageAdjustmentEnabled) =>
+      evaluateConditionLeaf(node, scopedFacts, eventId, ageAdjustmentEnabled),
+    { reconcileGroup: reconcileMedicalConditionGroup, collectDetails: collectMedicalConditionAssertions });
 }
-
 function logicGroups(logic) {
   return logic.op === 'all' ? logic.children : [logic];
 }
