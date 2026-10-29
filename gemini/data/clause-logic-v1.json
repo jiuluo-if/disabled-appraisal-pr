@@ -23361,11 +23361,12 @@
               "sourceText": "色素异常",
               "conditionText": "色素异常，累计面积达30.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "色素异常，累计面积达30.0cm2"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_cm2",
+                "operator": "gte",
+                "value": 30,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素异常", "色素沉着"], ["面积"], ["cm2", "cm²", "平方厘米"]]
               }
             }
           ]
@@ -23578,11 +23579,12 @@
               "sourceText": "色素异常",
               "conditionText": "面部色素异常，累计面积达100.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部色素异常，累计面积达100.0cm2"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_cm2",
+                "operator": "gte",
+                "value": 100,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素异常", "色素沉着"], ["面积"], ["cm2", "cm²", "平方厘米"]]
               }
             }
           ]
@@ -24792,11 +24794,12 @@
               "sourceText": "色素异常",
               "conditionText": "面部色素异常，累计面积达10.0cm2",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部色素异常，累计面积达10.0cm2"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_cm2",
+                "operator": "gte",
+                "value": 10,
+                "unit": "cm2",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素异常", "色素沉着"], ["面积"], ["cm2", "cm²", "平方厘米"]]
               }
             }
           ]
