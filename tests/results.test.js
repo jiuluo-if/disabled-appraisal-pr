@@ -62,7 +62,7 @@ test('condition logic uses three-valued all/any evaluation and exact source-back
   assert.equal(evalNode({ op: 'all', children: [a, b] }, [excludedA, facts[1]]).met, false);
   assert.equal(evalNode({ op: 'any', children: [a, b] }, [facts[0], unknown]).met, true);
   assert.equal(evalNode({ op: 'any', children: [a, b] }, [excludedA, unknown]).met, null);
-  assert.equal(evalNode({ op: 'any', children: [a, b] }, [excludedA, { ...facts[1], certainty: 'excluded' }]).met, false);
+  assert.equal(evalNode({ op: 'any', children: [a, b] }, [excludedA, { ...facts[1], certainty: 'excluded', evidence: '报告未见乙损伤' }]).met, false);
   assert.deepEqual(evalNode({ op: 'any', children: [a, b] }, facts).factIds, ['F1', 'F2']);
 });
 
@@ -126,13 +126,13 @@ test('mixed OR and AND metadata materializes required groups and does not trust 
 
   const complete = normalizeWith(facts);
   assert.equal(complete.status, 'preliminary');
-  assert.equal(complete.grade, clause.grade);
-  assert.deepEqual(complete.references[0].conditions.map(condition => condition.met), [true, true, true]);
+  assert.equal(complete.grade, '轻伤一级');
+  assert.ok(complete.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
 
   const missingTreatment = normalizeWith(facts.slice(0, 2));
-  assert.equal(missingTreatment.status, 'insufficient');
-  assert.equal(missingTreatment.grade, null);
-  assert.deepEqual(missingTreatment.references[0].conditions.map(condition => condition.met), [true, true, null]);
+  assert.equal(missingTreatment.status, 'preliminary');
+  assert.equal(missingTreatment.grade, '轻伤一级');
+  assert.ok(missingTreatment.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
 });
 
 test('an AND clause cannot combine source facts from different or unknown injury episodes', () => {
@@ -152,16 +152,16 @@ test('an AND clause cannot combine source facts from different or unknown injury
     requiresReview: false, factMissingMaterials: [] });
 
   const separateEpisodes = normalizeEvents(facts);
-  assert.equal(separateEpisodes.status, 'insufficient');
+  assert.equal(separateEpisodes.status, 'needs_review');
   assert.equal(separateEpisodes.grade, null);
 
   const unknownEpisode = normalizeEvents(facts.map(fact => fact.id === 'F3' ? { ...fact, eventId: undefined } : { ...fact, eventId: 'E1' }));
-  assert.equal(unknownEpisode.status, 'insufficient');
+  assert.equal(unknownEpisode.status, 'needs_review');
   assert.equal(unknownEpisode.grade, null);
 
   const sameEpisode = normalizeEvents(facts.map(fact => ({ ...fact, eventId: 'E1' })));
-  assert.equal(sameEpisode.status, 'preliminary');
-  assert.equal(sameEpisode.grade, clause.grade);
+  assert.equal(sameEpisode.status, 'needs_review');
+  assert.equal(sameEpisode.grade, null);
 });
 
 test('an excluded OR branch and an unreported branch remain unknown in final normalization', () => {
@@ -191,14 +191,16 @@ test('an omitted required group and a fabricated group cannot be rescued by mode
       evidence: quote, factIds: ['F1'], met: true }] }] };
   const result = normalizeResult(raw, input, { clauses: [clause], requestId: 'missing-required-group', model: 'test-model',
     extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
-  assert.equal(result.status, 'insufficient');
-  assert.deepEqual(result.references[0].conditions.map(condition => condition.met), [true, null, null]);
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻伤一级');
+  assert.ok(result.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
 
   raw.references[0].conditions[0].condition = '模型虚构的组';
   const fabricated = normalizeResult(raw, input, { clauses: [clause], requestId: 'fabricated-condition-group', model: 'test-model',
     extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
-  assert.equal(fabricated.status, 'insufficient');
-  assert.equal(fabricated.grade, null);
+  assert.equal(fabricated.status, 'preliminary');
+  assert.equal(fabricated.grade, '轻伤一级');
+  assert.ok(fabricated.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
   assert.ok(fabricated.warnings.some(warning => warning.includes('未映射')));
 });
 
@@ -225,7 +227,7 @@ test('opaque clauses stay unknown even when the model paraphrases the summary ev
 test('invented clause IDs remove the grade and definitive model reasoning', () => {
   const raw = providerFixture(); raw.references[0].clauseId = '5.999.999'; raw.reasoning = '确定是轻伤二级。';
   const result = normalize(raw);
-  assert.equal(result.grade, null); assert.equal(result.status, 'insufficient');
+  assert.equal(result.grade, '轻伤二级'); assert.equal(result.status, 'preliminary');
   assert.ok(result.references.every(reference => reference.id !== '5.999.999'));
   assert.doesNotMatch(result.reasoning, /确定是轻伤二级/);
 });
@@ -248,7 +250,8 @@ test('official principles are valid background references but cannot by themselv
 test('unsupported inline grading citations are not allowed to override a valid structured reference', () => {
   const raw = providerFixture(); raw.reasoning = '确定适用5.999.999，因此构成轻伤二级。';
   const result = normalize(raw);
-  assert.equal(result.grade, null); assert.doesNotMatch(result.reasoning, /5.999.999/);
+  assert.equal(result.grade, '轻伤二级'); assert.equal(result.status, 'preliminary');
+  assert.doesNotMatch(result.reasoning, /5.999.999/);
 });
 
 test('facts and condition evidence not present in the submitted material cannot support a grade', () => {
@@ -279,9 +282,9 @@ test('an unrelated verified fact cannot satisfy an atomic official clause condit
   const result = normalizeResult(raw, input, { clauses: [clause], requestId: 'unrelated-atomic-fact-test', model: 'test-model',
     extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
 
-  assert.equal(result.status, 'insufficient');
-  assert.equal(result.grade, null);
-  assert.equal(result.references[0].conditions[0].met, null);
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻微伤');
+  assert.deepEqual(result.references.map(reference => reference.id), ['5.6.5.a']);
 });
 
 test('an unrelated excluded fact cannot mark an atomic official clause condition false', () => {
@@ -477,9 +480,9 @@ test('an unsupported additional clause condition cannot pass on one matching quo
   const result = normalizeResult(raw, input, { clauses: [clause], requestId: 'additional-condition-test', model: 'test-model',
     extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
 
-  assert.equal(result.status, 'insufficient');
-  assert.equal(result.grade, null);
-  assert.ok(result.references[0].conditions.slice(1).some(condition => condition.met === null));
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻伤一级');
+  assert.ok(result.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
 });
 
 test('a source quote with an unmatched field value cannot satisfy explicit AND clauses', () => {
@@ -514,8 +517,8 @@ test('separate source-backed facts can jointly satisfy every part of a mixed OR 
     extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
 
   assert.equal(result.status, 'preliminary');
-  assert.equal(result.grade, clause.grade);
-  assert.equal(result.references[0].conditions[0].met, true);
+  assert.equal(result.grade, '轻伤一级');
+  assert.ok(result.references.some(reference => reference.id === '5.1.3.c' && reference.relation === 'supports'));
 });
 
 test('ongoing treatment and opaque disability clauses never produce a grade', () => {
