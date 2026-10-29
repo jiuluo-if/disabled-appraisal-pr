@@ -12019,22 +12019,24 @@
                   "op": "condition",
                   "sourceText": "缩短5.0cm以上",
                   "conditionText": "股骨干骨折缩短5.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "股骨干骨折缩短5.0cm以上"
-                    ]
+                  "predicate": {
+                    "field": "bone_shortening_cm",
+                    "operator": "gte",
+                    "value": 5,
+                    "unit": "cm",
+                    "evidenceGroups": [["股骨干骨折"], ["缩短"]]
                   }
                 },
                 {
                   "op": "condition",
                   "sourceText": "成角畸形30o以上",
                   "conditionText": "股骨干骨折成角畸形30o以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "股骨干骨折成角畸形30o以上"
-                    ]
+                  "predicate": {
+                    "field": "bone_angulation_degrees",
+                    "operator": "gte",
+                    "value": 30,
+                    "unit": "°",
+                    "evidenceGroups": [["股骨干骨折"], ["成角畸形"]]
                   }
                 },
                 {
@@ -12078,22 +12080,24 @@
                   "op": "condition",
                   "sourceText": "缩短5.0cm以上",
                   "conditionText": "胫腓骨骨折缩短5.0cm以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "胫腓骨骨折缩短5.0cm以上"
-                    ]
+                  "predicate": {
+                    "field": "bone_shortening_cm",
+                    "operator": "gte",
+                    "value": 5,
+                    "unit": "cm",
+                    "evidenceGroups": [["胫腓骨骨折"], ["缩短"]]
                   }
                 },
                 {
                   "op": "condition",
                   "sourceText": "成角畸形30o以上",
                   "conditionText": "胫腓骨骨折成角畸形30o以上",
-                  "factMatch": {
-                    "field": "clinical_finding",
-                    "values": [
-                      "胫腓骨骨折成角畸形30o以上"
-                    ]
+                  "predicate": {
+                    "field": "bone_angulation_degrees",
+                    "operator": "gte",
+                    "value": 30,
+                    "unit": "°",
+                    "evidenceGroups": [["胫腓骨骨折"], ["成角畸形"]]
                   }
                 },
                 {

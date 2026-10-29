@@ -3,6 +3,66 @@ import { normalizeForMatching } from './text-normalization.js';
 
 const normalize = normalizeForMatching;
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
+
+function verifiedTypedMeasurement(predicate, fact, evidence) {
+  const unitPatterns = {
+    cm: '(cm|厘米|mm|毫米)(?!2)',
+    '°': '(°|度|o)',
+  };
+  const pattern = unitPatterns[predicate.unit];
+  if (!pattern) return null;
+  const number = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*${pattern}`, 'giu'))];
+  if (!measurements.length) return null;
+  const groups = predicate.evidenceGroups || [];
+  if (!groups.length) return null;
+  const clauseBounds = measurement => ({
+    start: Math.max(evidence.lastIndexOf('。', measurement.index), evidence.lastIndexOf('；', measurement.index),
+      evidence.lastIndexOf(';', measurement.index), evidence.lastIndexOf('\n', measurement.index)) + 1,
+    end: [evidence.indexOf('。', measurement.index + measurement[0].length),
+      evidence.indexOf('；', measurement.index + measurement[0].length), evidence.indexOf(';', measurement.index + measurement[0].length),
+      evidence.indexOf('\n', measurement.index + measurement[0].length)].filter(index => index >= 0)
+      .reduce((end, index) => Math.min(end, index), evidence.length),
+  });
+  const contextFor = measurement => {
+    const bounds = clauseBounds(measurement);
+    const contextStart = Math.max(bounds.start, measurement.index - 48);
+    const context = evidence.slice(contextStart, bounds.end);
+    const normalizedContext = normalize(context);
+    const entityMatches = groups[0].map(alias => ({ alias: normalize(alias),
+      index: normalizedContext.lastIndexOf(normalize(alias)) })).filter(item => item.index >= 0)
+      .sort((left, right) => right.index - left.index);
+    if (!entityMatches.length) return null;
+    const relationText = normalizedContext.slice(entityMatches[0].index + entityMatches[0].alias.length,
+      normalizedContext.indexOf(normalize(measurement[0]), entityMatches[0].index));
+    if (groups.slice(1).some(group => !group.some(alias => relationText.includes(normalize(alias))))) return null;
+    return bounds;
+  };
+  const supportedMeasurements = measurements.map(measurement => ({ measurement, context: contextFor(measurement) }))
+    .filter(item => item.context);
+  if (!supportedMeasurements.length) return null;
+  const values = supportedMeasurements.map(({ measurement }) => {
+    const numeric = /^\d+(?:\.\d+)?$/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+    const actualUnit = measurement[2].toLowerCase();
+    return predicate.unit === 'cm' && /^(?:mm|毫米)$/u.test(actualUnit) ? numeric / 10 : numeric;
+  });
+  if (values.some(value => !Number.isFinite(value) || value < 0) || new Set(values).size !== 1) return null;
+  const sourceValue = values[0];
+  for (const { measurement, context: { start, end } } of supportedMeasurements) {
+    const clause = evidence.slice(start, end);
+    if (/(?:约|大约|左右|接近|估计|疑似|可疑|考虑|可能|待排|待查|待核|不排除|未见|未发现|否认|排除|既往|陈旧|术前|术后)/u.test(clause)) return null;
+    const before = evidence.slice(start, measurement.index);
+    const after = evidence.slice(measurement.index + measurement[0].length, end);
+    const upperBound = /(?:以下|以内|不超过|不高于|小于|低于|不足|少于|未达|未达到|不大于|至多|≤|<=)\s*$/u.test(before)
+      || /^(?:以下|以内|不超过|不高于|不大于|至多|≤|<=)/u.test(after);
+    const lowerBound = /(?:以上|至少|不少于|不低于|不小于|大于|超过|≥|>=)\s*$/u.test(before)
+      || /^(?:以上|及以上|至少|不少于|不低于|不小于|大于|超过|≥|>=)/u.test(after);
+    if (upperBound && ['gte', 'gt', 'eq'].includes(predicate.operator)
+      || lowerBound && ['lte', 'lt', 'eq'].includes(predicate.operator)) return null;
+  }
+  return sourceValue === fact.value ? sourceValue : null;
+}
+
 export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
   if (!Number.isFinite(fact.value)) return null;
   if (predicate.field === 'organ_hematoma_diameter_cm') {
@@ -52,10 +112,14 @@ export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     const score = /(?:GCS|格拉斯哥昏迷评分)\s*(?:评分|分数)?\s*[:：=]?\s*(1[0-5]|[3-9])\s*分?/iu.exec(evidence);
     return score && Number(score[1]) === fact.value ? fact.value : null;
   }
+  if (['bone_shortening_cm', 'bone_angulation_degrees'].includes(predicate.field)) {
+    return verifiedTypedMeasurement(predicate, fact, normalize(String(fact.evidence || '')));
+  }
   const number = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
-  const unit = predicate.unit === 'cm' ? '(?:cm|厘米)'
-    : predicate.unit === 'cm2' ? '(?:cm2|平方厘米)'
-    : predicate.unit ? predicate.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
+  const unit = predicate.unit === 'cm' ? '(?:cm|厘米|mm|毫米)(?!2)'
+    : predicate.unit === 'cm2' ? '(?:cm\\s*2|平方厘米)'
+      : predicate.unit === '°' ? '(?:°|度|o)'
+        : predicate.unit ? predicate.unit.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : '';
   const evidence = normalize(String(fact.evidence || ''));
   const facialScarMeasurementCues = {
     facial_scar_width_cm: /面部/u.test(evidence) && /条状瘢痕|条状疤痕/u.test(evidence) && /宽(?:度)?/u.test(evidence),
