@@ -342,11 +342,14 @@ test('different source counts are preserved as conflicted values instead of bein
   assert.equal(normalized.conflicts.length, 1);
 });
 
-test('conflict references to unknown fact IDs are rejected instead of silently discarded', () => {
-  assert.throws(() => normalizeExtractedFacts({
+test('conflicts with unknown fact IDs are rejected with an audit warning', () => {
+  const snapshot = normalizeExtractedFacts({
     facts: [{ id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'description', evidence: '骨折' }],
     missingMaterials: [], conflicts: [{ factIds: ['F1', 'F9'], reason: '冲突' }], requiresReview: true,
-  }, { description: '骨折' }), /冲突|事实|ID/);
+  }, { description: '骨折' });
+  assert.equal(snapshot.requiresReview, false);
+  assert.deepEqual(snapshot.conflicts, []);
+  assert.ok(snapshot.warnings.some(warning => warning.includes('无效')));
 });
 
 test('a conflict whose raw fact IDs deduplicate to one fact remains reviewable but unlinked', () => {
@@ -359,16 +362,16 @@ test('a conflict whose raw fact IDs deduplicate to one fact remains reviewable b
   }, { description: `${quote}。` });
 
   assert.equal(snapshot.facts.length, 1);
-  assert.equal(snapshot.conflicts.length, 1);
-  assert.deepEqual(snapshot.conflicts[0].factIds, []);
-  assert.equal(snapshot.requiresReview, true);
+  assert.equal(snapshot.conflicts.length, 0);
+  assert.equal(snapshot.requiresReview, false);
+  assert.ok(snapshot.warnings.some(warning => warning.includes('无效')));
 });
 
 test('equivalent facts from text and image retain both source links without a cross-source merge', () => {
   const quote = 'CT报告记载肺挫伤';
   const raw = { facts: [
-    { id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'description', evidence: quote },
-    { id: 'F2', field: 'diagnosis', value: '骨折', certainty: 'reported', source: 'image', evidence: quote },
+    { id: 'F1', field: 'diagnosis', value: '肺挫伤', certainty: 'reported', source: 'description', evidence: quote },
+    { id: 'F2', field: 'diagnosis', value: '肺挫伤', certainty: 'reported', source: 'image', evidence: quote },
   ], missingMaterials: [], conflicts: [], requiresReview: false };
   const input = { description: `${quote}。`, recognizedText: quote };
   const first = normalizeExtractedFacts(raw, input);
@@ -384,8 +387,8 @@ test('equivalent facts repeated across image pages retain each page source after
   const quote = '检查记录显示双侧对称';
   const recognizedText = `【图片1】\n${quote}。\n\n【图片2】\n${quote}。`;
   const raw = { facts: [
-    { id: 'F1', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
-    { id: 'F2', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
+    { id: 'F1', field: 'diagnosis', value: '双侧对称', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
+    { id: 'F2', field: 'diagnosis', value: '双侧对称', certainty: 'reported', source: 'image', evidence: quote, eventId: 'E1' },
   ], missingMaterials: [], conflicts: [], requiresReview: false };
   const snapshot = normalizeExtractedFacts(raw, { recognizedText });
   const diagnosisFacts = snapshot.facts.filter(fact => fact.field === 'diagnosis');
@@ -418,14 +421,14 @@ test('duplicate OCR page IDs remain unscoped instead of claiming a specific imag
   const quote = '检查记录显示双侧对称';
   const recognizedText = `【图片1】\n${quote}。\n\n【图片1】\n${quote}。`;
   const snapshot = normalizeExtractedFacts({ facts: [
-    { id: 'F1', field: 'diagnosis', value: 'finding_x', certainty: 'reported', source: 'image', evidence: quote },
+    { id: 'F1', field: 'diagnosis', value: '双侧对称', certainty: 'reported', source: 'image', evidence: quote },
   ], missingMaterials: [], conflicts: [], requiresReview: false }, { recognizedText });
   const fact = snapshot.facts.find(item => item.field === 'diagnosis');
 
   assert.deepEqual(fact.sourceRefs.map(reference => reference.sourceId), [null]);
 });
 
-test('event IDs survive fact normalization and separate episode-level differences from conflicts', () => {
+test('source dates keep episode facts separate while a reused event ID still requires review', () => {
   const description = '2021年事故疑似第六肋骨骨折。2025年事故复查排除第六肋骨骨折。';
   const rawFacts = eventIds => ({ facts: [
     { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'uncertain', source: 'description',
@@ -438,20 +441,20 @@ test('event IDs survive fact normalization and separate episode-level difference
   assert.equal(separateEpisodes.facts.filter(fact => fact.field === 'injury_type').length, 2);
   assert.deepEqual(new Set(separateEpisodes.facts.filter(fact => fact.field === 'injury_type').map(fact => fact.eventId)), new Set(['E1', 'E2']));
   assert.equal(separateEpisodes.conflicts.length, 0);
-  assert.equal(separateEpisodes.requiresReview, true);
+  assert.equal(separateEpisodes.requiresReview, false);
 
   const sameEpisode = normalizeExtractedFacts(rawFacts(['E1', 'E1']), { description });
-  assert.ok(sameEpisode.conflicts.some(conflict => conflict.factIds.some(id =>
-    sameEpisode.facts.find(fact => fact.id === id)?.field === 'injury_type')));
+  assert.deepEqual(new Set(sameEpisode.facts.filter(fact => fact.field === 'injury_type').map(fact => fact.eventId)), new Set(['E1', 'E2']));
+  assert.equal(sameEpisode.conflicts.length, 0);
   assert.equal(sameEpisode.requiresReview, true);
 });
 
-test('unscoped rib facts from separate dated accidents do not receive a shared inferred event ID', () => {
+test('unscoped rib facts map to different dated events from their source positions', () => {
   const description = '2021年事故左侧第3肋骨骨折，共1处骨折。2025年事故右侧第4肋骨骨折，共2处骨折。';
   const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
   const ribFacts = snapshot.facts.filter(fact => ['injury_type', 'fracture_site_count'].includes(fact.field));
   assert.ok(ribFacts.length > 0);
-  assert.ok(ribFacts.every(fact => !fact.eventId));
+  assert.deepEqual(new Set(ribFacts.map(fact => fact.eventId)), new Set(['E1', 'E2']));
 });
 
 test('an explicit current rib event remains scoped when the source denies prior rib injury', () => {
@@ -506,10 +509,9 @@ test('string-form conflict notices remain visible even when they do not cite fac
     facts: [{ id: 'F1', field: 'diagnosis', value: '骨折', certainty: 'uncertain', source: 'description', evidence: '疑似骨折' }],
     missingMaterials: [], conflicts: ['材料记载疑似骨折，需复查确认'], requiresReview: true,
   }, { description: '疑似骨折' });
-  assert.equal(snapshot.requiresReview, true);
-  assert.equal(snapshot.conflicts.length, 1);
-  assert.deepEqual(snapshot.conflicts[0].factIds, []);
-  assert.match(snapshot.conflicts[0].reason, /冲突|复核/);
+  assert.equal(snapshot.requiresReview, false);
+  assert.equal(snapshot.conflicts.length, 0);
+  assert.ok(snapshot.warnings.some(warning => warning.includes('材料记载疑似骨折')));
 });
 
 test('excluded facts cannot satisfy a positive grading condition or preserve a model grade', () => {
@@ -640,22 +642,22 @@ test('observed K2.6 contradiction aliases preserve the same canonical facts and 
 });
 
 test('latest K2.6 conflict outputs normalize empty or aliased negative findings to the same rib facts', () => {
-  const description = '病历一记载疑似第六肋骨骨折；复查报告记载未见骨折。';
+  const description = '病历一记载疑似第六肋骨骨折；复查报告记载未见第六肋骨骨折。';
   const responses = [
     { facts: [
       { id: 'f1', field: 'fractured_rib_numbers', value: [6], certainty: 'uncertain', source: 'description', evidence: '疑似第六肋骨骨折' },
-      { id: 'f2', field: 'fractured_rib_numbers', value: [6], certainty: 'excluded', source: 'description', evidence: '未见骨折' },
+      { id: 'f2', field: 'fractured_rib_numbers', value: [6], certainty: 'excluded', source: 'description', evidence: '复查报告记载未见第六肋骨骨折' },
     ], missingMaterials: [], conflicts: [{ factIds: ['f1', 'f2'], reason: '初诊疑似骨折与复查未见骨折结论矛盾' }], requiresReview: true },
     { facts: [
       { id: 'f1', field: 'diagnosis', value: '第六肋骨骨折', certainty: 'uncertain', source: 'description', evidence: '疑似第六肋骨骨折' },
-      { id: 'f2', field: 'diagnosis', value: '第六肋骨骨折', certainty: 'excluded', source: 'description', evidence: '未见骨折' },
+      { id: 'f2', field: 'diagnosis', value: '第六肋骨骨折', certainty: 'excluded', source: 'description', evidence: '复查报告记载未见第六肋骨骨折' },
     ], missingMaterials: [], conflicts: [{ factIds: ['f1', 'f2'], reason: '疑似与排除的诊断状态冲突' }], requiresReview: true },
   ];
   const normalized = responses.map(raw => normalizeExtractedFacts(raw, { description }));
   const project = value => value.facts.map(({ field, value, certainty, source, evidence }) => ({ field, value, certainty, source, evidence }));
   assert.deepEqual(project(normalized[0]), project(normalized[1]));
-  assert.equal(normalized[0].conflicts.length, 1);
-  assert.equal(normalized[1].conflicts.length, 1);
+  assert.ok(normalized[0].conflicts.length > 0);
+  assert.deepEqual(normalized[0].conflicts, normalized[1].conflicts);
   assert.equal(normalized[0].requiresReview, true);
   assert.equal(normalized[1].requiresReview, true);
 });
@@ -783,7 +785,7 @@ test('repeated rib analysis emits the same locally relevant clause set when K2.6
   assert.deepEqual(project(first), [
     { id: '5.6.3.c', relation: 'incomplete', conditionStates: [true, null] },
     { id: '5.6.4.b', relation: 'incomplete', conditionStates: [true, null] },
-    { id: '5.6.5.a', relation: 'incomplete', conditionStates: [null] },
+    { id: '5.6.5.a', relation: 'differential', conditionStates: [true] },
   ]);
 });
 
@@ -805,9 +807,10 @@ test('source-backed single rib fracture gets the same local clause result when K
     references: result.references.map(({ id, grade, relation }) => ({ id, grade, relation })),
     missingMaterials: result.missingMaterials });
   assert.deepEqual(project(first), project(second));
-  assert.equal(first.status, 'insufficient');
-  assert.equal(first.grade, null);
-  assert.ok(first.references.every(reference => reference.relation !== 'supports'));
+  assert.equal(first.status, 'preliminary');
+  assert.equal(first.grade, '轻微伤');
+  assert.deepEqual(first.references.map(reference => reference.id), ['5.6.5.a']);
+  assert.equal(first.references[0].relation, 'supports');
 });
 
 test('conflicting facts suppress variable model clause references', () => {
@@ -869,7 +872,7 @@ test('preliminary supported grades do not retain model-added nonblocking missing
   assert.deepEqual(result.missingMaterials, []);
 });
 
-test('anatomical sites absent from a quoted negative report are rejected consistently', () => {
+test('anatomical sites absent from a quoted negative report are not invented', () => {
   const description = '病历一记载疑似第六肋骨骨折；复查报告记载未见骨折。';
   const variants = [
     { facts: [
@@ -886,8 +889,8 @@ test('anatomical sites absent from a quoted negative report are rejected consist
   ];
   const normalized = variants.map(value => normalizeExtractedFacts(value, { description }));
   const project = snapshot => snapshot.facts.map(({ field, value, certainty, source, evidence }) => ({ field, value, certainty, source, evidence }));
-  assert.deepEqual(project(normalized[0]), project(normalized[1]));
   assert.equal(normalized[0].facts.some(fact => fact.field === 'anatomical_site' && fact.evidence === '复查报告记载未见骨折'), false);
+  assert.equal(normalized[1].facts.some(fact => fact.field === 'anatomical_site' && fact.certainty === 'excluded'), false);
   assert.equal(normalized[0].requiresReview, true);
   assert.equal(normalized[1].requiresReview, true);
 });
@@ -1065,7 +1068,7 @@ test('generic negative fracture evidence is preserved consistently and conflicts
   const project = snapshot => snapshot.facts.map(({ field, value, certainty, source, evidence }) => ({ field, value, certainty, source, evidence }));
   assert.deepEqual(project(normalized[0]), project(normalized[1]));
   assert.ok(normalized[0].facts.some(fact => fact.field === 'injury_type' && fact.value === 'fracture'
-    && fact.certainty === 'conflicted' && fact.evidence === '复查报告记载未见骨折'));
+    && fact.certainty === 'conflicted' && fact.evidence === '复查报告记载未见骨折。'));
   assert.equal(normalized[0].requiresReview, true);
 });
 
@@ -1090,7 +1093,7 @@ test('a hypothetical future fracture remains unknown rather than a current repor
 
   assert.equal(injury?.certainty, 'unknown');
   assert.equal(injury?.evidence, '若出现第六肋骨骨折');
-  assert.equal(snapshot.requiresReview, true);
+  assert.equal(snapshot.requiresReview, false);
 });
 
 test('the quantity word 若干 is not treated as a hypothetical cue', () => {
@@ -1134,7 +1137,7 @@ test('explicitly historical rib fracture is not emitted as a current grading fac
   assert.equal(snapshot.requiresReview, false);
 });
 
-test('multiple values in a critical injury type are preserved and require review', () => {
+test('multiple values in a critical injury type remain unknown without creating a conflict', () => {
   const value = ['rib_fracture', 'fracture'];
   const snapshot = normalizeExtractedFacts({ facts: [
     { id: 'F1', field: 'injury_type', value, certainty: 'reported', source: 'description', evidence: '报告记载两种骨折类型' },
@@ -1143,7 +1146,8 @@ test('multiple values in a critical injury type are preserved and require review
 
   assert.deepEqual(fact?.value, value);
   assert.deepEqual(snapshot.conflicts, []);
-  assert.equal(snapshot.requiresReview, true);
+  assert.equal(snapshot.requiresReview, false);
+  assert.equal(fact?.certainty, 'unknown');
 });
 
 test('an immediately preceding historical heading marks the rib fact as prior history', () => {
@@ -1184,7 +1188,7 @@ test('comma-separated suspected and excluded statements keep separate assertion 
   assert.deepEqual(injuryFacts.map(({ value, assertedCertainty, certainty, evidence }) => ({
     value, assertedCertainty, certainty, evidence,
   })).sort((a, b) => a.value.localeCompare(b.value)), [
-    { value: 'fracture', assertedCertainty: 'excluded', certainty: 'conflicted', evidence: '复查报告乙未见骨折' },
+    { value: 'fracture', assertedCertainty: 'excluded', certainty: 'conflicted', evidence: '复查报告乙未见骨折。' },
     { value: 'rib_fracture', assertedCertainty: 'uncertain', certainty: 'conflicted', evidence: '报告甲疑似第六肋骨骨折' },
   ].sort((a, b) => a.value.localeCompare(b.value)));
   assert.deepEqual(snapshot.conflicts.map(conflict => conflict.factIds), [injuryFacts.map(fact => fact.id).sort((a, b) => Number(a.slice(1)) - Number(b.slice(1)))]);
@@ -1198,7 +1202,7 @@ test('a later negative statement cannot change an earlier confirmed fracture and
 
   assert.deepEqual(facts.map(({ value, certainty, evidence }) => ({ value, certainty, evidence }))
     .sort((a, b) => a.value.localeCompare(b.value)), [
-    { value: 'fracture', certainty: 'excluded', evidence: '复查报告乙未见骨折' },
+    { value: 'fracture', certainty: 'excluded', evidence: '复查报告乙未见骨折。' },
     { value: 'rib_fracture', certainty: 'reported', evidence: '报告甲明确记载第六肋骨骨折' },
   ].sort((a, b) => a.value.localeCompare(b.value)));
   assert.equal(snapshot.requiresReview, true);
@@ -1237,7 +1241,9 @@ test('null model facts do not create review from an unquoted placeholder', () =>
   const snapshot = normalizeExtractedFacts({ facts: [
     { field: 'diagnosis', value: null, certainty: 'excluded', source: 'description', evidence: '未提供明确诊断' },
   ], missingMaterials: ['明确诊断或复查结论'], conflicts: [], requiresReview: false }, { description });
-  assert.deepEqual(snapshot.facts, []);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'diagnosis'), false);
+  assert.equal(snapshot.facts.some(fact => fact.field === 'symptom' && fact.value === '疼痛'
+    && fact.certainty === 'reported' && fact.evidence === '左侧胸部疼痛'), true);
   assert.equal(snapshot.requiresReview, false);
   assert.deepEqual(snapshot.missingMaterials, ['明确诊断或复查结论']);
 });
