@@ -4398,6 +4398,18 @@
             },
             {
               "op": "condition",
+              "sourceText": "耳廓离断、缺损或者挛缩畸形累计相当于一侧耳廓面积50%以上",
+              "conditionText": "耳廓缺损占对侧耳廓面积50%以上",
+              "predicate": {
+                "field": "auricle_defect_ratio",
+                "operator": "gte",
+                "unit": "比例",
+                "value": 0.5,
+                "evidenceGroups": [["耳廓缺损面积"], ["耳面积"]]
+              }
+            },
+            {
+              "op": "condition",
               "sourceText": "挛缩畸形",
               "conditionText": "耳廓挛缩畸形累计相当于一侧耳廓面积50%以上",
               "factMatch": {
@@ -4518,6 +4530,18 @@
                 "values": [
                   "耳廓缺损累计相当于一侧耳廓面积30%以上"
                 ]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "耳廓离断、缺损或者挛缩畸形累计相当于一侧耳廓面积30%以上",
+              "conditionText": "耳廓缺损占对侧耳廓面积30%以上",
+              "predicate": {
+                "field": "auricle_defect_ratio",
+                "operator": "gte",
+                "unit": "比例",
+                "value": 0.3,
+                "evidenceGroups": [["耳廓缺损面积"], ["耳面积"]]
               }
             },
             {
@@ -23759,15 +23783,32 @@
       "5.9.2.17": {
         "annotation": "explicit",
         "logic": {
-          "op": "condition",
+          "op": "any",
           "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓",
           "conditionText": "耳廓缺损或者畸形，累计相当于一侧耳廓",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "耳廓缺损或者畸形，累计相当于一侧耳廓"
-            ]
-          }
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓",
+              "conditionText": "耳廓缺损或者畸形，累计相当于一侧耳廓",
+              "factMatch": {
+                "field": "clinical_finding",
+                "values": ["耳廓缺损或者畸形，累计相当于一侧耳廓"]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓",
+              "conditionText": "耳廓缺损达到对侧耳廓面积100%",
+              "predicate": {
+                "field": "auricle_defect_ratio",
+                "operator": "gte",
+                "unit": "比例",
+                "value": 1,
+                "evidenceGroups": [["耳廓缺损面积"], ["耳面积"]]
+              }
+            }
+          ]
         }
       },
       "5.9.2.19": {
@@ -25014,15 +25055,32 @@
       "5.10.2.21": {
         "annotation": "explicit",
         "logic": {
-          "op": "condition",
+          "op": "any",
           "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓的30%",
           "conditionText": "耳廓缺损或者畸形，累计相当于一侧耳廓的30%",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "耳廓缺损或者畸形，累计相当于一侧耳廓的30%"
-            ]
-          }
+          "children": [
+            {
+              "op": "condition",
+              "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓的30%",
+              "conditionText": "耳廓缺损或者畸形，累计相当于一侧耳廓的30%",
+              "factMatch": {
+                "field": "clinical_finding",
+                "values": ["耳廓缺损或者畸形，累计相当于一侧耳廓的30%"]
+              }
+            },
+            {
+              "op": "condition",
+              "sourceText": "耳廓缺损或者畸形，累计相当于一侧耳廓的30%",
+              "conditionText": "耳廓缺损占对侧耳廓面积30%以上",
+              "predicate": {
+                "field": "auricle_defect_ratio",
+                "operator": "gte",
+                "unit": "比例",
+                "value": 0.3,
+                "evidenceGroups": [["耳廓缺损面积"], ["耳面积"]]
+              }
+            }
+          ]
         }
       },
       "5.10.2.22": {

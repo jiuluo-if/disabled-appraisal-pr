@@ -542,10 +542,12 @@ function predicateEvidenceValue(predicate, fact, facts = []) {
     return Number.isFinite(ratio) && Math.abs(ratio - fact.value) < 1e-9 ? ratio : null;
   }
   if (predicate.field === 'auricle_defect_ratio' && fact.certainty === 'derived' && fact.source === 'description') {
-    const match = fact.evidence.match(/(左|右)耳廓缺损面积\s*(\d+(?:\.\d+)?)\s*(?:cm2|平方厘米)[，,;；]\s*(?:(对侧)|(左|右))耳面积\s*(\d+(?:\.\d+)?)\s*(?:cm2|平方厘米)/u);
+    const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+    const match = fact.evidence.match(new RegExp(`(左|右)耳廓缺损面积\\s*${amount}\\s*(?:cm2|平方厘米)[，,;；]\\s*(?:(对侧)|(左|右))耳面积\\s*${amount}\\s*(?:cm2|平方厘米)`, 'u'));
     if (!match || match[4] && match[4] === (match[1] === '左' ? '左' : '右')) return null;
-    const defectArea = Number(match[2]);
-    const referenceArea = Number(match[5]);
+    const measuredNumber = value => /^[\d.]+$/u.test(value) ? Number(value) : parseNumber(value);
+    const defectArea = measuredNumber(match[2]);
+    const referenceArea = measuredNumber(match[5]);
     if (!Number.isFinite(defectArea) || !Number.isFinite(referenceArea) || defectArea < 0 || referenceArea <= 0) return null;
     const ratio = defectArea / referenceArea;
     return Number.isFinite(ratio) && Math.abs(ratio - fact.value) < 1e-9 ? ratio : null;

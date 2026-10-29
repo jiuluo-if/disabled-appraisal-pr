@@ -1909,6 +1909,45 @@ test('carotid thrombosis and stenosis conditions must bind the same artery and s
   assert.ok(common[0].sourceText.includes('颈总动脉'));
 });
 
+test('auricle defect ratio facts bind every matching threshold clause at the inclusive boundary', () => {
+  const assess = (id, description) => {
+    const facts = normalizeExtractedFacts(emptyExtraction, { description }).facts
+      .map(fact => ({ ...fact, verification: 'quoted' }));
+    const type = catalogs.injury.clauses.some(item => item.id === id) ? 'injury' : 'disability';
+    return { facts, state: evaluateConditionLogic(catalogs[type].clauses.find(item => item.id === id).conditionLogic, facts).met,
+      candidates: retrieveClauses(type, '', 0, facts).map(item => item.id) };
+  };
+  const at30 = '2026年1月2日发生交通事故，造成左耳廓缺损面积3平方厘米，右耳面积10平方厘米。';
+  const chineseNumerals = '2026年1月2日发生交通事故，造成左耳廓缺损面积三平方厘米，右耳面积十平方厘米。';
+  const below30 = '2026年1月2日发生交通事故，造成左耳廓缺损面积2.9平方厘米，右耳面积10平方厘米。';
+  const at50 = '2026年1月2日发生交通事故，造成左耳廓缺损面积5平方厘米，右耳面积10平方厘米。';
+  const at100 = '2026年1月2日发生交通事故，造成左耳廓缺损面积十平方厘米，右耳面积十平方厘米。';
+  const sameSideReference = '2026年1月2日发生交通事故，造成左耳廓缺损面积3平方厘米，左耳面积10平方厘米。';
+
+  const thirty = assess('5.2.3.j', at30);
+  assert.equal(thirty.state, true);
+  assert.ok(thirty.candidates.includes('5.2.3.j'));
+  assert.equal(assess('5.2.4.m', at30).state, true);
+  const disabilityThirty = assess('5.10.2.21', at30);
+  assert.equal(disabilityThirty.state, true);
+  assert.ok(disabilityThirty.candidates.includes('5.10.2.21'));
+  const disabilityResult = normalizeResult({ ...providerFixture('disability'), status: 'insufficient', grade: null,
+    facts: [], references: [] }, { ...inputs.disability, description: at30 }, {
+    clauses: retrieveClauses('disability', at30, 0, disabilityThirty.facts), requestId: 'synthetic-auricle-ratio-boundary',
+    model: 'test-model', extractedFacts: disabilityThirty.facts, conflicts: [], requiresReview: false,
+    factMissingMaterials: [] });
+  assert.equal(disabilityResult.grade, '十级伤残');
+  assert.ok(disabilityResult.references.some(reference => reference.id === '5.10.2.21'
+    && reference.relation === 'supports'));
+  assert.equal(assess('5.2.3.j', chineseNumerals).state, true);
+  assert.equal(assess('5.2.2.k', at50).state, true);
+  const disabilityFullSide = assess('5.9.2.17', at100);
+  assert.equal(disabilityFullSide.state, true);
+  assert.ok(disabilityFullSide.candidates.includes('5.9.2.17'));
+  assert.notEqual(assess('5.2.3.j', below30).state, true);
+  assert.notEqual(assess('5.10.2.21', sameSideReference).state, true);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',
