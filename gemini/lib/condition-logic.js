@@ -1,6 +1,7 @@
 import { conditionFactFields } from './condition-fields.js';
 import { normalizeForMatching } from './text-normalization.js';
 import { reliableCertainties } from './fact-certainty.js';
+import { explicitInjuryEventDateKeys, normalizeInjuryDateValue } from './facts.js';
 
 export function uniqueEvidenceText(values) {
   const seen = new Set();
@@ -48,6 +49,15 @@ export function factDateKeys(fact) {
     });
 }
 
+function explicitInjuryDateKeys(fact) {
+  const dates = new Set(explicitInjuryEventDateKeys(fact.evidence || ''));
+  if (fact.field === 'injury_date') {
+    const value = normalizeInjuryDateValue(fact.value);
+    if (typeof value === 'string' && /^(?:19|20)\d{2}-\d{2}-\d{2}$/u.test(value)) dates.add(value);
+  }
+  return [...dates];
+}
+
 export function evaluateConditionTree(conditionLogic, facts, evaluateLeaf, { reconcileGroup, collectDetails } = {}) {
   if (conditionLogic?.annotation !== 'explicit' || !conditionLogic.logic || !Array.isArray(facts)
     || typeof evaluateLeaf !== 'function') return { met: null, evidence: '', factIds: [] };
@@ -87,7 +97,7 @@ export function evaluateConditionTree(conditionLogic, facts, evaluateLeaf, { rec
   for (const fact of unscopedFacts.filter(hasQuotedSource)) {
     const owners = new Set();
     let ambiguousDate = false;
-    for (const date of factDateKeys(fact)) {
+    for (const date of explicitInjuryDateKeys(fact)) {
       const matchingEvents = eventIdsByDate.get(date);
       if (!matchingEvents) continue;
       if (matchingEvents.size !== 1) ambiguousDate = true;

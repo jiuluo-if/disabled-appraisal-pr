@@ -3708,6 +3708,14 @@ function parseEventDateAnchors(text) {
   });
 }
 
+export function explicitInjuryEventDateKeys(text) {
+  return parseEventDateAnchors(text).filter(anchor => !anchor.key.includes('*'))
+    .map(anchor => {
+      const [year, month, day] = anchor.key.split('-').map(Number);
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    });
+}
+
 function eventDateAnchorsConflict(anchors) {
   for (let left = 0; left < anchors.length; left += 1) {
     for (let right = left + 1; right < anchors.length; right += 1) {
@@ -4058,7 +4066,7 @@ function physicalExamEvidenceContext(sourceText, evidence) {
   return text.slice(markerStart, sourceEnd);
 }
 
-function normalizeInjuryDateValue(value) {
+export function normalizeInjuryDateValue(value) {
   if (typeof value === 'string') {
     const chineseDate = value.trim().match(/^((?:19|20)\d{2})年(\d{1,2})月(\d{1,2})日$/u);
     if (chineseDate) return `${chineseDate[1]}-${chineseDate[2].padStart(2, '0')}-${chineseDate[3].padStart(2, '0')}`;

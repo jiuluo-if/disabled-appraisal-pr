@@ -63,3 +63,20 @@ test('all conditions cannot borrow positive facts from separate injury events', 
   assert.equal(evaluateConditionTree(logic, facts, evaluateLeaf).met, null);
   assert.equal(evaluateConditionTree(logic, facts.map(fact => ({ ...fact, eventId: 'E1' })), evaluateLeaf).met, true);
 });
+
+test('a clinical report date alone cannot link an unscoped fact to an injury event', () => {
+  const logic = { annotation: 'explicit', logic: { op: 'all', children: [condition('a'), condition('b')] } };
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'a', value: true, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '2025年5月12日交通事故后甲部损伤' },
+    { id: 'F2', eventId: null, field: 'b', value: true, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: '2025年5月12日CT报告记载乙部损伤' },
+  ];
+  const evaluateLeaf = (node, scopedFacts) => {
+    const fact = scopedFacts.find(item => item.field === node.factMatch.field);
+    return fact ? { met: fact.value, evidence: fact.evidence, factIds: [fact.id] }
+      : { met: null, evidence: '', factIds: [] };
+  };
+
+  assert.equal(evaluateConditionTree(logic, facts, evaluateLeaf).met, null);
+});
