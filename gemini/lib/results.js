@@ -7,9 +7,10 @@ import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, 
   sourceReferenceMatches, hasSameEyeInjuryContext } from './facts.js';
 
 export const gradeOrder = {
-  injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
-  disability: ['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残'],
+  injury: Object.freeze(['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤']),
+  disability: Object.freeze(['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残']),
 };
+Object.freeze(gradeOrder);
 const grades = gradeOrder;
 
 export function deduplicateClauseReferences(references) {
