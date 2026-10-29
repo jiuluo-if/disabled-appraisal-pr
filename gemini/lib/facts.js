@@ -4,7 +4,7 @@ import { BLUNT_OBJECT_BODY_IMPACT_CUE, currentEventAnchorBefore, CURRENT_EVENT_S
   hasNonCurrentClinicalContext, historicalSectionHeading, HEAD_IMPACT_EVENT_CUE_SOURCE, normalizeInjuryDateValue,
   parseEventDateAnchors, startsWithNonInjuryDateContext } from './event-date-logic.js';
 
-const FACT_SCHEMA_VERSION = '1.1';
+const FACT_SCHEMA_VERSION = '1.2';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_FACT_EVIDENCE_CHARS = 1000;
 const MAX_FACT_SNAPSHOT_JSON_CHARS = 250_000;
@@ -2927,27 +2927,47 @@ function normalizeFacialSkinAbnormalityAreaFacts(inputText) {
   const findings = [];
   const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
   const areaPattern = new RegExp(`(?:面积|累计面积)[^。；;\\n]{0,12}?(${amount})\\s*(?:cm2|平方厘米)`, 'gu');
+  const percentPattern = new RegExp(`(?:累计)?(?:达|达到|占)(?:面部|脸部)面积(?:的)?\\s*(?:${amount}\\s*(?:%|％)|百分之${amount})`, 'gu');
   for (const clauseMatch of text.matchAll(/[^。；;]+/gu)) {
     const clause = clauseMatch[0];
     const faceIndex = clause.search(/面部|脸部|面颊|颊部|颊/u);
-    const finding = /色素异常|色素沉着|片状细小瘢痕|细小瘢痕/u.exec(clause);
+    const findingMatches = [...clause.matchAll(/色素显著异常|色素异常|色素沉着|片状细小瘢痕|细小瘢痕/gu)];
+    const finding = findingMatches[0];
     if (faceIndex < 0 || !finding || Math.abs(finding.index - faceIndex) > 80) continue;
-    areaPattern.lastIndex = 0;
-    const area = areaPattern.exec(clause);
-    if (!area || area.index < finding.index || area.index - finding.index > 100) continue;
-    const bridge = clause.slice(finding.index + finding[0].length, area.index);
-    if (/(?:胸部|背部|肩部|上臂|前臂|腕部|手部|大腿|小腿|臀部|髂部|枕部)/u.test(bridge)) continue;
-    const token = area[1];
-    const value = /^\d+(?:\.\d+)?$/.test(token) ? Number(token) : parseNumber(token);
-    if (!Number.isFinite(value)) continue;
     const dateAnchors = [...clause.matchAll(/(?:19|20)\d{2}年\d{1,2}月\d{1,2}日/gu)]
       .filter(match => match.index < faceIndex);
     const evidenceStart = dateAnchors.at(-1)?.index ?? Math.max(0, faceIndex - 8);
-    const evidenceEnd = area.index + area[0].length;
-    const evidence = clause.slice(evidenceStart, evidenceEnd).trim();
-    const certainty = certaintyFor(clause, evidenceStart, evidenceEnd);
-    findings.push({ field: 'facial_skin_abnormality_area_cm2', value, certainty, source_type: 'user_text',
-      source_excerpt: evidence, parserKey: `${clauseMatch.index + area.index}:${area[0]}` });
+    areaPattern.lastIndex = 0;
+    const area = areaPattern.exec(clause);
+    if (area && area.index >= finding.index && area.index - finding.index <= 100) {
+      const bridge = clause.slice(finding.index + finding[0].length, area.index);
+      const token = area[1];
+      const value = /^\d+(?:\.\d+)?$/.test(token) ? Number(token) : parseNumber(token);
+      if (Number.isFinite(value)
+        && !/(?:胸部|背部|肩部|上臂|前臂|腕部|手部|大腿|小腿|臀部|髂部|枕部)/u.test(bridge)) {
+        const evidenceEnd = area.index + area[0].length;
+        const evidence = clause.slice(evidenceStart, evidenceEnd).trim();
+        const certainty = certaintyFor(clause, evidenceStart, evidenceEnd);
+        findings.push({ field: 'facial_skin_abnormality_area_cm2', value, certainty, source_type: 'user_text',
+          source_excerpt: evidence, parserKey: `${clauseMatch.index + area.index}:${area[0]}` });
+      }
+    }
+    percentPattern.lastIndex = 0;
+    const percentMatches = [...clause.matchAll(percentPattern)];
+    if (percentMatches.length !== 1 || findingMatches.length !== 1) continue;
+    for (const percent of percentMatches) {
+      const token = percent[1] || percent[2];
+      const value = /^\d/u.test(token) ? Number(token) : parseNumber(token);
+      const bridge = clause.slice(finding.index + finding[0].length, percent.index);
+      if (!Number.isFinite(value) || value < 0 || value > 100
+        || percent.index < finding.index || percent.index - finding.index > 100
+        || /(?:胸部|背部|肩部|上臂|前臂|腕部|手部|大腿|小腿|臀部|髂部|枕部)/u.test(bridge)) continue;
+      const evidenceEnd = percent.index + percent[0].length;
+      const evidence = clause.slice(evidenceStart, evidenceEnd).trim();
+      const certainty = certaintyFor(clause, evidenceStart, evidenceEnd);
+      findings.push({ field: 'facial_skin_abnormality_area_percent', value, certainty, source_type: 'user_text',
+        source_excerpt: evidence, parserKey: `${clauseMatch.index + percent.index}:${percent[0]}` });
+    }
   }
   return [...new Map(findings.map(fact => [fact.parserKey, fact])).values()]
     .filter(fact => !isInternalOrganTearMeasurement(fact.source_excerpt));
@@ -2994,6 +3014,16 @@ function evidenceHasMeasurement(evidence, value, pattern) {
   if (!Number.isFinite(value)) return false;
   for (const match of evidence.matchAll(pattern)) {
     const sourceValue = /^\d+(?:\.\d+)?$/.test(match[1]) ? Number(match[1]) : parseNumber(match[1]);
+    if (Number.isFinite(sourceValue) && sourceValue === value) return true;
+  }
+  return false;
+}
+
+function evidenceHasPercentageMeasurement(evidence, value) {
+  const pattern = /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:%|％)|百分之(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)/gu;
+  for (const match of evidence.matchAll(pattern)) {
+    const token = match[1] || match[2];
+    const sourceValue = /^\d+(?:\.\d+)?$/u.test(token) ? Number(token) : parseNumber(token);
     if (Number.isFinite(sourceValue) && sourceValue === value) return true;
   }
   return false;
@@ -3884,6 +3914,7 @@ function factFinding(field, value, certainty) {
     ear_scalp_wound_ratio: '同一耳廓/头皮创口系数和',
     auricle_defect_ratio: '耳廓缺损面积占对侧耳面积比例',
     facial_skin_abnormality_area_cm2: '面部色素异常/沉着或细小瘢痕面积（平方厘米）',
+    facial_skin_abnormality_area_percent: '面部瘢痕或色素异常占面部面积比例（百分比）',
   };
   const displayValue = Array.isArray(value) ? value.join('、') : (typeof value === 'object' ? JSON.stringify(value) : String(value ?? ''));
   const qualifier = certainty === 'uncertain' ? '（疑似/待核实）' : certainty === 'excluded' ? '（已排除）' : certainty === 'conflicted' ? '（存在冲突）' : '';
@@ -4478,6 +4509,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field === 'orbital_wall_enophthalmos'
         || fact.field === 'orbital_enophthalmos_cm'
         || fact.field === 'limb_length_difference_cm'
+        || fact.field === 'facial_skin_abnormality_area_percent'
         || fact.field === 'aggregate_wound_length_cm'
         || fact.field === 'dental_loss_count'
         || fact.field === 'cross_region_wound_ratio'
@@ -4486,6 +4518,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
         || fact.field === 'lip_wound_length_cm'
         || fact.field === 'lip_through_wound_length_cm'
         || fact.field === 'facial_skin_abnormality_area_cm2'
+        || fact.field === 'facial_skin_abnormality_area_percent'
         || fact.field === 'surface_scar_area_cm2'
         || fact.field === 'aggregate_surface_scar_area_cm2'
         || fact.field.startsWith('scalp_')
@@ -4512,6 +4545,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       && !fact.field.startsWith('skin_')
       && !['wound_length_cm', 'aggregate_wound_length_cm'].includes(fact.field)
       && !['surface_scar_area_cm2', 'aggregate_surface_scar_area_cm2'].includes(fact.field)
+      && fact.field !== 'facial_skin_abnormality_area_percent'
       || fact.source !== 'description' || fact.eventId) return null;
     const contextFor = text => fact.field.startsWith('burn_area_') || fact.field.startsWith('scalp_')
       || fact.field.startsWith('skin_')
@@ -4563,6 +4597,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       || fact.field === 'lip_wound_length_cm'
       || fact.field === 'lip_through_wound_length_cm'
       || fact.field === 'facial_skin_abnormality_area_cm2'
+      || fact.field === 'facial_skin_abnormality_area_percent'
       || fact.field === 'prior_injury' && fact.evidence.includes('\n')
       ? fact.evidence
       : sourceClause(sourceTexts[fact.source], fact.evidence) || fact.evidence;
@@ -4594,7 +4629,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
     let field = canonicalField(sourceFact.field);
     let value = stableJson(sourceFact.value);
     if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
-      'treatment', 'anatomical_site', 'laterality', 'injury_cause'].includes(field)
+      'treatment', 'anatomical_site', 'laterality', 'injury_cause', 'facial_skin_abnormality_area_percent'].includes(field)
       || field.startsWith('burn_tbsa_')
       || field === 'surface_scar_area_cm2' || field === 'aggregate_surface_scar_area_cm2') {
       if (factIsOutsideAssessmentScope(sourceTexts[source], providedEvidence, String(value ?? ''))) continue;
@@ -4704,6 +4739,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       || !/(?:面部|脸部|面颊)/u.test(fullEvidence) || !/(?:色素异常|色素沉着|片状细小瘢痕|细小瘢痕)/u.test(fullEvidence)
       || !/(?:面积|累计面积)/u.test(fullEvidence)
       || !evidenceHasMeasurement(fullEvidence, value, /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:cm2|平方厘米)/gu))) {
+      invalidEvidence = true;
+      continue;
+    }
+    if (field === 'facial_skin_abnormality_area_percent' && (!deterministicFacts.some(fact => fact.source === source
+      && fact.field === field && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)))
+      || typeof value !== 'number' || value < 0 || value > 100
+      || !/(?:面部|脸部|面颊)/u.test(fullEvidence)
+      || !/(?:色素显著异常|色素异常|色素沉着|片状细小瘢痕|细小瘢痕)/u.test(fullEvidence)
+      || !/(?:面部|脸部)面积/u.test(fullEvidence)
+      || !evidenceHasPercentageMeasurement(fullEvidence, value))) {
       invalidEvidence = true;
       continue;
     }

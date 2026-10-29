@@ -67,6 +67,18 @@ export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 && sourceValue <= 100
       ? sourceValue : null;
   }
+  if (predicate.field === 'facial_skin_abnormality_area_percent') {
+    const percentPattern = /(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(?:%|％)|百分之(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)/gu;
+    const measurements = [...evidence.matchAll(percentPattern)];
+    if (measurements.length !== 1 || !/(?:面部|脸部|面颊)/u.test(evidence)
+      || !/(?:面部|脸部)面积/u.test(evidence)
+      || !/(?:色素显著异常|色素异常|色素沉着|片状细小瘢痕|细小瘢痕)/u.test(evidence)
+      || /(?:未达|低于|小于|不足|不超过|少于|超过|大于|约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除)/u.test(evidence)) return null;
+    const token = measurements[0][1] || measurements[0][2];
+    const sourceValue = /^\d+(?:\.\d+)?$/u.test(token) ? Number(token) : parseNumber(token);
+    return Number.isFinite(sourceValue) && sourceValue === fact.value && sourceValue >= 0 && sourceValue <= 100
+      ? sourceValue : null;
+  }
   if (typeof predicate.field === 'string' && predicate.field.startsWith('burn_tbsa_')) {
     const measurements = [...evidence.matchAll(new RegExp(`${number}\\s*(?:%|％)`, 'gu'))];
     const degrees = [...evidence.matchAll(/(深\s*)?(III|Ⅲ|三|II|Ⅱ|二)\s*(?:度|o|°)(?:以上|及以上)?/giu)];

@@ -1599,17 +1599,20 @@ function ageAdjustmentFollowUp(logic, facts) {
     let needsAgeReview = observed.met === true;
     let disabilityChildAgeRecorded = false;
     if (node.ageAdjustment === 'disability_standard_6_11'
-      && node.predicate?.field === 'facial_skin_abnormality_area_cm2') {
+      && ['facial_skin_abnormality_area_cm2', 'facial_skin_abnormality_area_percent'].includes(node.predicate?.field)) {
+      const measurementPattern = node.predicate.field === 'facial_skin_abnormality_area_percent'
+        ? /(?:\d+(?:\.\d+)?\s*(?:%|％)|百分之(?:\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+))/u
+        : /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米)/iu;
       const quotedAreaConclusions = facts.filter(fact => fact.field === 'clinical_finding'
         && fact.source === 'description' && fact.verification === 'quoted' && reliableCertainties.has(fact.certainty)
         && node.predicate.evidenceGroups?.every(group => group.some(alias => includesEvidence(fact.evidence, alias)))
-        && /\d+(?:\.\d+)?\s*(?:cm2|cm²|平方厘米)/iu.test(fact.evidence));
+        && measurementPattern.test(fact.evidence));
       const hasMeasuredArea = quotedAreaConclusions.some(conclusion => Boolean(conclusion.eventId)
         && facts.some(fact => fact.field === node.predicate.field && fact.eventId === conclusion.eventId
           && fact.source === 'description' && fact.verification === 'quoted' && reliableCertainties.has(fact.certainty)
           && node.predicate.evidenceGroups?.every(group => group.some(alias => includesEvidence(fact.evidence, alias)))));
       if (quotedAreaConclusions.length && !hasMeasuredArea) {
-        return '原文只有面部色素异常面积结论，需核对原始面积测量记录，并按伤残分级标准6.11人工核对适用年龄范围；该结论短语不作为数值条件依据。';
+        return '原文只有面部瘢痕或色素异常的面积结论，需核对原始面积/比例测量记录，并按伤残分级标准6.11人工核对适用年龄范围；该结论短语不作为数值条件依据。';
       }
     }
     if (node.ageAdjustment === 'disability_standard_6_11'

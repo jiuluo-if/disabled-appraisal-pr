@@ -20632,11 +20632,12 @@
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成累计达面部面积的80％",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕形成累计达面部面积的80％"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_percent",
+                "operator": "gte",
+                "value": 80,
+                "unit": "%",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["片状细小瘢痕", "细小瘢痕"], ["面部面积"], ["%", "％", "百分之"]]
               }
             },
             {
@@ -20644,11 +20645,12 @@
               "sourceText": "色素显著异常",
               "conditionText": "面部色素显著异常累计达面部面积的80％",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部色素显著异常累计达面部面积的80％"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_percent",
+                "operator": "gte",
+                "value": 80,
+                "unit": "%",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素显著异常", "色素异常"], ["面部面积"], ["%", "％", "百分之"]]
               }
             }
           ]
@@ -21260,11 +21262,12 @@
               "sourceText": "面部片状细小瘢痕形成",
               "conditionText": "面部片状细小瘢痕形成累计达面部面积的50％",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部片状细小瘢痕形成累计达面部面积的50％"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_percent",
+                "operator": "gte",
+                "value": 50,
+                "unit": "%",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["片状细小瘢痕", "细小瘢痕"], ["面部面积"], ["%", "％", "百分之"]]
               }
             },
             {
@@ -21272,11 +21275,12 @@
               "sourceText": "色素显著异常",
               "conditionText": "面部色素显著异常累计达面部面积的50％",
               "ageAdjustment": "disability_standard_6_11",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "面部色素显著异常累计达面部面积的50％"
-                ]
+              "predicate": {
+                "field": "facial_skin_abnormality_area_percent",
+                "operator": "gte",
+                "value": 50,
+                "unit": "%",
+                "evidenceGroups": [["面部", "脸部", "面颊", "颊部"], ["色素显著异常", "色素异常"], ["面部面积"], ["%", "％", "百分之"]]
               }
             }
           ]
