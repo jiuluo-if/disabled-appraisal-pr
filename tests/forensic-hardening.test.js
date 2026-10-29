@@ -1800,6 +1800,31 @@ test('hearing threshold clauses require side-bound age-corrected audiometry inst
   assert.ok(incomplete.missingMaterials.some(item => /0\.5、1、2、4kHz.*年龄修正.*dB HL.*左右耳/u.test(item)));
 });
 
+test('paired vestibular and hearing conditions require evidence from the same ear', () => {
+  const singleSideClause = catalogs.injury.clauses.find(item => item.id === '5.3.4.d');
+  const unilateralVestibular = { id: 'F1', eventId: 'E1', field: 'clinical_finding',
+    value: '一侧前庭平衡功能障碍', certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '左侧前庭平衡功能障碍；病历结论为一侧前庭平衡功能障碍。' };
+  const oppositeHearing = { id: 'F2', eventId: 'E1', field: 'clinical_finding', value: '同侧听力减退',
+    certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '右耳听力减退；病历结论为同侧听力减退。' };
+  const sameSideHearing = { ...oppositeHearing, evidence: '左耳听力减退；病历结论为同侧听力减退。' };
+  assert.notEqual(evaluateConditionLogic(singleSideClause.conditionLogic, [unilateralVestibular, oppositeHearing]).met, true);
+  assert.equal(evaluateConditionLogic(singleSideClause.conditionLogic, [unilateralVestibular, sameSideHearing]).met, true);
+  assert.notEqual(evaluateConditionLogic(singleSideClause.conditionLogic, [unilateralVestibular,
+    { ...sameSideHearing, eventId: 'E2' }]).met, true);
+
+  const thresholdClause = catalogs.injury.clauses.find(item => item.id === '5.3.2.c');
+  const leftThreshold = { id: 'F3', eventId: 'E1', field: 'clinical_finding',
+    value: '左耳纯音气导听阈0.5、1、2、4kHz四频平均值年龄修正后85dB HL', certainty: 'reported',
+    source: 'description', verification: 'quoted',
+    evidence: '本次事故导致听力损伤。听力检查记录：左耳纯音气导听阈0.5、1、2、4kHz四频平均值年龄修正后85dB HL。' };
+  const rightVestibular = { id: 'F4', eventId: 'E1', field: 'clinical_finding',
+    value: '同侧前庭平衡功能障碍', certainty: 'reported', source: 'description', verification: 'quoted',
+    evidence: '右侧前庭平衡功能障碍；病历结论为同侧前庭平衡功能障碍。' };
+  assert.notEqual(evaluateConditionLogic(thresholdClause.conditionLogic, [leftThreshold, rightVestibular]).met, true);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',

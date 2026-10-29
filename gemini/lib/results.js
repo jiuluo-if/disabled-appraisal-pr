@@ -1203,6 +1203,9 @@ function conditionFactIsExplicitlyNegated(node, fact) {
   if (hearingThresholdRequirement(node)) {
     return Boolean(hearingThresholdEvidence(node, fact.evidence, fact.value)?.observations.some(item => item.negated));
   }
+  if (unilateralEarFindingRequirement(node)) {
+    return Boolean(unilateralEarFindingEvidence(node, fact.evidence, fact.value)?.findings.some(item => item.negated));
+  }
   if (completeVisualFieldRequirement(node)) {
     return Boolean(completeVisualFieldEvidence(node, fact.evidence, fact.value)?.findings.some(item => item.negated));
   }
@@ -1522,6 +1525,34 @@ function hearingThresholdCausallyLinked(fact, facts) {
   return linkedFacts.some(candidate => hasExplicitCurrentHearingCausality(candidate.evidence));
 }
 
+function unilateralEarFindingRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = String(node.conditionText || node.sourceText || '').normalize('NFKC');
+  if (!/前庭|听力/u.test(condition)) return null;
+  const sameSide = /同侧/u.test(condition);
+  const unilateral = /一侧/u.test(condition) && /前庭/u.test(condition);
+  if (!sameSide && !unilateral) return null;
+  return { role: sameSide ? 'same-side' : 'unilateral', system: /前庭/u.test(condition) ? 'vestibular' : 'hearing' };
+}
+
+function unilateralEarFindingEvidence(node, evidence, factValue) {
+  const requirement = unilateralEarFindingRequirement(node);
+  if (!requirement || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const pattern = requirement.system === 'vestibular'
+    ? /(左|右)(?:侧)?前庭(?:平衡)?功能障碍/gu
+    : /(左|右)(?:侧|耳)[^。！？；;\n]{0,12}听力(?:减退|下降|障碍|损失)/gu;
+  const findings = [];
+  for (const match of evidence.normalize('NFKC').matchAll(pattern)) {
+    const start = Math.max(0, match.index - 12);
+    const context = evidence.normalize('NFKC').slice(start, match.index + match[0].length + 8);
+    findings.push({ side: match[1] === '左' ? 'left' : 'right',
+      negated: /(?:未见|未发现|否认|排除|没有|无)[^，,。！？；;\n]{0,16}$/u.test(context),
+      uncertain: /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定)/u.test(context) });
+  }
+  return findings.length ? { ...requirement, matched: true, findings } : null;
+}
+
 function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
@@ -1735,6 +1766,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const visualFieldRule = visualFieldRequirement(node);
   const completeVisionRule = completeVisualFieldRequirement(node);
   const hearingRule = hearingThresholdRequirement(node);
+  const earSideRule = unilateralEarFindingRequirement(node);
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
     && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
@@ -1757,6 +1789,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       ? completeVisualFieldEvidence(node, fact.evidence, fact.value) : null;
     const hearingEvidence = hearingRule ? hearingThresholdEvidence(node, fact.evidence, fact.value) : null;
     const hearingCausality = Boolean(hearingEvidence?.matched && hearingThresholdCausallyLinked(fact, facts));
+    const earSideEvidence = earSideRule ? unilateralEarFindingEvidence(node, fact.evidence, fact.value) : null;
     if (predicate?.field === 'aggregate_wound_length_cm'
       && !aggregateWoundLengthSitesSupportPredicate(predicate, fact)) return false;
     if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
@@ -1789,7 +1822,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue
         || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched) || Boolean(vertebralEvidence?.matched)
         || Boolean(visualEvidence?.matched) || Boolean(completeVisionEvidence?.matched)
-        || hearingCausality;
+        || hearingCausality || Boolean(earSideEvidence?.matched);
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1813,6 +1846,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
           : visualFieldRule ? Boolean(visualEvidence?.matched)
           : completeVisionRule ? Boolean(completeVisionEvidence?.matched)
           : hearingRule ? hearingCausality
+          : earSideRule ? Boolean(earSideEvidence?.matched)
           : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
             ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
@@ -1844,6 +1878,10 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     : hearingRule
       ? hearingThresholdEvidence(node, affirmative.evidence, affirmative.value)?.observations.some(left =>
         hearingThresholdEvidence(node, negative.evidence, negative.value)?.observations
+          .some(right => right.side === left.side))
+    : earSideRule
+      ? unilateralEarFindingEvidence(node, affirmative.evidence, affirmative.value)?.findings.some(left =>
+        unilateralEarFindingEvidence(node, negative.evidence, negative.value)?.findings
           .some(right => right.side === left.side))
     : vertebralRequirement
       ? sameVertebralLevel(vertebralCompressionEvidence(node, affirmative.evidence, affirmative.value),
@@ -1964,6 +2002,21 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       factIds: [...new Set(supportingFacts.map(item => item.fact.id))],
       hearingAssertions: selected.map(item => ({ role: item.requirement.role, sides: item.sides })) };
   }
+  if (earSideRule && positive.length) {
+    const assertions = positive.map(fact => ({ fact,
+      assessment: unilateralEarFindingEvidence(node, fact.evidence, fact.value) })).filter(item => item.assessment?.matched);
+    const sides = new Set(assertions.flatMap(item => item.assessment.findings
+      .filter(finding => !finding.negated && !finding.uncertain).map(finding => finding.side)));
+    const uncertainSameSide = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      && unilateralEarFindingEvidence(node, fact.evidence, fact.value)?.findings
+        .some(finding => sides.has(finding.side)));
+    if (!sides.size || uncertainSameSide) return { met: null, evidence: '', factIds: [] };
+    const supportingFacts = assertions.filter(item => item.assessment.findings.some(finding => sides.has(finding.side)
+      && !finding.negated && !finding.uncertain));
+    return { met: true, evidence: uniqueEvidenceText(supportingFacts.map(item => item.fact.evidence)),
+      factIds: [...new Set(supportingFacts.map(item => item.fact.id))],
+      earSideAssertions: [{ role: earSideRule.role, system: earSideRule.system, sides: [...sides] }] };
+  }
   if (jointLossRequirement && positive.length) {
     const assertions = positive.map(fact => ({ fact, assessment: largeJointLossEvidence(node, fact.evidence, fact.value) }))
       .filter(item => item.assessment?.matched);
@@ -2082,6 +2135,7 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
     : states.includes(true) ? true : states.every(state => state === false) ? false : null;
   const eyeAssertions = results.flatMap(result => result.eyeAssertions || []);
   const hearingAssertions = results.flatMap(result => result.hearingAssertions || []);
+  const earSideAssertions = results.flatMap(result => result.earSideAssertions || []);
   if (op === 'all' && met === true) {
     const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
     const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
@@ -2090,6 +2144,14 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
     const otherEarRequirements = hearingAssertions.filter(item => item.role === 'other');
     if (otherEarRequirements.some(requirement => !oneEarSides.some(side =>
       requirement.sides.some(otherSide => side !== otherSide)))) met = null;
+    const sameSideRequirements = earSideAssertions.filter(item => item.role === 'same-side');
+    for (const requirement of sameSideRequirements) {
+      const hearingSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
+      const otherFindingSides = earSideAssertions.filter(item => item.role === 'unilateral'
+        && item.system !== requirement.system).flatMap(item => item.sides);
+      const matchingSides = requirement.system === 'vestibular' ? hearingSides : otherFindingSides;
+      if (!requirement.sides.some(side => matchingSides.includes(side))) met = null;
+    }
   }
   if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
     && sharedQuotedEvidence.size === 0) met = null;
@@ -2099,7 +2161,8 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
   return { met, evidence: uniqueEvidenceText(decisive.map(result => result.evidence)),
     factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId,
     eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []),
-    hearingAssertions: decisive.flatMap(result => result.hearingAssertions || []) };
+    hearingAssertions: decisive.flatMap(result => result.hearingAssertions || []),
+    earSideAssertions: decisive.flatMap(result => result.earSideAssertions || []) };
 }
 
 function factDateKeys(fact) {
