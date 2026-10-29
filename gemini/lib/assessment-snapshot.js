@@ -13,8 +13,8 @@ export function hashAssessmentSources(root, sources) {
   const pathApi = /^[a-z]:[\\/]/iu.test(root) ? path.win32 : path.posix;
   const normalized = sources.map(source => ({
     path: pathApi.relative(root, source.path).replaceAll('\\', '/'),
-    content: source.content,
-  })).sort((left, right) => left.path.localeCompare(right.path));
+    content: source.content.replace(/\r\n?/gu, '\n'),
+  })).sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0);
   return createHash('sha256').update(normalized
     .map(source => `${source.path}\n${source.content}`).join('\n'), 'utf8').digest('hex');
 }
