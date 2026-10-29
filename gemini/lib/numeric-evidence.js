@@ -8,6 +8,7 @@ function verifiedTypedMeasurement(predicate, fact, evidence) {
   const unitPatterns = {
     cm: '(cm|厘米|mm|毫米)(?!2)',
     '°': '(°|度|o)',
+    '%': '(%|％)',
   };
   const pattern = unitPatterns[predicate.unit];
   if (!pattern) return null;
@@ -60,11 +61,15 @@ function verifiedTypedMeasurement(predicate, fact, evidence) {
     if (upperBound && ['gte', 'gt', 'eq'].includes(predicate.operator)
       || lowerBound && ['lte', 'lt', 'eq'].includes(predicate.operator)) return null;
   }
-  return sourceValue === fact.value ? sourceValue : null;
+  const sourcedTextFact = typeof fact.value === 'string' && predicate.fields?.includes(fact.field)
+    && normalize(String(fact.evidence || '')).includes(normalize(fact.value));
+  return sourceValue === fact.value || sourcedTextFact ? sourceValue : null;
 }
 
 export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
-  if (!Number.isFinite(fact.value)) return null;
+  const sourcedTextFact = typeof fact.value === 'string' && predicate.fields?.includes(fact.field)
+    && normalize(String(fact.evidence || '')).includes(normalize(fact.value));
+  if (!Number.isFinite(fact.value) && !sourcedTextFact) return null;
   if (predicate.field === 'organ_hematoma_diameter_cm') {
     const evidence = normalize(String(fact.evidence || ''));
     const measurements = [...evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
@@ -112,7 +117,7 @@ export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
     const score = /(?:GCS|格拉斯哥昏迷评分)\s*(?:评分|分数)?\s*[:：=]?\s*(1[0-5]|[3-9])\s*分?/iu.exec(evidence);
     return score && Number(score[1]) === fact.value ? fact.value : null;
   }
-  if (['bone_shortening_cm', 'bone_angulation_degrees'].includes(predicate.field)) {
+  if (['bone_shortening_cm', 'bone_angulation_degrees', 'joint_function_loss_percent'].includes(predicate.field)) {
     return verifiedTypedMeasurement(predicate, fact, normalize(String(fact.evidence || '')));
   }
   const number = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';

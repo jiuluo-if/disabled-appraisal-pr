@@ -98,6 +98,20 @@ test('fracture shortening and the matching fracture must belong to the same even
   assert.notEqual(evaluateConditionLogic(rule.conditionLogic, factSet).met, true);
 });
 
+test('same-side measurement conflicts stay unknown while opposite-side values stay separate', () => {
+  const rule = clause('5.9.2.g');
+  const rightSide = factsFor({ bone: '股骨干', value: 6,
+    evidence: '本次事故造成右股骨干骨折，骨折缩短6cm。' });
+  const conflicting = [...rightSide, { ...rightSide[1], id: 'F-shortening-2', value: 7,
+    evidence: '本次事故造成右股骨干骨折，复查记录骨折缩短7cm。' }];
+  assert.equal(evaluateConditionLogic(rule.conditionLogic, conflicting).met, null);
+  const oppositeSides = [...factsFor({ bone: '股骨干', value: 6,
+    evidence: '本次事故造成右股骨干骨折，骨折缩短6cm。' }),
+  { id: 'F-shortening-left', field: 'bone_shortening_cm', value: 7, certainty: 'reported',
+    source: 'description', evidence: '本次事故造成左股骨干骨折，骨折缩短7cm。', eventId: 'E1', verification: 'quoted' }];
+  assert.equal(evaluateConditionLogic(rule.conditionLogic, oppositeSides).met, true);
+});
+
 test('normalized measurement facts retain the original proposal and a verifiable source position', () => {
   const description = '本次事故造成右股骨干骨折，骨折缩短6cm。';
   const snapshot = normalizeExtractedFacts({ facts: [

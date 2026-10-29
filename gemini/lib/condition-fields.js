@@ -4,7 +4,7 @@ const CLINICAL_FINDING_FIELDS = Object.freeze([
 
 export function conditionFactFields(factMatch, predicate) {
   if (!factMatch) {
-    const fields = new Set(predicate?.field ? [predicate.field] : []);
+    const fields = new Set([predicate?.field, ...(predicate?.fields || [])].filter(Boolean));
     if (predicate?.field === 'aggregate_wound_length_cm'
       && predicate.evidenceGroups?.some(group => group.includes('头皮'))) fields.add('wound_length_cm');
     return fields;

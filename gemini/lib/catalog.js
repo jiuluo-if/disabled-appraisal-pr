@@ -130,6 +130,9 @@ function validateLogicNode(node, clauseText, annotation) {
   if (hasPredicate) {
     const { field, operator, value, unit } = node.predicate;
     if (typeof field !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(field)
+      || node.predicate.fields != null && (!Array.isArray(node.predicate.fields) || node.predicate.fields.length === 0
+        || node.predicate.fields.some(candidate => typeof candidate !== 'string' || !/^[a-z][a-z0-9_]{0,63}$/.test(candidate)
+          || candidate === field) || new Set(node.predicate.fields).size !== node.predicate.fields.length)
       || !['eq', 'gt', 'gte', 'lt', 'lte'].includes(operator)
       || typeof value !== 'number' || !Number.isFinite(value)
       || unit != null && typeof unit !== 'string'

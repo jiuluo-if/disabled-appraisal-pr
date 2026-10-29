@@ -4,7 +4,7 @@ import { BLUNT_OBJECT_BODY_IMPACT_CUE, currentEventAnchorBefore, CURRENT_EVENT_S
   hasNonCurrentClinicalContext, historicalSectionHeading, HEAD_IMPACT_EVENT_CUE_SOURCE, normalizeInjuryDateValue,
   parseEventDateAnchors, startsWithNonInjuryDateContext } from './event-date-logic.js';
 
-const FACT_SCHEMA_VERSION = '1.5';
+const FACT_SCHEMA_VERSION = '1.6';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_FACT_EVIDENCE_CHARS = 1000;
 const MAX_FACT_SNAPSHOT_JSON_CHARS = 250_000;
@@ -3973,6 +3973,7 @@ function factFinding(field, value, certainty) {
     limb_length_difference_cm: '双侧肢体长度差（厘米）',
     bone_shortening_cm: '骨折缩短长度（厘米）',
     bone_angulation_degrees: '骨折成角度数（度）',
+    joint_function_loss_percent: '具名关节功能丧失比例（百分比）',
     functional_impairment: '功能情况', prior_injury: '既往损伤',
     wound_length_cm: '创口或瘢痕长度（厘米）',
     aggregate_wound_length_cm: '多处创口累计长度（厘米）',

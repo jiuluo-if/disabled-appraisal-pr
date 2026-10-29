@@ -1998,6 +1998,21 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       factIds: supporting.map(item => item.fact.id) };
   }
   if (predicate && positive.length) {
+    if (['bone_shortening_cm', 'bone_angulation_degrees', 'joint_function_loss_percent'].includes(predicate.field)) {
+      for (let left = 0; left < relevant.length; left += 1) for (let right = left + 1; right < relevant.length; right += 1) {
+        const first = relevant[left], second = relevant[right];
+        if (!sameTypedMeasurementEntity(predicate, first, second)) continue;
+        if (['uncertain', 'unknown', 'conflicted', 'excluded'].includes(first.certainty)
+          || ['uncertain', 'unknown', 'conflicted', 'excluded'].includes(second.certainty)
+          || predicateEvidenceValue(predicate, first, facts) !== predicateEvidenceValue(predicate, second, facts)) {
+          return { met: null, evidence: '', factIds: [] };
+        }
+      }
+      const supporting = positive.filter(fact => comparePredicate(predicate,
+        predicateEvidenceValue(predicate, fact, facts)) === true);
+      return supporting.length ? { met: true, evidence: uniqueEvidenceText(supporting.map(fact => fact.evidence)),
+        factIds: [...new Set(supporting.map(fact => fact.id))] } : { met: null, evidence: '', factIds: [] };
+    }
     const states = positive.map(fact => comparePredicate(predicate, predicateEvidenceValue(predicate, fact, facts)));
     if (states.some(state => state === null)) return { met: null, evidence: '', factIds: [] };
     if (predicate.field === 'gcs_score') {
@@ -2044,6 +2059,23 @@ function sameLargeJointSide(left, right) {
   const jointName = value => value.replace(/关节/u, '');
   return jointName(left.joint) === jointName(right.joint)
     && (!left.side || !right.side || left.side === right.side);
+}
+
+function sameTypedMeasurementEntity(predicate, left, right) {
+  const entityAliases = predicate.evidenceGroups?.[0] || [];
+  const entityFor = fact => {
+    const evidence = normalize(String(fact.evidence || ''));
+    const alias = entityAliases.map(normalize).filter(value => value && evidence.includes(value))
+      .sort((a, b) => b.length - a.length)[0];
+    if (!alias) return null;
+    const position = evidence.indexOf(alias);
+    const before = evidence.slice(Math.max(0, position - 6), position);
+    const side = /(?:左侧|左)$/u.test(before) ? 'left' : /(?:右侧|右)$/u.test(before) ? 'right' : null;
+    return { alias, side };
+  };
+  const first = entityFor(left), second = entityFor(right);
+  return Boolean(first && second && first.alias === second.alias
+    && (!first.side || !second.side || first.side === second.side));
 }
 
 function sameVertebralLevel(left, right) {

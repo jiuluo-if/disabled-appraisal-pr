@@ -5734,11 +5734,13 @@
               "op": "condition",
               "sourceText": "功能丧失50％以上",
               "conditionText": "四肢任一大关节功能丧失50％以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "四肢任一大关节功能丧失50％以上"
-                ]
+              "predicate": {
+                "field": "joint_function_loss_percent",
+                "fields": ["clinical_finding"],
+                "operator": "gte",
+                "value": 50,
+                "unit": "%",
+                "evidenceGroups": [["肩关节", "肘关节", "腕关节", "髋关节", "膝关节", "踝关节"], ["功能丧失"]]
               }
             }
           ]
@@ -13283,11 +13285,13 @@
           "op": "condition",
           "sourceText": "四肢任一大关节功能丧失25％以上",
           "conditionText": "四肢任一大关节功能丧失25％以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "四肢任一大关节功能丧失25％以上"
-            ]
+          "predicate": {
+            "field": "joint_function_loss_percent",
+            "fields": ["clinical_finding"],
+            "operator": "gte",
+            "value": 25,
+            "unit": "%",
+            "evidenceGroups": [["肩关节", "肘关节", "腕关节", "髋关节", "膝关节", "踝关节"], ["功能丧失"]]
           }
         }
       },
@@ -13345,11 +13349,13 @@
           "op": "condition",
           "sourceText": "四肢任一大关节功能丧失10％以上",
           "conditionText": "四肢任一大关节功能丧失10％以上",
-          "factMatch": {
-            "field": "clinical_finding",
-            "values": [
-              "四肢任一大关节功能丧失10％以上"
-            ]
+          "predicate": {
+            "field": "joint_function_loss_percent",
+            "fields": ["clinical_finding"],
+            "operator": "gte",
+            "value": 10,
+            "unit": "%",
+            "evidenceGroups": [["肩关节", "肘关节", "腕关节", "髋关节", "膝关节", "踝关节"], ["功能丧失"]]
           }
         }
       },
