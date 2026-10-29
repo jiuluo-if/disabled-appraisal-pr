@@ -1720,6 +1720,86 @@ test('visual-field numeric clauses require an eye-specific measured value instea
   assert.notEqual(evaluateConditionLogic(oppositeEyeClause.conditionLogic, [completeRight, reducedRight]).met, true);
 });
 
+test('hearing threshold clauses require side-bound age-corrected audiometry instead of criterion wording', () => {
+  const hearingFact = (id, side, value, certainty = 'reported', eventId = 'E1', ageCorrected = true, causal = true) => ({
+    id, eventId, field: 'clinical_finding',
+    value: `${side}耳纯音气导听阈0.5、1、2、4kHz四频平均值${ageCorrected ? '年龄修正后' : ''}${value}dB HL`, certainty,
+    source: 'description', verification: 'quoted',
+    evidence: `${causal ? '本次事故导致听力损伤。' : '本次事故后。'}听力检查记录：${side}耳纯音气导听阈0.5、1、2、4kHz四频平均值${ageCorrected ? '年龄修正后' : ''}${value}dB HL。`,
+  });
+  const evaluate = (type, id, facts) => {
+    const clause = catalogs[type].clauses.find(item => item.id === id);
+    return evaluateConditionLogic(clause.conditionLogic, facts).met;
+  };
+
+  assert.equal(evaluate('injury', '5.3.1.a', [hearingFact('F1', '左', 91), hearingFact('F2', '右', 91)]), true);
+  const measuredNoCause = [hearingFact('F1', '左', 91, 'reported', 'E1', true, false),
+    hearingFact('F2', '右', 91, 'reported', 'E1', true, false)];
+  const causalDiagnosis = { id: 'D1', eventId: 'E1', field: 'diagnosis', value: '外伤性听力损伤', certainty: 'reported',
+    source: 'description', verification: 'quoted', evidence: '本次事故导致外伤性听力损伤。' };
+  assert.equal(evaluate('injury', '5.3.1.a', [...measuredNoCause, causalDiagnosis]), true);
+  assert.notEqual(evaluate('injury', '5.3.1.a', [...measuredNoCause, { ...causalDiagnosis, eventId: 'E2' }]), true);
+  assert.notEqual(evaluate('injury', '5.3.1.a', [hearingFact('F1', '左', 91), hearingFact('F2', '右', 90)]), true);
+  assert.equal(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 91)]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 90)]), true);
+  assert.equal(evaluate('injury', '5.3.2.b', [hearingFact('F1', '左', 85), hearingFact('F2', '右', 41)]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.b', [hearingFact('F1', '左', 85)]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.b', [hearingFact('F1', '右', 85)]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.b', [hearingFact('F1', '左', 85), hearingFact('F2', '左', 41)]), true);
+  assert.equal(evaluate('disability', '5.9.2.19', [hearingFact('F1', '左', 61), hearingFact('F2', '右', 41)]), true);
+  assert.notEqual(evaluate('disability', '5.9.2.19', [hearingFact('F1', '左', 61), hearingFact('F2', '右', 40)]), true);
+  assert.notEqual(evaluate('injury', '5.3.1.a', [hearingFact('F1', '左', 91, 'reported', 'E1'),
+    hearingFact('F2', '右', 91, 'reported', 'E2')]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 91, 'reported', 'E1', false)]), true);
+  assert.notEqual(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 91, 'reported', 'E1', true, false)]), true);
+  const disputedCause = hearingFact('F1', '右', 91);
+  disputedCause.evidence = `本次事故是否导致听力损伤待核。${disputedCause.evidence.replace('本次事故导致听力损伤。', '')}`;
+  assert.notEqual(evaluate('injury', '5.3.2.a', [disputedCause]), true);
+  assert.equal(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 91),
+    hearingFact('F2', '右', 92)]), null);
+  assert.notEqual(evaluate('injury', '5.3.2.a', [hearingFact('F1', '右', 91),
+    hearingFact('F2', '右', 92, 'uncertain')]), true);
+
+  const leaves = [];
+  const collect = (node, clause) => {
+    if (node.op === 'condition' && /听力障碍/u.test(node.conditionText || node.sourceText || '')) {
+      leaves.push({ node, clause });
+    }
+    for (const child of node.children || []) collect(child, clause);
+  };
+  for (const catalog of Object.values(catalogs)) {
+    for (const clause of catalog.clauses) collect(clause.conditionLogic.logic, clause);
+  }
+  assert.equal(leaves.length, 20);
+  for (const { node } of leaves) {
+    const criterion = node.conditionText || node.sourceText;
+    const quote = { id: 'Q1', eventId: 'E1', field: 'clinical_finding', value: criterion,
+      certainty: 'reported', source: 'description', verification: 'quoted', evidence: criterion };
+    assert.notEqual(evaluateConditionLogic({ annotation: 'explicit', logic: node }, [quote]).met, true, criterion);
+  }
+
+  const injuryClause = catalogs.injury.clauses.find(item => item.id === '5.3.1.a');
+  const left = hearingFact('F1', '左', 91);
+  const right = hearingFact('F2', '右', 93);
+  const description = `${left.evidence}${right.evidence}`;
+  const integrated = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: injuryClause.grade,
+    facts: [], references: [{ clauseId: injuryClause.id, relation: 'supports', evidence: description, reasoning: '',
+      conditions: [{ condition: injuryClause.text, evidence: description, factIds: ['F1', 'F2'], met: true }] }] },
+  { ...inputs.injury, description }, { clauses: [injuryClause], requestId: 'hearing-threshold-source-check',
+    model: 'test-model', extractedFacts: [left, right], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(integrated.grade, injuryClause.grade);
+  assert.equal(integrated.references.find(reference => reference.id === injuryClause.id)?.relation, 'supports');
+
+  const incompleteDescription = '合成资料，非真实病例。本次事故后记载双耳听力下降。';
+  const incomplete = normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: injuryClause.grade,
+    facts: [], references: [{ clauseId: injuryClause.id, relation: 'supports', evidence: incompleteDescription,
+      reasoning: '', conditions: [{ condition: injuryClause.text, evidence: incompleteDescription, factIds: [], met: true }] }] },
+  { ...inputs.injury, description: incompleteDescription }, { clauses: [injuryClause], requestId: 'hearing-threshold-incomplete',
+    model: 'test-model', extractedFacts: [], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  assert.equal(incomplete.grade, null);
+  assert.ok(incomplete.missingMaterials.some(item => /0\.5、1、2、4kHz.*年龄修正.*dB HL.*左右耳/u.test(item)));
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',

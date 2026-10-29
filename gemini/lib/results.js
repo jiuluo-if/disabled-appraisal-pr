@@ -1200,6 +1200,9 @@ function conditionFactIsExplicitlyNegated(node, fact) {
   if (visualFieldRequirement(node)) {
     return Boolean(visualFieldEvidence(node, fact.evidence, fact.value)?.observations.some(item => item.negated));
   }
+  if (hearingThresholdRequirement(node)) {
+    return Boolean(hearingThresholdEvidence(node, fact.evidence, fact.value)?.observations.some(item => item.negated));
+  }
   if (completeVisualFieldRequirement(node)) {
     return Boolean(completeVisualFieldEvidence(node, fact.evidence, fact.value)?.findings.some(item => item.negated));
   }
@@ -1455,6 +1458,70 @@ function sameVisualFieldEye(left, right) {
     && left.observations.some(a => right.observations.some(b => a.side === b.side)));
 }
 
+function hearingThresholdRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = String(node.conditionText || node.sourceText || '').normalize('NFKC');
+  if (!condition.includes('听力障碍')) return null;
+  const requirements = [];
+  const pattern = /(双耳|另一耳|一耳)\s*听力障碍\s*\(?\s*(?:≥|>=)\s*(\d+(?:\.\d+)?)\s*dB\s*HL\s*\)?/giu;
+  for (const match of condition.matchAll(pattern)) {
+    const role = match[1] === '双耳' ? 'both' : match[1] === '另一耳' ? 'other' : 'one';
+    requirements.push({ role, threshold: Number(match[2]) });
+  }
+  return requirements.length ? { requirements } : null;
+}
+
+function hearingThresholdEvidence(node, evidence, factValue) {
+  if (!hearingThresholdRequirement(node) || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const observations = [];
+  const text = evidence.normalize('NFKC');
+  // The standards require the age-corrected 0.5/1/2/4 kHz air-conduction mean; accept a source-reported mean only.
+  const number = '(\\d+(?:\\.\\d+)?)';
+  const frequencyCue = '(?:四频|四个频率|0\\.5\\s*[、,/／和及]+\\s*1\\s*[、,/／和及]+\\s*2\\s*[、,/／和及]+\\s*4\\s*k?Hz|500\\s*[、,/／和及]+\\s*1000\\s*[、,/／和及]+\\s*2000\\s*[、,/／和及]+\\s*4000\\s*Hz)';
+  for (const sentence of text.split(/[。！？\n]/u)) {
+    const ears = [...sentence.matchAll(/(左|右)耳/gu)];
+    for (let index = 0; index < ears.length; index += 1) {
+      const ear = ears[index];
+      const block = sentence.slice(ear.index, ears[index + 1]?.index ?? sentence.length);
+      if (!/纯音/u.test(block) || !/气导/u.test(block) || !new RegExp(frequencyCue, 'iu').test(block)) continue;
+      const average = new RegExp(`${frequencyCue}[^。！？；;，,]{0,24}(?:平均(?:值|听阈)?|均值)[^。！？；;，,]{0,18}(?:年龄修正后|年龄校正后|经年龄(?:修正|校正))[^0-9]{0,6}${number}\\s*dB\\s*HL`, 'iu').exec(block);
+      if (!average) continue;
+      const value = Number(average[1]);
+      if (!Number.isFinite(value) || value < 0 || value > 150) continue;
+      const before = block.slice(Math.max(0, average.index - 18), average.index);
+      const after = block.slice(average.index + average[0].length, average.index + average[0].length + 8);
+      const negated = /(?:未见|未测得|未检测出|否认|排除|没有|无)[^，,。！？；;\n]{0,16}$/u.test(before)
+        || /(?:未见|未测得|未检测出|阴性)/u.test(after);
+      const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定|约|大约|左右|接近|估计)/u
+        .test(block.slice(Math.max(0, average.index - 24), average.index + average[0].length + 12));
+      observations.push({ side: ear[1] === '左' ? 'left' : 'right', value, negated, uncertain });
+    }
+  }
+  return observations.length ? { matched: true, observations } : null;
+}
+
+function hasExplicitCurrentHearingCausality(evidence) {
+  const text = normalize(String(evidence || ''));
+  const claims = [
+    /(?:本次|此次)(?:交通)?(?:事故|外伤|受伤|损伤)[^。！？；;\n]{0,24}(?:导致|造成|引起|所致)[^。！？；;\n]{0,20}(?:听力障碍|听力损伤|听力下降|听力减退|耳聋|听神经损伤)/u,
+    /(?:听力障碍|听力损伤|听力下降|听力减退|耳聋)[^。！？；;\n]{0,20}(?:系|由)(?:本次|此次)(?:交通)?(?:事故|外伤|受伤)(?:所致|引起|造成)/u,
+  ];
+  const claim = claims.map(pattern => pattern.exec(text)).find(Boolean);
+  if (!claim) return false;
+  const context = text.slice(Math.max(0, claim.index - 20), claim.index + claim[0].length + 20);
+  return !/(?:既往史|既往|既有|陈旧|原有|此前|术前|曾经|未能|不能|无法|并非|不因|非由|未证实|未明确|是否|可能|疑似|考虑|待排|待查|待核|不排除|否认|排除|无关|无因果关系)/u.test(context);
+}
+
+function hearingThresholdCausallyLinked(fact, facts) {
+  const linkedFacts = [fact, ...facts.filter(candidate => candidate.id !== fact.id
+    && candidate.eventId && candidate.eventId === fact.eventId
+    && ['diagnosis', 'imaging_finding', 'clinical_finding', 'injury_type'].includes(candidate.field)
+    && candidate.source === 'description' && candidate.verification === 'quoted'
+    && reliableCertainties.has(candidate.certainty))];
+  return linkedFacts.some(candidate => hasExplicitCurrentHearingCausality(candidate.evidence));
+}
+
 function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
@@ -1641,6 +1708,14 @@ function ageAdjustmentFollowUp(logic, facts) {
   return null;
 }
 
+function hearingThresholdFollowUp(logic, facts, sourceText) {
+  const hearingNodes = collectLogicNodes(logic).filter(({ node }) => hearingThresholdRequirement(node));
+  if (!hearingNodes.length || !/(?:听力|听阈|耳鸣|耳聋)/u.test(sourceText)) return null;
+  const state = evaluateConditionLogic({ annotation: 'explicit', logic }, facts).met;
+  if (state !== null) return null;
+  return '当前无法自动核实听力阈值及其与本次损伤的因果关系：请核对相关耳别0.5、1、2、4kHz纯音气导听阈四频均值、年龄修正及dB HL单位；双耳或“另一耳”条件须分别对应左右耳。';
+}
+
 function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled = false) {
   let predicate = node.predicate;
   if (ageAdjustmentEnabled && ['injury_standard_6_18', 'disability_standard_6_11'].includes(node.ageAdjustment)) {
@@ -1659,6 +1734,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const vertebralRequirement = vertebralCompressionRequirement(node);
   const visualFieldRule = visualFieldRequirement(node);
   const completeVisionRule = completeVisualFieldRequirement(node);
+  const hearingRule = hearingThresholdRequirement(node);
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
     && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
@@ -1679,6 +1755,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     const visualEvidence = visualFieldRule ? visualFieldEvidence(node, fact.evidence, fact.value) : null;
     const completeVisionEvidence = completeVisionRule
       ? completeVisualFieldEvidence(node, fact.evidence, fact.value) : null;
+    const hearingEvidence = hearingRule ? hearingThresholdEvidence(node, fact.evidence, fact.value) : null;
+    const hearingCausality = Boolean(hearingEvidence?.matched && hearingThresholdCausallyLinked(fact, facts));
     if (predicate?.field === 'aggregate_wound_length_cm'
       && !aggregateWoundLengthSitesSupportPredicate(predicate, fact)) return false;
     if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
@@ -1710,7 +1788,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
         && requiresCurrentProcedureLink(node) && isPerformedSurgicalTreatmentFact(fact);
       const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue
         || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched) || Boolean(vertebralEvidence?.matched)
-        || Boolean(visualEvidence?.matched) || Boolean(completeVisionEvidence?.matched);
+        || Boolean(visualEvidence?.matched) || Boolean(completeVisionEvidence?.matched)
+        || hearingCausality;
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1733,6 +1812,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
         : vertebralRequirement ? Boolean(vertebralEvidence?.matched)
           : visualFieldRule ? Boolean(visualEvidence?.matched)
           : completeVisionRule ? Boolean(completeVisionEvidence?.matched)
+          : hearingRule ? hearingCausality
           : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
             ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
@@ -1760,6 +1840,10 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     : completeVisionRule
       ? completeVisualFieldEvidence(node, affirmative.evidence, affirmative.value)?.findings.some(left =>
         completeVisualFieldEvidence(node, negative.evidence, negative.value)?.findings
+          .some(right => right.side === left.side))
+    : hearingRule
+      ? hearingThresholdEvidence(node, affirmative.evidence, affirmative.value)?.observations.some(left =>
+        hearingThresholdEvidence(node, negative.evidence, negative.value)?.observations
           .some(right => right.side === left.side))
     : vertebralRequirement
       ? sameVertebralLevel(vertebralCompressionEvidence(node, affirmative.evidence, affirmative.value),
@@ -1816,6 +1900,69 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       factIds: [...new Set(supportingFacts.map(item => item.fact.id))],
       eyeAssertions: [...new Set(sides)].map(side => ({ side, kind: 'numeric',
         requiresOppositeEye: /另一眼/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`) })) };
+  }
+  if (hearingRule && positive.length) {
+    const assertions = positive.map(fact => ({ fact,
+      assessment: hearingThresholdEvidence(node, fact.evidence, fact.value) })).filter(item => item.assessment?.matched);
+    const observations = assertions.flatMap(item => item.assessment.observations);
+    const bySide = new Map();
+    for (const item of observations) {
+      const values = bySide.get(item.side) || [];
+      values.push(item);
+      bySide.set(item.side, values);
+    }
+    const sideValues = new Map();
+    for (const [side, values] of bySide) {
+      const numericValues = new Set(values.map(item => item.value));
+      if (numericValues.size > 1) return { met: null, evidence: '', factIds: [] };
+      sideValues.set(side, values[0].value);
+    }
+    const uncertainSides = new Set(relevant.filter(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      || hearingThresholdEvidence(node, fact.evidence, fact.value)?.observations.some(item => item.uncertain))
+      .flatMap(fact => hearingThresholdEvidence(node, fact.evidence, fact.value)?.observations.map(item => item.side) || []));
+    if (observations.some(item => item.negated) || [...uncertainSides].some(side => sideValues.has(side))) {
+      return { met: null, evidence: '', factIds: [] };
+    }
+    const measuredBothEars = sideValues.has('left') && sideValues.has('right');
+    const supports = (side, threshold) => sideValues.has(side) && sideValues.get(side) >= threshold;
+    const oneEar = hearingRule.requirements.filter(item => item.role === 'one');
+    const otherEar = hearingRule.requirements.filter(item => item.role === 'other');
+    const selected = [];
+    let met;
+    if (oneEar.length && otherEar.length) {
+      if (!measuredBothEars) return { met: null, evidence: '', factIds: [] };
+      const assignment = oneEar.map(one => otherEar.map(other =>
+        supports('left', one.threshold) && supports('right', other.threshold) ? { one: 'left', other: 'right' }
+          : supports('right', one.threshold) && supports('left', other.threshold) ? { one: 'right', other: 'left' } : null)
+        .find(Boolean)).find(Boolean);
+      met = Boolean(assignment);
+      if (assignment) selected.push(...oneEar.map(item => ({ requirement: item, sides: [assignment.one] })),
+        ...otherEar.map(item => ({ requirement: item, sides: [assignment.other] })));
+      else if (met) return { met: null, evidence: '', factIds: [] };
+      else return { met: false, evidence: '', factIds: [] };
+    } else {
+      const evaluated = hearingRule.requirements.map(requirement => {
+        if (requirement.role === 'both') {
+          if (!measuredBothEars) return { requirement, met: null, sides: [] };
+          const sides = ['left', 'right'].filter(side => supports(side, requirement.threshold));
+          return { requirement, met: sides.length === 2, sides };
+        }
+        const sides = ['left', 'right'].filter(side => supports(side, requirement.threshold));
+        if (sides.length) return { requirement, met: true, sides };
+        return { requirement, met: measuredBothEars ? false : null, sides: [] };
+      });
+      if (evaluated.some(item => item.met === false)) return { met: false, evidence: '', factIds: [] };
+      if (evaluated.some(item => item.met !== true)) return { met: null, evidence: '', factIds: [] };
+      selected.push(...evaluated);
+      met = true;
+    }
+    if (!met) return { met: false, evidence: '', factIds: [] };
+    const requiredSides = new Set(selected.flatMap(item => item.sides));
+    const supportingFacts = assertions.filter(item => item.assessment.observations.some(observation =>
+      requiredSides.has(observation.side) && !observation.negated && !observation.uncertain));
+    return { met: true, evidence: uniqueEvidenceText(supportingFacts.map(item => item.fact.evidence)),
+      factIds: [...new Set(supportingFacts.map(item => item.fact.id))],
+      hearingAssertions: selected.map(item => ({ role: item.requirement.role, sides: item.sides })) };
   }
   if (jointLossRequirement && positive.length) {
     const assertions = positive.map(fact => ({ fact, assessment: largeJointLossEvidence(node, fact.evidence, fact.value) }))
@@ -1934,10 +2081,15 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
     ? states.includes(false) ? false : states.every(state => state === true) ? true : null
     : states.includes(true) ? true : states.every(state => state === false) ? false : null;
   const eyeAssertions = results.flatMap(result => result.eyeAssertions || []);
+  const hearingAssertions = results.flatMap(result => result.hearingAssertions || []);
   if (op === 'all' && met === true) {
     const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
     const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
     if (oppositeEyeMeasurements.some(measurement => !completeSides.some(side => side !== measurement.side))) met = null;
+    const oneEarSides = hearingAssertions.filter(item => item.role === 'one').flatMap(item => item.sides);
+    const otherEarRequirements = hearingAssertions.filter(item => item.role === 'other');
+    if (otherEarRequirements.some(requirement => !oneEarSides.some(side =>
+      requirement.sides.some(otherSide => side !== otherSide)))) met = null;
   }
   if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
     && sharedQuotedEvidence.size === 0) met = null;
@@ -1946,7 +2098,8 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
       : results;
   return { met, evidence: uniqueEvidenceText(decisive.map(result => result.evidence)),
     factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId,
-    eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []) };
+    eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []),
+    hearingAssertions: decisive.flatMap(result => result.hearingAssertions || []) };
 }
 
 function factDateKeys(fact) {
@@ -2423,6 +2576,7 @@ export function normalizeResult(raw, input, context) {
   }
   const hasValidatedFacts = Array.isArray(context.extractedFacts);
   const ageAdjustmentMissingMaterials = [];
+  const hearingThresholdMissingMaterials = [];
   const missingMaterials = canonicalMissingMaterials([
     ...(hasValidatedFacts ? [] : generated.missingMaterials),
     ...(Array.isArray(context.factMissingMaterials) ? context.factMissingMaterials : []),
@@ -2650,6 +2804,11 @@ export function normalizeResult(raw, input, context) {
       const ageFollowUp = clause.conditionLogic.ageAdjustment
         ? ageAdjustmentFollowUp(clause.conditionLogic.logic, facts) : null;
       if (ageFollowUp && !ageAdjustmentMissingMaterials.includes(ageFollowUp)) ageAdjustmentMissingMaterials.push(ageFollowUp);
+      const hearingFollowUp = hearingThresholdFollowUp(clause.conditionLogic.logic, facts,
+        `${input.description} ${recognizedText}`);
+      if (hearingFollowUp && !hearingThresholdMissingMaterials.includes(hearingFollowUp)) {
+        hearingThresholdMissingMaterials.push(hearingFollowUp);
+      }
       if (bound.invalid && /肋骨骨折/.test(clause.text)) invalidRibConditionMapping = true;
       if (clause.grade && proposed.relation === 'differential'
         && !hasSourceLinkedReference(bound.conditions, proposed.evidence)) {
@@ -2916,10 +3075,12 @@ export function normalizeResult(raw, input, context) {
       missingMaterials.splice(0, missingMaterials.length,
         conflicts.length ? '核对冲突事实所涉及的原始资料。' : '核实关键事实的原始资料。');
     } else if (status === 'preliminary') {
-      missingMaterials.splice(0, missingMaterials.length, ...canonicalMissingMaterials(ageAdjustmentMissingMaterials));
+      missingMaterials.splice(0, missingMaterials.length,
+        ...canonicalMissingMaterials([...ageAdjustmentMissingMaterials, ...hearingThresholdMissingMaterials]));
     } else if (status === 'insufficient') {
       missingMaterials.splice(0, missingMaterials.length,
-        ...canonicalMissingMaterials([...(context.factMissingMaterials || []), ...ageAdjustmentMissingMaterials]));
+        ...canonicalMissingMaterials([...(context.factMissingMaterials || []), ...ageAdjustmentMissingMaterials,
+          ...hearingThresholdMissingMaterials]));
       const excludedOnlyFacts = facts.length > 0 && facts.every(fact => fact.certainty === 'excluded');
       const hasReliableRibFact = facts.some(fact => fact.field === 'injury_type' && fact.value === 'rib_fracture'
         && ['reported', 'observed', 'derived'].includes(fact.certainty)
@@ -2935,6 +3096,10 @@ export function normalizeResult(raw, input, context) {
       if (excludedOnlyFacts) missingMaterials.splice(0, missingMaterials.length);
       if (missingMaterials.length === 0) missingMaterials.push('补充与适用条款相关的客观材料。');
     }
+  }
+  if (!hasValidatedFacts && hearingThresholdMissingMaterials.length && status === 'insufficient') {
+    missingMaterials.splice(0, missingMaterials.length,
+      ...canonicalMissingMaterials([...missingMaterials, ...hearingThresholdMissingMaterials]));
   }
   const unresolvedShock = input.assessmentType === 'injury' && status === 'insufficient'
     && Boolean(ungradedShockDiagnosis(facts, sourceText))
