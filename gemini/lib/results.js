@@ -6,10 +6,11 @@ import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, 
   hasExplicitLimbLengthDifferenceLink, hasVerifiedModerateShockEvidence, parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches, hasSameEyeInjuryContext } from './facts.js';
 
-const grades = {
+export const gradeOrder = {
   injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
   disability: ['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残'],
 };
+const grades = gradeOrder;
 
 export function deduplicateClauseReferences(references) {
   const byId = new Map();

@@ -3,7 +3,7 @@ import { extractionSchema, factExtractionSchema, providerResultSchema } from './
 import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
 import { normalizeExtractedFacts } from './facts.js';
 import { catalogContext, catalogs, retrieveClauses } from './catalog.js';
-import { evaluateConditionLogic, normalizeResult } from './results.js';
+import { evaluateConditionLogic, gradeOrder, normalizeResult } from './results.js';
 import { ServiceError } from './provider.js';
 import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
 
@@ -20,11 +20,6 @@ references 必须引用给定 clauseId。逐条按官方条款附带的 conditio
 const targetedReviewInstruction = '只复核待核条件和给定候选条款，不重新分析无关事实；候选条件及事实均不构成等级结论，服务端将重新核验每个条件。';
 export const ASSESSMENT_PROMPT_VERSION = crypto.createHash('sha256')
   .update(`${rules}\n${targetedReviewInstruction}`, 'utf8').digest('hex');
-
-const gradeOrder = {
-  injury: ['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤'],
-  disability: ['一级伤残', '二级伤残', '三级伤残', '四级伤残', '五级伤残', '六级伤残', '七级伤残', '八级伤残', '九级伤残', '十级伤残'],
-};
 
 function conditionFactFields(node, fields = new Set()) {
   if (node?.factMatch) {
