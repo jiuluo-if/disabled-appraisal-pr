@@ -1,19 +1,32 @@
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { FACT_SCHEMA_VERSION } from './facts.js';
 import { RULES_VERSION } from './catalog.js';
 
 export const ANALYSIS_SNAPSHOT_VERSION = '1.0';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
+
+export function hashAssessmentSources(root, sources) {
+  const pathApi = /^[a-z]:[\\/]/iu.test(root) ? path.win32 : path.posix;
+  const normalized = sources.map(source => ({
+    path: pathApi.relative(root, source.path).replaceAll('\\', '/'),
+    content: source.content,
+  })).sort((left, right) => left.path.localeCompare(right.path));
+  return createHash('sha256').update(normalized
+    .map(source => `${source.path}\n${source.content}`).join('\n'), 'utf8').digest('hex');
+}
+
 const sourceDirectory = new URL('.', import.meta.url);
 const sourceFiles = [
   ...readdirSync(sourceDirectory).filter(name => name.endsWith('.js')).sort()
     .map(name => new URL(name, sourceDirectory)),
   new URL('../server.js', import.meta.url),
 ];
-export const ASSESSMENT_CODE_VERSION = createHash('sha256').update(sourceFiles
-  .map(file => `${file.pathname}\n${readFileSync(file)}`).join('\n'), 'utf8').digest('hex');
+export const ASSESSMENT_CODE_VERSION = hashAssessmentSources(fileURLToPath(sourceDirectory), sourceFiles
+  .map(file => ({ path: fileURLToPath(file), content: readFileSync(file, 'utf8') })));
 
 export function createAssessmentSnapshot(input, extracted, config, { factPromptVersion, assessmentPromptVersion,
   codeVersion = 'development-unversioned' } = {}) {
