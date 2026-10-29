@@ -226,10 +226,10 @@ function normalizeGcsScoreFacts(inputText) {
     const end = start + match[0].length;
     const certainty = certaintyFor(text, start, end);
     if (certainty !== 'reported' || hasNonCurrentClinicalContext(text, start, end)) continue;
-    const evidence = sourceSentence(text, match[0]) || match[0];
+    const evidence = sourceSentence(text, match[0], start) || match[0];
     findings.push({ field: 'gcs_score', value: Number(match[1]),
       certainty: hasConfoundedGcsMeasurementContext(evidence) ? 'unknown' : 'reported', source_type: 'user_text',
-      source_excerpt: match[0] });
+      source_excerpt: evidence });
   }
   return findings;
 }
@@ -241,7 +241,7 @@ function hasConfoundedGcsMeasurementContext(evidence) {
   const scoreIndex = context.search(/(?:GCS|格拉斯哥昏迷评分)/iu);
   if (scoreIndex < 0) return false;
   const beforeScore = context.slice(0, scoreIndex);
-  const confounderPattern = /全身麻醉|全麻|麻醉|镇静(?:药物|剂)?|肌松(?:药物|剂)?|气管插管|插管|机械通气|呼吸机/gu;
+  const confounderPattern = /(?:全身麻醉|全麻|麻醉|镇静(?:药物|剂)?|肌松(?:药物|剂)?|气管插管|插管|机械通气|呼吸机)(?:后|中|期间|状态下|情况下|过程(?:中)?|时|下)/gu;
   const confounders = [...beforeScore.matchAll(confounderPattern)];
   if (!confounders.length) return false;
   const lastConfounderEnd = confounders.at(-1).index + confounders.at(-1)[0].length;
@@ -3566,10 +3566,11 @@ function sourceClause(sourceText, evidence) {
   return clause.slice(windowStart, windowStart + MAX_FACT_EVIDENCE_CHARS);
 }
 
-function sourceSentence(sourceText, evidence) {
+function sourceSentence(sourceText, evidence, position = null) {
   const text = normalizeInput(sourceText || '');
   const quote = normalizeInput(evidence || '');
-  const index = quote ? text.indexOf(quote) : -1;
+  const index = quote && Number.isInteger(position) && text.slice(position, position + quote.length) === quote
+    ? position : quote ? text.indexOf(quote) : -1;
   if (index < 0) return '';
   const left = Math.max(text.lastIndexOf('。', index), text.lastIndexOf('！', index), text.lastIndexOf('？', index),
     text.lastIndexOf('\n', index)) + 1;
@@ -4558,7 +4559,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
           continue;
         }
       }
-      const excerpt = fact.field === 'clinical_finding' || fact.field === 'wound_length_cm'
+      const excerpt = fact.field === 'clinical_finding' || fact.field === 'gcs_score' || fact.field === 'wound_length_cm'
         || fact.id?.startsWith('BF')
         || fact.field === 'distinct_orbital_wall_fracture_count'
         || fact.field === 'orbital_wall_enophthalmos'

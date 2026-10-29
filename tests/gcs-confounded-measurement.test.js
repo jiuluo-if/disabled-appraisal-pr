@@ -25,10 +25,20 @@ test('GCS measured during anesthesia or sedation stays auditable but cannot inde
 });
 
 test('an unconfounded admission GCS and an explicitly non-sedated GCS remain usable', () => {
-  for (const context of ['入院GCS评分8分', '未使用镇静药物，入院GCS评分8分']) {
+  for (const context of ['入院GCS评分8分', '未使用镇静药物，入院GCS评分8分', '术前计划全麻，入院GCS评分8分']) {
     const description = `交通事故导致头部外伤。${context}。CT诊断外伤性蛛网膜下腔出血。`;
     const snapshot = extract(description);
     assert.equal(snapshot.facts.find(item => item.field === 'gcs_score')?.certainty, 'reported', context);
     assert.equal(evaluateConditionLogic(clause.conditionLogic, snapshot.facts).met, true, context);
   }
+});
+
+test('repeated equal GCS scores keep their distinct sentence evidence and context', () => {
+  const description = '全麻后GCS评分8分。苏醒后入院GCS评分8分。';
+  const snapshot = normalizeExtractedFacts({ facts: [], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
+  const scores = snapshot.facts.filter(item => item.field === 'gcs_score');
+
+  assert.equal(scores.length, 2);
+  assert.deepEqual(scores.map(item => [item.evidence, item.certainty]).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')),
+    [['全麻后GCS评分8分', 'unknown'], ['苏醒后入院GCS评分8分', 'reported']]);
 });
