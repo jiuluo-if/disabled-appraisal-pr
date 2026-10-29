@@ -1860,6 +1860,55 @@ test('postoperative multi-organ clauses bind the documented procedure and curren
   assert.equal(assess('5.7.5.3', bladderReplacement), true);
 });
 
+test('carotid thrombosis and stenosis conditions must bind the same artery and side', () => {
+  const fact = (id, value, evidence, certainty = 'reported', eventId = 'E1') => ({ id, eventId,
+    field: 'clinical_finding', value, certainty, source: 'description', verification: 'quoted', evidence });
+  const assess = (id, facts) => evaluateConditionLogic(catalogs.injury.clauses
+    .find(item => item.id === id).conditionLogic, facts).met;
+  const internal = catalogs.injury.clauses.find(item => item.id === '5.5.2.g').conditionLogic.logic.children;
+  const common = catalogs.injury.clauses.find(item => item.id === '5.5.2.h').conditionLogic.logic.children;
+
+  const leftInternalThrombus = fact('T1', '颈内动脉血栓形成', 'CTA证实本次事故造成左颈内动脉血栓形成。');
+  const stenosisClaim = (id, rulePhrase, finding, certainty = 'reported', eventId = 'E1') =>
+    fact(id, rulePhrase, `条款引用“${rulePhrase}”；CTA证实本次事故相关检查记载${finding}。`, certainty, eventId);
+  const leftInternalAtThreshold = stenosisClaim('S1', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄50%');
+  const rightInternalAboveThreshold = stenosisClaim('S2', '血管腔狭窄(50％以上)', '右颈内动脉管腔狭窄51%');
+  const leftCommonAtThreshold = stenosisClaim('S3', '血管腔狭窄(50％以上)', '左颈总动脉管腔狭窄50%');
+  const leftInternalBelowThreshold = stenosisClaim('S4', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄49%');
+  assert.equal(assess('5.5.2.g', [leftInternalThrombus, leftInternalAtThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, rightInternalAboveThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftCommonAtThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalBelowThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalAtThreshold, leftInternalBelowThreshold]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
+    stenosisClaim('S11', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄四十九%')]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus,
+    stenosisClaim('S5', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄50%', 'uncertain')]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalAtThreshold,
+    stenosisClaim('S10', '血管腔狭窄(50％以上)', '左颈内动脉管腔狭窄50%', 'excluded')]), true);
+  assert.notEqual(assess('5.5.2.g', [leftInternalThrombus, leftInternalAtThreshold]
+    .map(({ eventId, ...fact }) => fact)), true);
+  assert.equal(assess('5.5.2.h', [
+    fact('T2', '颈总动脉血栓形成', 'CTA证实本次事故造成右颈总动脉血栓形成。'),
+    stenosisClaim('S6', '血管腔狭窄(25％以上)', '右颈总动脉管腔狭窄25%'),
+  ]), true);
+  assert.notEqual(assess('5.5.2.h', [
+    fact('T2', '颈总动脉血栓形成', 'CTA证实本次事故造成右颈总动脉血栓形成。'),
+    stenosisClaim('S8', '血管腔狭窄(25％以上)', '右颈总动脉管腔狭窄24%'),
+  ]), true);
+  assert.notEqual(assess('5.5.2.h', [
+    fact('T2', '颈总动脉血栓形成', 'CTA证实本次事故造成左颈总动脉血栓形成。'),
+    stenosisClaim('S9', '血管腔狭窄(25％以上)', '右颈总动脉管腔狭窄26%'),
+  ]), true);
+  assert.notEqual(assess('5.5.2.h', [
+    fact('T2', '颈总动脉血栓形成', 'CTA证实本次事故造成右颈总动脉血栓形成。'),
+    stenosisClaim('S7', '血管腔狭窄(25％以上)', '右颈总动脉管腔狭窄25%', 'reported', 'E2'),
+  ]), true);
+
+  assert.ok(internal[0].sourceText.includes('颈内动脉'));
+  assert.ok(common[0].sourceText.includes('颈总动脉'));
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',

@@ -1555,6 +1555,92 @@ function unilateralEarFindingEvidence(node, evidence, factValue) {
   return findings.length ? { ...requirement, matched: true, findings } : null;
 }
 
+function carotidConditionRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = String(node.conditionText || node.sourceText || '').normalize('NFKC');
+  if (/颈内动脉血栓形成/u.test(condition)) return { kind: 'thrombosis', artery: 'internal' };
+  if (/颈总动脉血栓形成/u.test(condition)) return { kind: 'thrombosis', artery: 'common' };
+  const stenosis = /血管腔狭窄\s*[（(]\s*(\d+(?:\.\d+)?)\s*%\s*以上/u.exec(condition);
+  return stenosis ? { kind: 'stenosis', threshold: Number(stenosis[1]) } : null;
+}
+
+function carotidObservations(fact, kind) {
+  if (typeof fact.evidence !== 'string') return [];
+  const observations = [];
+  for (const sentence of fact.evidence.normalize('NFKC').split(/[。！？；;\n]/u)) {
+    if (/(?:条款引用|条文引用|标准条文|鉴定标准|标准规定)/u.test(sentence)) continue;
+    const arteryPattern = /(左|右)(?:侧)?\s*颈(内|总)动脉([^，,。！？；;\n]{0,32})/gu;
+    for (const match of sentence.matchAll(arteryPattern)) {
+      const side = match[1] === '左' ? 'left' : 'right';
+      const artery = match[2] === '内' ? 'internal' : 'common';
+      const tail = match[3];
+      if (kind === 'thrombosis' && !/血栓形成|血栓/u.test(tail)
+        || kind === 'stenosis' && !/狭窄/u.test(tail)) continue;
+      const context = sentence.slice(Math.max(0, match.index - 18), match.index + match[0].length + tail.length + 16);
+      const negated = /(?:未见|未发现|未查见|未提示|没有|不存在|排除|阴性)[^，,。！？；;\n]{0,16}$/u
+        .test(sentence.slice(Math.max(0, match.index - 18), match.index));
+      const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定|约|大约|左右|接近|估计)/u.test(context);
+      let value = null;
+      if (kind === 'stenosis') {
+        const percent = /狭窄[^，,。！？；;\n]{0,12}?([\d.]+|[零〇一二两三四五六七八九十百]+)\s*%/u.exec(tail);
+        if (!percent) continue;
+        value = /^[\d.]+$/u.test(percent[1]) ? Number(percent[1]) : parseNumber(percent[1]);
+        if (!Number.isFinite(value) || value < 0 || value > 100) continue;
+      }
+      observations.push({ kind, artery, side, value, negated, uncertain, fact });
+    }
+  }
+  return observations;
+}
+
+function carotidFactValueMatches(fact, requirement) {
+  const values = Array.isArray(fact.value) ? fact.value : [fact.value];
+  return values.some(value => {
+    const text = String(value || '').normalize('NFKC');
+    if (requirement.kind === 'stenosis') return /(?:颈(?:内|总)动脉)?[^。！？；;]{0,12}狭窄/u.test(text);
+    return text.includes(requirement.artery === 'internal' ? '颈内动脉' : '颈总动脉')
+      && /血栓/u.test(text);
+  });
+}
+
+function evaluateCarotidCondition(node, facts, requirement) {
+  const acceptedFields = conditionFactFields(node.factMatch);
+  const matchingFacts = facts.filter(fact => acceptedFields.has(fact.field)
+    && fact.source === 'description' && fact.verification === 'quoted'
+    && Boolean(fact.eventId) && carotidFactValueMatches(fact, requirement));
+  const observations = matchingFacts.flatMap(fact => carotidObservations(fact, requirement.kind)
+    .filter(item => requirement.kind !== 'thrombosis' || item.artery === requirement.artery)
+    .map(item => ({ ...item, certainty: fact.certainty,
+      threshold: requirement.kind === 'stenosis' ? requirement.threshold : null })));
+  const positive = observations.filter(item => reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain
+    && (requirement.kind !== 'stenosis' || item.value >= requirement.threshold));
+  const explicitBelowThreshold = requirement.kind === 'stenosis' && observations.some(item =>
+    reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain && item.value < requirement.threshold);
+  const uncertain = observations.some(item => ['uncertain', 'unknown', 'conflicted'].includes(item.certainty)
+    || item.uncertain);
+  const contradictory = observations.some(item => item.negated || item.certainty === 'excluded')
+    && positive.some(affirmative => observations.some(negative => negative.side === affirmative.side
+      && negative.artery === affirmative.artery && (negative.negated || negative.certainty === 'excluded')));
+  const conflictingMeasurements = requirement.kind === 'stenosis' && observations.some(item =>
+    reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain && item.value >= requirement.threshold
+    && observations.some(other => other.artery === item.artery && other.side === item.side
+      && reliableCertainties.has(other.certainty) && !other.negated && !other.uncertain
+      && other.value < requirement.threshold));
+  const uncertainSameVessel = positive.some(item => observations.some(other => other.side === item.side
+    && other.artery === item.artery && (other.uncertain || ['uncertain', 'unknown', 'conflicted'].includes(other.certainty))));
+  if (contradictory || conflictingMeasurements || uncertainSameVessel) {
+    return { met: null, evidence: '', factIds: [], carotidAssertions: observations };
+  }
+  if (positive.length) return { met: true, evidence: uniqueEvidenceText(positive.map(item => item.fact.evidence)),
+    factIds: [...new Set(positive.map(item => item.fact.id))], carotidAssertions: observations };
+  if (uncertain) return { met: null, evidence: '', factIds: [], carotidAssertions: observations };
+  if (explicitBelowThreshold || observations.some(item => item.negated || item.certainty === 'excluded')) {
+    return { met: false, evidence: uniqueEvidenceText(observations.map(item => item.fact.evidence)),
+      factIds: [...new Set(observations.map(item => item.fact.id))], carotidAssertions: observations };
+  }
+  return { met: null, evidence: '', factIds: [], carotidAssertions: observations };
+}
+
 function isIntracranialCondition(node) {
   return /(?:颅内|脑内|脑挫|脑实质)/u.test(normalize(`${node.sourceText || ''} ${node.conditionText || ''}`));
 }
@@ -1763,6 +1849,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       return { met: null, evidence: '', factIds: [] };
     }
   }
+  const carotidRequirement = carotidConditionRequirement(node);
+  if (carotidRequirement) return evaluateCarotidCondition(node, facts, carotidRequirement);
   const jointLossRequirement = largeJointLossRequirement(node);
   const vertebralRequirement = vertebralCompressionRequirement(node);
   const visualFieldRule = visualFieldRequirement(node);
@@ -2138,6 +2226,7 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
   const eyeAssertions = results.flatMap(result => result.eyeAssertions || []);
   const hearingAssertions = results.flatMap(result => result.hearingAssertions || []);
   const earSideAssertions = results.flatMap(result => result.earSideAssertions || []);
+  const carotidAssertions = results.flatMap(result => result.carotidAssertions || []);
   if (op === 'all' && met === true) {
     const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
     const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
@@ -2154,6 +2243,20 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
       const matchingSides = requirement.system === 'vestibular' ? hearingSides : otherFindingSides;
       if (!requirement.sides.some(side => matchingSides.includes(side))) met = null;
     }
+    const thrombosis = carotidAssertions.filter(item => item.kind === 'thrombosis'
+      && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain);
+    const stenosis = carotidAssertions.filter(item => item.kind === 'stenosis'
+      && reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain
+      && item.value >= item.threshold);
+    if (thrombosis.length && stenosis.length) {
+      const sameVessel = thrombosis.some(clot => stenosis.some(narrowing =>
+        narrowing.artery === clot.artery && narrowing.side === clot.side));
+      const conflictedVessel = thrombosis.some(clot => carotidAssertions.some(assertion =>
+        assertion.artery === clot.artery && assertion.side === clot.side
+        && (assertion.negated || assertion.uncertain
+          || ['uncertain', 'unknown', 'conflicted', 'excluded'].includes(assertion.certainty))));
+      if (!sameVessel || conflictedVessel) met = null;
+    }
   }
   if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
     && sharedQuotedEvidence.size === 0) met = null;
@@ -2164,7 +2267,8 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
     factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId,
     eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []),
     hearingAssertions: decisive.flatMap(result => result.hearingAssertions || []),
-    earSideAssertions: decisive.flatMap(result => result.earSideAssertions || []) };
+    earSideAssertions: decisive.flatMap(result => result.earSideAssertions || []),
+    carotidAssertions: decisive.flatMap(result => result.carotidAssertions || []) };
 }
 
 function factDateKeys(fact) {
