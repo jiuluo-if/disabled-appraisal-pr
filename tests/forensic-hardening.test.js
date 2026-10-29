@@ -1542,6 +1542,106 @@ test('joint loss support cannot come from a below-threshold value, excluded ankl
   ]).met, null);
 });
 
+test('a generic vertebral compression clause quote does not prove a level or its compression ratio', () => {
+  const cases = [
+    ['injury', '5.9.3.b', '一节椎体压缩骨折超过1/3以上'],
+    ['disability', '5.10.6.2', '一椎体压缩性骨折（压缩程度达1/3）或者粉碎性骨折'],
+  ];
+
+  for (const [assessmentType, id, finding] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    for (const [variant, quote] of [['branch', finding], ['whole clause', clause.text.replace(/[。；;]$/u, '')]]) {
+      const description = `合成资料，非真实病例。本次事故后，病历写明“${quote}”。`;
+      const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: quote,
+        certainty: 'reported', source: 'description', verification: 'quoted', evidence: quote };
+      const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+        facts: [], references: [{ clauseId: id, relation: 'supports', evidence: quote, reasoning: '',
+          conditions: [{ condition: clause.text, evidence: quote, factIds: ['F1'], met: true }] }] },
+      { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `generic-vertebral-threshold-${id}-${variant}`,
+        model: 'test-model', extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+      assert.equal(result.grade, null, `${id} ${variant}`);
+      assert.notEqual(result.references.find(reference => reference.id === id)?.relation, 'supports', `${id} ${variant}`);
+    }
+  }
+});
+
+test('vertebral ratio and comminution clauses require a named level and directly documented qualifying finding', () => {
+  const cases = [
+    ['injury', '5.9.3.b', '本次事故后影像记录L1椎体压缩骨折，压缩程度超过1/3。', '轻伤一级'],
+    ['injury', '5.9.3.b', '本次事故后影像记录L1椎体压缩骨折、压缩程度为20%，L2椎体压缩骨折、压缩程度超过1/3。',
+      '轻伤一级', 'L2椎体压缩骨折、压缩程度超过1/3'],
+    ['disability', '5.10.6.2', '本次事故后CT记录T12椎体压缩性骨折，压缩程度达1/3。', '十级伤残'],
+    ['disability', '5.10.6.2', '本次事故后CT记录T12椎体粉碎性骨折。', '十级伤残'],
+  ];
+
+  for (const [assessmentType, id, description, grade, findingOverride] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    const finding = findingOverride || description.replace(/^本次事故后(?:影像记录|CT记录)/u, '').replace(/。$/u, '');
+    const facts = normalizeExtractedFacts({ ...emptyExtraction, facts: [{ id: 'F1', eventId: 'E1',
+      field: 'clinical_finding', value: finding, certainty: 'reported', source: 'description', evidence: description }] },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `specific-vertebral-finding-${id}`,
+      model: 'test-model', extractedFacts: facts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(result.grade, grade, id);
+    assert.equal(result.references.find(reference => reference.id === id)?.relation, 'supports', id);
+  }
+});
+
+test('vertebral compression clauses require a named level and the standard specific ratio semantics', () => {
+  const cases = [
+    ['injury', '5.9.3.b', '本次交通事故后影像报告记载：一节椎体压缩骨折超过1/3以上。', '一节椎体压缩骨折超过1/3以上', null],
+    ['injury', '5.9.3.b', '本次交通事故后影像报告记载：L1椎体压缩骨折，压缩程度超过1/3。', 'L1椎体压缩骨折，压缩程度超过1/3', '轻伤一级'],
+    ['injury', '5.9.3.b', '本次交通事故后影像报告记载：L1椎体压缩骨折，压缩程度达1/3。', 'L1椎体压缩骨折，压缩程度达1/3', null],
+    ['disability', '5.10.6.2', '本次交通事故后CT记录：一椎体压缩性骨折（压缩程度达1/3）或者粉碎性骨折。',
+      '一椎体压缩性骨折（压缩程度达1/3）或者粉碎性骨折', null],
+    ['disability', '5.10.6.2', '本次交通事故后CT记录：T12椎体压缩性骨折，压缩程度达1/3。',
+      'T12椎体压缩性骨折，压缩程度达1/3', '十级伤残'],
+    ['disability', '5.10.6.2', '本次交通事故后CT记录：T12椎体粉碎性骨折。',
+      'T12椎体粉碎性骨折', '十级伤残'],
+    ['disability', '5.10.6.2', '本次交通事故后CT记录：T12椎体压缩性骨折，压缩程度为30%。',
+      'T12椎体压缩性骨折，压缩程度为30%', null],
+  ];
+
+  for (const [assessmentType, id, description, finding, grade] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    const extractedFacts = normalizeExtractedFacts({ ...emptyExtraction, facts: [{ id: 'F1', eventId: 'E1',
+      field: 'clinical_finding', value: finding, certainty: 'reported', source: 'description', evidence: description }] },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `vertebral-compression-${id}`,
+      model: 'test-model', extractedFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(result.grade, grade, description);
+    if (grade) assert.equal(result.references.find(reference => reference.id === id)?.relation, 'supports', description);
+    else assert.notEqual(result.references.find(reference => reference.id === id)?.relation, 'supports', description);
+  }
+
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.10.6.2');
+  const fact = (id, certainty, value, evidence) => ({ id, eventId: 'E1', field: 'clinical_finding', value,
+    certainty, source: 'description', verification: 'quoted', evidence });
+  const affirmative = fact('F1', 'reported', 'T12椎体压缩性骨折，压缩程度达1/3',
+    '本次事故后T12椎体压缩性骨折，压缩程度达1/3。');
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [affirmative,
+    fact('F2', 'excluded', 'T12椎体压缩性骨折', '复查明确未见T12椎体压缩性骨折。')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [affirmative,
+    fact('F3', 'uncertain', 'T12椎体可能压缩性骨折，压缩程度达1/3',
+      '本次事故后T12椎体可能压缩性骨折，压缩程度达1/3。')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [affirmative,
+    fact('F4', 'reported', 'T12椎体压缩性骨折，压缩程度为1/2',
+      '复核报告T12椎体压缩性骨折，压缩程度为1/2。')]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [affirmative,
+    fact('F5', 'excluded', 'L1椎体压缩性骨折', '复查明确未见L1椎体压缩性骨折。')]).met, true);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [affirmative,
+    fact('F6', 'excluded', '第十二胸椎压缩性骨折', '复查明确未见第十二胸椎压缩性骨折。')]).met, null);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',

@@ -1197,6 +1197,9 @@ function conditionFactIsExplicitlyNegated(node, fact) {
   if (largeJointLossRequirement(node)) {
     return Boolean(largeJointLossEvidence(node, fact.evidence, fact.value)?.negated);
   }
+  if (vertebralCompressionRequirement(node)) {
+    return Boolean(vertebralCompressionEvidence(node, fact.evidence, fact.value)?.negated);
+  }
   const terms = [...new Set([...(node.factMatch.values || []), ...(node.factMatch.valueIncludes || []),
     ...(node.factMatch.evidenceAliases || [])].filter(value => typeof value === 'string' && value))];
   const clauses = normalize(fact.evidence).split(/[，,。！？；;、\n]/u);
@@ -1274,6 +1277,96 @@ function largeJointLossEvidence(node, evidence, factValue) {
     const uncertain = /(?:约|大约|左右|接近|估计|疑似|可能|考虑|待排|待查|待核|待明确|不确定|不能确定)/u.test(context);
     return { matched: true, joint: joint[0], side, percent: parsedPercent, negated, uncertain,
       supports: !negated && !uncertain && parsedPercent >= requirement.threshold };
+  }
+  return null;
+}
+
+function vertebralCompressionRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
+  if (!condition.includes('椎体') || !/压缩/u.test(condition) || !/1\s*\/\s*3/u.test(condition)) return null;
+  return { strict: /超过\s*1\s*\/\s*3/u.test(condition),
+    includesComminution: /粉碎性骨折/u.test(condition) };
+}
+
+function vertebralCompressionEvidence(node, evidence, factValue) {
+  const requirement = vertebralCompressionRequirement(node);
+  if (!requirement || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const text = evidence.normalize('NFKC');
+  const valueText = factValue.normalize('NFKC');
+  const levelPattern = /(?:\b[CTLS]\s*\d{1,2}(?:椎体|椎|节)?|第?[一二两三四五六七八九十百\d]+(?:颈椎|胸椎|腰椎|骶椎))/giu;
+  for (const segmentMatch of text.matchAll(/[^。！？；;\n]+/gu)) {
+    const segment = segmentMatch[0];
+    const levels = [...segment.matchAll(levelPattern)];
+    const valueLevels = [...valueText.matchAll(levelPattern)];
+    if (valueLevels.length !== 1) continue;
+    const matchingLevels = levels.filter(item => normalize(item[0]) === normalize(valueLevels[0][0]));
+    if (matchingLevels.length !== 1) continue;
+    const level = matchingLevels[0];
+    const compressionDiagnosis = /压缩(?:性)?骨折/u.exec(segment);
+    if (compressionDiagnosis && level.index <= compressionDiagnosis.index
+      && compressionDiagnosis.index - level.index <= 32
+      && /压缩(?:性)?骨折/u.test(valueText)) {
+      const diagnosisContext = segment.slice(Math.max(0, level.index - 16), compressionDiagnosis.index + compressionDiagnosis[0].length);
+      const negatedDiagnosis = /(?:未见|未发现|否认|排除|没有|无)[^，,。！？；;\n]{0,18}压缩(?:性)?骨折/u.test(diagnosisContext)
+        || /压缩(?:性)?骨折[^，,。！？；;\n]{0,12}(?:未见|未发现|否认|排除)/u.test(diagnosisContext);
+      const uncertainDiagnosis = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定)/u.test(diagnosisContext);
+      if (negatedDiagnosis || uncertainDiagnosis) {
+        return { matched: true, level: level[0], negated: negatedDiagnosis, uncertain: uncertainDiagnosis,
+          supports: false };
+      }
+    }
+    if (requirement.includesComminution && /粉碎性骨折/u.test(segment)
+      && /粉碎性骨折/u.test(valueText)) {
+      const findingIndex = segment.indexOf('粉碎性骨折');
+      const context = segment.slice(Math.max(0, level.index - 16), findingIndex + 6);
+      const negated = /(?:未见|未发现|否认|排除|没有|无|不伴)[^，,。！？；;\n]{0,20}$/u.test(context);
+      const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定)/u.test(context);
+      if (level.index <= findingIndex && findingIndex - level.index <= 32) {
+        return { matched: true, level: level[0], negated, uncertain,
+          supports: !negated && !uncertain };
+      }
+    }
+    const ratioPattern = /压缩(?:程度|比|率)\s*(?:(?:为|达|达到|≥|不低于|至少|超过|大于等于|大于)\s*)?(1\s*\/\s*\d+|[零〇一二三四五六七八九十百]+分之[零〇一二三四五六七八九十百]+|\d+(?:\.\d+)?\s*%)/gu;
+    const ratios = [...segment.matchAll(ratioPattern)];
+    const matchingRatios = ratios.filter(candidate => {
+      const priorLevels = levels.filter(item => item.index <= candidate.index);
+      const nearestLevel = priorLevels.at(-1);
+      return nearestLevel && normalize(nearestLevel[0]) === normalize(level[0])
+        && candidate.index - nearestLevel.index <= 48;
+    });
+    if (matchingRatios.length !== 1 || !/压缩(?:性)?骨折/u.test(segment)) continue;
+    const ratio = matchingRatios[0];
+    if (level.index > ratio.index || ratio.index - level.index > 48) continue;
+    const token = normalize(ratio[1]);
+    let compression;
+    if (token.includes('/')) {
+      const [numerator, denominator] = token.split('/').map(Number);
+      if (!denominator) continue;
+      compression = numerator / denominator;
+    } else if (token.includes('分之')) {
+      const [denominatorText, numeratorText] = token.split('分之');
+      const denominator = parseNumber(denominatorText), numerator = parseNumber(numeratorText);
+      if (!denominator) continue;
+      compression = numerator / denominator;
+    } else if (token.endsWith('%')) {
+      compression = Number(token.slice(0, -1)) / 100;
+    }
+    if (!Number.isFinite(compression) || compression < 0 || compression > 1) continue;
+    const quotedRatios = [...valueText.matchAll(ratioPattern)];
+    ratioPattern.lastIndex = 0;
+    if (quotedRatios.length !== 1 || normalize(quotedRatios[0][1]) !== token) continue;
+    const ratioPrefix = ratio[0].slice(0, ratio[0].lastIndexOf(ratio[1]));
+    const strictEvidence = /(?:超过|大于)\s*$/u.test(ratioPrefix);
+    const context = segment.slice(Math.max(0, level.index - 16), ratio.index + ratio[0].length + 8);
+    const negated = /(?:未见|未发现|否认|排除|没有|无|未达|不超过|小于|低于|不足|少于)/u.test(context)
+      || /压缩(?:程度|比|率)[^，,。！？；;\n]{0,12}(?:以下|以内)/u.test(context);
+    const uncertain = /(?:约|大约|左右|接近|估计|疑似|可能|考虑|待排|待查|待核|待明确|不确定|不能确定)/u.test(context);
+    const atLeastOneThird = compression > 1 / 3
+      || compression === 1 / 3 && (!requirement.strict || strictEvidence);
+    return { matched: true, level: level[0], compression, negated, uncertain,
+      supports: !negated && !uncertain && atLeastOneThird };
   }
   return null;
 }
@@ -1479,6 +1572,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     }
   }
   const jointLossRequirement = largeJointLossRequirement(node);
+  const vertebralRequirement = vertebralCompressionRequirement(node);
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
     && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
@@ -1494,6 +1588,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const relevant = candidates.filter(fact => {
     if (isIntracranialCondition(node) && isSpinalEpiduralHematomaFact(fact)) return false;
     const jointLossEvidence = jointLossRequirement ? largeJointLossEvidence(node, fact.evidence, fact.value) : null;
+    const vertebralEvidence = vertebralRequirement
+      ? vertebralCompressionEvidence(node, fact.evidence, fact.value) : null;
     if (predicate?.field === 'aggregate_wound_length_cm'
       && !aggregateWoundLengthSitesSupportPredicate(predicate, fact)) return false;
     if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
@@ -1524,7 +1620,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const performedSurgicalTreatment = genericSurgicalRequirement && acceptedFields.has('treatment')
         && requiresCurrentProcedureLink(node) && isPerformedSurgicalTreatmentFact(fact);
       const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue
-        || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched);
+        || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched) || Boolean(vertebralEvidence?.matched);
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1544,8 +1640,9 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const moderateShockCondition = node.factMatch.field === 'clinical_finding'
         && node.factMatch.values?.some(value => normalize(value) === normalize('各种损伤引起休克（中度）'));
       const evidenceMatches = jointLossRequirement ? Boolean(jointLossEvidence?.matched)
-        : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
-          ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
+        : vertebralRequirement ? Boolean(vertebralEvidence?.matched)
+          : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
+            ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
         || !isUnperformedProcedureEvidence(fact.evidence) && hasCurrentEventLinkForProcedure(fact, facts, node);
       return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
@@ -1565,7 +1662,10 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const conflictingExclusions = excluded.filter(negative => positive.some(affirmative => jointLossRequirement
     ? sameLargeJointSide(largeJointLossEvidence(node, affirmative.evidence, affirmative.value),
       largeJointLossEvidence(node, negative.evidence, negative.value))
-    : !explicitlySeparateBrainFindings(affirmative, negative)));
+    : vertebralRequirement
+      ? sameVertebralLevel(vertebralCompressionEvidence(node, affirmative.evidence, affirmative.value),
+        vertebralCompressionEvidence(node, negative.evidence, negative.value))
+      : !explicitlySeparateBrainFindings(affirmative, negative)));
   if (positive.length && conflictingExclusions.length || !positive.length && uncertain) {
     return { met: null, evidence: '', factIds: [] };
   }
@@ -1586,6 +1686,27 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       && assertions.some(item => sameLargeJointSide(item.assessment,
         largeJointLossEvidence(node, fact.evidence, fact.value))));
     if (uncertainSameJoint) return { met: null, evidence: '', factIds: [] };
+    return { met: true, evidence: uniqueEvidenceText(supporting.map(item => item.fact.evidence)),
+      factIds: supporting.map(item => item.fact.id) };
+  }
+  if (vertebralRequirement && positive.length) {
+    const assertions = positive.map(fact => ({ fact, assessment: vertebralCompressionEvidence(node, fact.evidence, fact.value) }))
+      .filter(item => item.assessment?.matched);
+    for (let left = 0; left < assertions.length; left += 1) {
+      for (let right = left + 1; right < assertions.length; right += 1) {
+        const first = assertions[left].assessment, second = assertions[right].assessment;
+        if (sameVertebralLevel(first, second) && Number.isFinite(first.compression)
+          && Number.isFinite(second.compression) && first.compression !== second.compression) {
+          return { met: null, evidence: '', factIds: [] };
+        }
+      }
+    }
+    const supporting = assertions.filter(item => item.assessment.supports);
+    if (!supporting.length) return { met: null, evidence: '', factIds: [] };
+    const uncertainSameLevel = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      && assertions.some(item => sameVertebralLevel(item.assessment,
+        vertebralCompressionEvidence(node, fact.evidence, fact.value))));
+    if (uncertainSameLevel) return { met: null, evidence: '', factIds: [] };
     return { met: true, evidence: uniqueEvidenceText(supporting.map(item => item.fact.evidence)),
       factIds: supporting.map(item => item.fact.id) };
   }
@@ -1625,7 +1746,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   }
   if (positive.length) return { met: true, evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
     factIds: positive.map(fact => fact.id) };
-  if (jointLossRequirement && excluded.length) return { met: null, evidence: '', factIds: [] };
+  if ((jointLossRequirement || vertebralRequirement) && excluded.length) return { met: null, evidence: '', factIds: [] };
   if (excluded.length) return { met: false, evidence: uniqueEvidenceText(excluded.map(fact => fact.evidence)),
     factIds: excluded.map(fact => fact.id) };
   return { met: null, evidence: '', factIds: [] };
@@ -1636,6 +1757,21 @@ function sameLargeJointSide(left, right) {
   const jointName = value => value.replace(/关节/u, '');
   return jointName(left.joint) === jointName(right.joint)
     && (!left.side || !right.side || left.side === right.side);
+}
+
+function sameVertebralLevel(left, right) {
+  return Boolean(left?.matched && right?.matched && vertebralLevelKey(left.level) === vertebralLevelKey(right.level));
+}
+
+function vertebralLevelKey(value) {
+  const text = String(value || '').normalize('NFKC').replace(/\s+/gu, '').toUpperCase();
+  const latin = /\b([CTLS])\s*(\d{1,2})/u.exec(text);
+  if (latin) return `${latin[1]}${Number(latin[2])}`;
+  const chinese = /第?([一二两三四五六七八九十百\d]+)(颈|胸|腰|骶)椎/u.exec(text);
+  if (!chinese) return normalize(text);
+  const number = /^\d/u.test(chinese[1]) ? Number(chinese[1]) : parseNumber(chinese[1]);
+  const region = { 颈: 'C', 胸: 'T', 腰: 'L', 骶: 'S' }[chinese[2]];
+  return Number.isInteger(number) && number > 0 ? `${region}${number}` : normalize(text);
 }
 
 function combineLogicResults(op, results, eventId = null, allowSharedFact = false) {
