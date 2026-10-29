@@ -1197,6 +1197,12 @@ function conditionFactIsExplicitlyNegated(node, fact) {
   if (largeJointLossRequirement(node)) {
     return Boolean(largeJointLossEvidence(node, fact.evidence, fact.value)?.negated);
   }
+  if (visualFieldRequirement(node)) {
+    return Boolean(visualFieldEvidence(node, fact.evidence, fact.value)?.observations.some(item => item.negated));
+  }
+  if (completeVisualFieldRequirement(node)) {
+    return Boolean(completeVisualFieldEvidence(node, fact.evidence, fact.value)?.findings.some(item => item.negated));
+  }
   if (vertebralCompressionRequirement(node)) {
     return Boolean(vertebralCompressionEvidence(node, fact.evidence, fact.value)?.negated);
   }
@@ -1369,6 +1375,84 @@ function vertebralCompressionEvidence(node, evidence, factValue) {
       supports: !negated && !uncertain && atLeastOneThird };
   }
   return null;
+}
+
+function visualFieldRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = `${node.sourceText || ''} ${node.conditionText || ''}`.normalize('NFKC');
+  if (!condition.includes('视野')) return null;
+  const thresholds = {};
+  const radius = /视野半径\s*(\d+(?:\.\d+)?)\s*(?:o|°|度)?\s*(?:以下|以内)/iu.exec(condition);
+  const effectiveValue = /视野有效值\s*(?:≤|<=)?\s*(\d+(?:\.\d+)?)\s*%/iu.exec(condition);
+  const diameter = /直径\s*(?:≤|<=)?\s*(\d+(?:\.\d+)?)\s*(?:o|°|度)/iu.exec(condition);
+  if (radius) thresholds.radius = Number(radius[1]);
+  if (effectiveValue) thresholds.effective = Number(effectiveValue[1]);
+  if (diameter) thresholds.diameter = Number(diameter[1]);
+  if (!Object.keys(thresholds).length) return null;
+  return { thresholds, requiredSides: /双眼/u.test(condition) ? ['left', 'right'] : null };
+}
+
+function completeVisualFieldRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return false;
+  return /一眼视野完全缺损/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`.normalize('NFKC'));
+}
+
+function completeVisualFieldEvidence(node, evidence, factValue) {
+  if (!completeVisualFieldRequirement(node) || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const findings = [];
+  for (const sentence of evidence.normalize('NFKC').split(/[。！？；;\n]/u)) {
+    for (const match of sentence.matchAll(/(左|右)眼[^，,、]{0,12}视野完全缺损/gu)) {
+      const context = sentence.slice(Math.max(0, match.index - 12), match.index + match[0].length + 8);
+      findings.push({ side: match[1] === '左' ? 'left' : 'right',
+        negated: /(?:未见|未发现|否认|排除|没有|无)[^，,、]{0,12}$/u.test(context),
+        uncertain: /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定)/u.test(context) });
+    }
+  }
+  return findings.length ? { matched: true, findings } : null;
+}
+
+function visualFieldEvidence(node, evidence, factValue) {
+  const requirement = visualFieldRequirement(node);
+  if (!requirement || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const observations = [];
+  const text = evidence.normalize('NFKC');
+  for (const sentence of text.split(/[。！？；;\n]/u)) {
+    const eyes = [...sentence.matchAll(/(左|右)眼/gu)];
+    for (let index = 0; index < eyes.length; index += 1) {
+      const eye = eyes[index];
+      const block = sentence.slice(eye.index, eyes[index + 1]?.index ?? sentence.length);
+      const side = eye[1] === '左' ? 'left' : 'right';
+      const measurements = [
+        ...[...block.matchAll(/视野半径\s*(?:(?:为|是|[:：=])\s*)?(\d+(?:\.\d+)?)\s*(o|°|度)/giu)]
+          .map(match => ({ side, metric: 'radius', value: Number(match[1]), match })),
+        ...[...block.matchAll(/视野有效值\s*(?:(?:为|是|[:：=])\s*)?(\d+(?:\.\d+)?)\s*[%％]/gu)]
+          .map(match => ({ side, metric: 'effective', value: Number(match[1]), match })),
+        ...[...block.matchAll(/视野直径\s*(?:(?:为|是|[:：=])\s*)?(\d+(?:\.\d+)?)\s*(o|°|度)/giu)]
+          .map(match => ({ side, metric: 'diameter', value: Number(match[1]), match })),
+      ].filter(item => Object.hasOwn(requirement.thresholds, item.metric));
+      for (const measurement of measurements) {
+        const eyePrefix = sentence.slice(Math.max(0, eye.index - 18), eye.index);
+        const before = block.slice(Math.max(0, measurement.match.index - 8), measurement.match.index);
+        const after = block.slice(measurement.match.index + measurement.match[0].length,
+          measurement.match.index + measurement.match[0].length + 8);
+        const negated = /(?:未见|未发现|否认|排除|没有|无|未查)/u.test(eyePrefix + before)
+          || /(?:未见|未发现|否认|排除|阴性)/u.test(after);
+        const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定|约|大约|左右|接近|估计)/u
+          .test(eyePrefix + block.slice(Math.max(0, measurement.match.index - 18),
+            measurement.match.index + measurement.match[0].length + 12));
+        observations.push({ ...measurement, negated, uncertain,
+          supports: !negated && !uncertain && measurement.value <= requirement.thresholds[measurement.metric] });
+      }
+    }
+  }
+  return observations.length ? { matched: true, observations } : null;
+}
+
+function sameVisualFieldEye(left, right) {
+  return Boolean(left?.matched && right?.matched
+    && left.observations.some(a => right.observations.some(b => a.side === b.side)));
 }
 
 function isIntracranialCondition(node) {
@@ -1573,6 +1657,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   }
   const jointLossRequirement = largeJointLossRequirement(node);
   const vertebralRequirement = vertebralCompressionRequirement(node);
+  const visualFieldRule = visualFieldRequirement(node);
+  const completeVisionRule = completeVisualFieldRequirement(node);
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
     && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
@@ -1590,6 +1676,9 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     const jointLossEvidence = jointLossRequirement ? largeJointLossEvidence(node, fact.evidence, fact.value) : null;
     const vertebralEvidence = vertebralRequirement
       ? vertebralCompressionEvidence(node, fact.evidence, fact.value) : null;
+    const visualEvidence = visualFieldRule ? visualFieldEvidence(node, fact.evidence, fact.value) : null;
+    const completeVisionEvidence = completeVisionRule
+      ? completeVisualFieldEvidence(node, fact.evidence, fact.value) : null;
     if (predicate?.field === 'aggregate_wound_length_cm'
       && !aggregateWoundLengthSitesSupportPredicate(predicate, fact)) return false;
     if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
@@ -1620,7 +1709,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       const performedSurgicalTreatment = genericSurgicalRequirement && acceptedFields.has('treatment')
         && requiresCurrentProcedureLink(node) && isPerformedSurgicalTreatmentFact(fact);
       const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue
-        || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched) || Boolean(vertebralEvidence?.matched);
+        || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched) || Boolean(vertebralEvidence?.matched)
+        || Boolean(visualEvidence?.matched) || Boolean(completeVisionEvidence?.matched);
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1641,6 +1731,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
         && node.factMatch.values?.some(value => normalize(value) === normalize('各种损伤引起休克（中度）'));
       const evidenceMatches = jointLossRequirement ? Boolean(jointLossEvidence?.matched)
         : vertebralRequirement ? Boolean(vertebralEvidence?.matched)
+          : visualFieldRule ? Boolean(visualEvidence?.matched)
+          : completeVisionRule ? Boolean(completeVisionEvidence?.matched)
           : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
             ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
@@ -1662,12 +1754,68 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const conflictingExclusions = excluded.filter(negative => positive.some(affirmative => jointLossRequirement
     ? sameLargeJointSide(largeJointLossEvidence(node, affirmative.evidence, affirmative.value),
       largeJointLossEvidence(node, negative.evidence, negative.value))
+    : visualFieldRule
+      ? sameVisualFieldEye(visualFieldEvidence(node, affirmative.evidence, affirmative.value),
+        visualFieldEvidence(node, negative.evidence, negative.value))
+    : completeVisionRule
+      ? completeVisualFieldEvidence(node, affirmative.evidence, affirmative.value)?.findings.some(left =>
+        completeVisualFieldEvidence(node, negative.evidence, negative.value)?.findings
+          .some(right => right.side === left.side))
     : vertebralRequirement
       ? sameVertebralLevel(vertebralCompressionEvidence(node, affirmative.evidence, affirmative.value),
         vertebralCompressionEvidence(node, negative.evidence, negative.value))
       : !explicitlySeparateBrainFindings(affirmative, negative)));
   if (positive.length && conflictingExclusions.length || !positive.length && uncertain) {
     return { met: null, evidence: '', factIds: [] };
+  }
+  if (completeVisionRule && positive.length) {
+    const assertions = positive.map(fact => ({ fact,
+      assessment: completeVisualFieldEvidence(node, fact.evidence, fact.value) })).filter(item => item.assessment?.matched);
+    const findings = assertions.flatMap(item => item.assessment.findings);
+    const sides = new Set(findings.filter(item => !item.negated && !item.uncertain).map(item => item.side));
+    const uncertainSameEye = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      && completeVisualFieldEvidence(node, fact.evidence, fact.value)?.findings
+        .some(item => sides.has(item.side)));
+    if (!sides.size || uncertainSameEye) return { met: null, evidence: '', factIds: [] };
+    return { met: true, evidence: uniqueEvidenceText(assertions.map(item => item.fact.evidence)),
+      factIds: assertions.map(item => item.fact.id),
+      eyeAssertions: [...sides].map(side => ({ side, kind: 'complete-loss' })) };
+  }
+  if (visualFieldRule && positive.length) {
+    const assertions = positive.map(fact => ({ fact,
+      assessment: visualFieldEvidence(node, fact.evidence, fact.value) })).filter(item => item.assessment?.matched);
+    const observations = assertions.flatMap(item => item.assessment.observations);
+    const bySideAndMetric = new Map();
+    for (const item of observations) {
+      const key = `${item.side}:${item.metric}`;
+      const previous = bySideAndMetric.get(key);
+      if (previous && previous.value !== item.value) return { met: null, evidence: '', factIds: [] };
+      if (!previous) bySideAndMetric.set(key, item);
+    }
+    const bySide = new Map();
+    for (const item of bySideAndMetric.values()) {
+      const values = bySide.get(item.side) || [];
+      values.push(item);
+      bySide.set(item.side, values);
+    }
+    const sides = visualFieldRule.requiredSides || [...bySide.keys()];
+    const sideStates = sides.map(side => {
+      const values = bySide.get(side) || [];
+      if (!values.length || values.some(item => item.uncertain || item.negated)) return false;
+      const supportStates = new Set(values.map(item => item.supports));
+      return supportStates.size === 1 ? [...supportStates][0] : false;
+    });
+    const uncertainSameEye = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      && visualFieldEvidence(node, fact.evidence, fact.value)?.observations.some(item => sides.includes(item.side)));
+    const met = visualFieldRule.requiredSides
+      ? sideStates.length === 2 && sideStates.every(Boolean)
+      : sideStates.some(Boolean);
+    if (!met || uncertainSameEye) return { met: null, evidence: '', factIds: [] };
+    const supportingFacts = assertions.filter(item => item.assessment.observations.some(observation => observation.supports));
+    return { met: true, evidence: uniqueEvidenceText(supportingFacts.map(item => item.fact.evidence)),
+      factIds: [...new Set(supportingFacts.map(item => item.fact.id))],
+      eyeAssertions: [...new Set(sides)].map(side => ({ side, kind: 'numeric',
+        requiresOppositeEye: /另一眼/u.test(`${node.sourceText || ''} ${node.conditionText || ''}`) })) };
   }
   if (jointLossRequirement && positive.length) {
     const assertions = positive.map(fact => ({ fact, assessment: largeJointLossEvidence(node, fact.evidence, fact.value) }))
@@ -1785,13 +1933,20 @@ function combineLogicResults(op, results, eventId = null, allowSharedFact = fals
   let met = op === 'all'
     ? states.includes(false) ? false : states.every(state => state === true) ? true : null
     : states.includes(true) ? true : states.every(state => state === false) ? false : null;
+  const eyeAssertions = results.flatMap(result => result.eyeAssertions || []);
+  if (op === 'all' && met === true) {
+    const completeSides = eyeAssertions.filter(item => item.kind === 'complete-loss').map(item => item.side);
+    const oppositeEyeMeasurements = eyeAssertions.filter(item => item.kind === 'numeric' && item.requiresOppositeEye);
+    if (oppositeEyeMeasurements.some(measurement => !completeSides.some(side => side !== measurement.side))) met = null;
+  }
   if (eventId === null && op === 'all' && met === true && (!allowSharedFact || sharedFactIds.size === 0)
     && sharedQuotedEvidence.size === 0) met = null;
   const decisive = op === 'all' && met === false ? results.filter(result => result.met === false)
     : op === 'any' && met === true ? results.filter(result => result.met === true)
       : results;
   return { met, evidence: uniqueEvidenceText(decisive.map(result => result.evidence)),
-    factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId };
+    factIds: [...new Set(decisive.flatMap(result => result.factIds))], eventId,
+    eyeAssertions: decisive.flatMap(result => result.eyeAssertions || []) };
 }
 
 function factDateKeys(fact) {

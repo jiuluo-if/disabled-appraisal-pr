@@ -1642,6 +1642,84 @@ test('vertebral compression clauses require a named level and the standard speci
     fact('F6', 'excluded', '第十二胸椎压缩性骨折', '复查明确未见第十二胸椎压缩性骨折。')]).met, null);
 });
 
+test('visual-field numeric clauses require an eye-specific measured value instead of the criterion wording', () => {
+  const clause = catalogs.injury.clauses.find(item => item.id === '5.4.2.c');
+  const assess = (description, finding) => {
+    const extractedFacts = normalizeExtractedFacts({ ...emptyExtraction, facts: [{ id: 'F1', eventId: 'E1',
+      field: 'clinical_finding', value: finding, certainty: 'reported', source: 'description', evidence: description }] },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    return normalizeResult({ ...providerFixture('injury'), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: clause.id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs.injury, description }, { clauses: [clause], requestId: 'visual-field-numeric-evidence',
+      model: 'test-model', extractedFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+  };
+  const genericClause = clause.conditionLogic.logic.sourceText;
+  const generic = assess(`合成资料，非真实病例。病历引用“${genericClause}”。`, genericClause);
+  assert.equal(generic.grade, null);
+  assert.notEqual(generic.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+
+  const measurement = '本次事故后检查右眼视野半径8°。';
+  const measured = assess(measurement, '右眼视野半径8°');
+  assert.equal(measured.grade, clause.grade);
+  assert.equal(measured.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+
+  const unlateraled = assess('本次事故后视野半径8°。', '视野半径8°');
+  assert.equal(unlateraled.grade, null);
+  assert.notEqual(unlateraled.references.find(reference => reference.id === clause.id)?.relation, 'supports');
+
+  const measuredFact = (id, evidence, value = evidence, certainty = 'reported') => ({ id, eventId: 'E1',
+    field: 'clinical_finding', value, certainty, source: 'description', verification: 'quoted', evidence });
+  const radiusLimit = (evidence, id = 'F1') => evaluateConditionLogic(clause.conditionLogic,
+    [measuredFact(id, evidence)]).met;
+  assert.equal(radiusLimit('本次事故后检查右眼视野半径10°。'), true);
+  assert.notEqual(radiusLimit('本次事故后检查右眼视野半径11°。'), true);
+  assert.notEqual(radiusLimit('本次事故后检查右眼视野直径8°。'), true);
+  assert.notEqual(radiusLimit('本次事故后疑似右眼视野半径8°。', 'F2'), true);
+
+  const bilateralClause = catalogs.disability.clauses.find(item => item.id === '5.4.2.5');
+  const bothEyes = [measuredFact('F1', '本次事故后检查左眼视野有效值8%。'),
+    measuredFact('F2', '本次事故后检查右眼视野有效值7%。')];
+  assert.equal(evaluateConditionLogic(bilateralClause.conditionLogic, bothEyes).met, true);
+  assert.notEqual(evaluateConditionLogic(bilateralClause.conditionLogic, bothEyes.slice(0, 1)).met, true);
+  assert.notEqual(evaluateConditionLogic(bilateralClause.conditionLogic, [bothEyes[0],
+    measuredFact('F2', '本次事故后检查右眼视野有效值9%。')]).met, true);
+  assert.equal(evaluateConditionLogic(bilateralClause.conditionLogic, [bothEyes[0],
+    measuredFact('F2', '本次事故后检查右眼视野有效值9%。'),
+    measuredFact('F3', '复查右眼视野有效值7%。')]).met, null);
+
+  const numericVisualFieldLeaves = [];
+  const collectNumericLeaves = (node, clause) => {
+    if (node.op === 'condition' && /视野/u.test(node.conditionText || node.sourceText || '')
+      && /(?:半径|有效值|直径)/u.test(node.conditionText || node.sourceText || '')) {
+      numericVisualFieldLeaves.push({ node, clause });
+    }
+    for (const child of node.children || []) collectNumericLeaves(child, clause);
+  };
+  for (const catalog of Object.values(catalogs)) {
+    for (const candidate of catalog.clauses) collectNumericLeaves(candidate.conditionLogic.logic, candidate);
+  }
+  assert.equal(numericVisualFieldLeaves.length, 13);
+  for (const { node } of numericVisualFieldLeaves) {
+    const criterionQuote = node.conditionText || node.sourceText;
+    assert.notEqual(evaluateConditionLogic({ annotation: 'explicit', logic: node },
+      [measuredFact('F1', `条款摘录：“${criterionQuote}”。`, criterionQuote)]).met, true, criterionQuote);
+  }
+
+  assert.notEqual(evaluateConditionLogic(bilateralClause.conditionLogic, [bothEyes[0],
+    { ...bothEyes[1], eventId: 'E2' }]).met, true);
+
+  const oppositeEyeClause = catalogs.injury.clauses.find(item => item.id === '5.4.1.b');
+  const completeLossNode = oppositeEyeClause.conditionLogic.logic.children[0];
+  const completeRight = measuredFact('F1', '本次事故后检查右眼视野完全缺损。', '右眼视野完全缺损');
+  const reducedLeft = measuredFact('F2', '本次事故后检查左眼视野半径20°。');
+  const reducedRight = measuredFact('F3', '本次事故后检查右眼视野半径20°。');
+  assert.notEqual(evaluateConditionLogic({ annotation: 'explicit', logic: completeLossNode },
+    [measuredFact('F4', '标准条文引用“一眼视野完全缺损”。', '一眼视野完全缺损')]).met, true);
+  assert.equal(evaluateConditionLogic(oppositeEyeClause.conditionLogic, [completeRight, reducedLeft]).met, true);
+  assert.notEqual(evaluateConditionLogic(oppositeEyeClause.conditionLogic, [completeRight, reducedRight]).met, true);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',
