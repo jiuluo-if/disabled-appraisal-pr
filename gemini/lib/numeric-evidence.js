@@ -5,6 +5,25 @@ const normalize = normalizeForMatching;
 const reliableCertainties = new Set(['reported', 'observed', 'derived']);
 export function quotedPredicateEvidenceValue(predicate, fact, facts = []) {
   if (!Number.isFinite(fact.value)) return null;
+  if (predicate.field === 'organ_hematoma_diameter_cm') {
+    const evidence = normalize(String(fact.evidence || ''));
+    const measurements = [...evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];
+    const organs = [...evidence.matchAll(/肝(?:脏)?|脾(?:脏)?/gu)];
+    const diameterMeasurements = measurements.filter(measurement =>
+      /直径[^，,；;]{0,8}$/u.test(evidence.slice(Math.max(0, measurement.index - 8), measurement.index)));
+    const centimetresFor = measurement => {
+      const raw = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+      return /^(?:mm|毫米)$/u.test(measurement[2]) ? raw / 10 : raw;
+    };
+    const sourceValues = measurements.map(centimetresFor);
+    if (!measurements.length || diameterMeasurements.length !== 1 || organs.length !== 1
+      || !/(?:肝(?:脏)?|脾(?:脏)?)实质(?:内)?血肿/u.test(evidence)
+      || !/血肿[^，,；;]{0,8}直径/u.test(evidence)
+      || sourceValues.some(value => !Number.isFinite(value) || value !== centimetresFor(diameterMeasurements[0]))
+      || /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未达|低于|小于|不足|不超过|少于|超过|大于|至少|未见|未发现|否认|排除|无|既往|陈旧|术前|术后)/u.test(evidence)) return null;
+    const centimetres = centimetresFor(diameterMeasurements[0]);
+    return Number.isFinite(centimetres) && centimetres === fact.value && centimetres >= 0 ? centimetres : null;
+  }
   if (predicate.field === 'orbital_enophthalmos_cm') {
     const evidence = normalize(String(fact.evidence || ''));
     const measurements = [...evidence.matchAll(/(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*(cm|厘米|mm|毫米)/gu)];

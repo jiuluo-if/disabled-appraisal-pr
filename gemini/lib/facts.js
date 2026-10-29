@@ -4,7 +4,7 @@ import { BLUNT_OBJECT_BODY_IMPACT_CUE, currentEventAnchorBefore, CURRENT_EVENT_S
   hasNonCurrentClinicalContext, historicalSectionHeading, HEAD_IMPACT_EVENT_CUE_SOURCE, normalizeInjuryDateValue,
   parseEventDateAnchors, startsWithNonInjuryDateContext } from './event-date-logic.js';
 
-const FACT_SCHEMA_VERSION = '1.2';
+const FACT_SCHEMA_VERSION = '1.3';
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 const MAX_FACT_EVIDENCE_CHARS = 1000;
 const MAX_FACT_SNAPSHOT_JSON_CHARS = 250_000;
@@ -3889,6 +3889,7 @@ function factFinding(field, value, certainty) {
     burn_area_body_superficial_second_degree_cm2: '体表浅II度烧烫伤面积（平方厘米）',
     scalp_defect_area_cm2: '头皮皮肤缺损面积（平方厘米）',
     skull_defect_area_cm2: '颅骨缺损面积（平方厘米）',
+    organ_hematoma_diameter_cm: '肝脾实质内血肿直径（厘米）',
     scalp_avulsion_area_cm2: '头皮撕脱伤面积（平方厘米）',
     skin_avulsion_area_cm2: '皮肤撕脱伤面积（平方厘米）',
     skin_defect_area_cm2: '皮肤缺损面积（平方厘米）',
@@ -4315,6 +4316,34 @@ function normalizeSkinSurfaceAreaFacts(inputText) {
   return facts;
 }
 
+function normalizeOrganHematomaDiameterFacts(inputText) {
+  const text = normalizeInput(inputText || '');
+  const facts = [];
+  const amount = '(\\d+(?:\\.\\d+)?|[零〇一二两三四五六七八九十百]+)';
+  const measurementPattern = new RegExp(`${amount}\\s*(cm|厘米|mm|毫米)`, 'giu');
+  const excludedContext = /(?:约|大约|左右|接近|估计|可疑|疑似|考虑|可能|待排|不排除|未达|低于|小于|不足|不超过|少于|超过|大于|至少|未见|未发现|否认|排除|无|既往|陈旧|术前|术后)/u;
+  for (const sentence of text.matchAll(/[^。！？\n]+/gu)) {
+    for (const [segmentIndex, clause] of sentence[0].split(/[，,；;]|或者|或/u).map(value => value.trim()).filter(Boolean).entries()) {
+      const measurements = [...clause.matchAll(measurementPattern)];
+      const organs = [...clause.matchAll(/肝(?:脏)?|脾(?:脏)?/gu)];
+      if (measurements.length !== 1 || organs.length !== 1 || excludedContext.test(clause)
+        || !/(?:肝(?:脏)?|脾(?:脏)?)实质(?:内)?血肿/u.test(clause)
+        || !/血肿[^，,；;]{0,8}直径/u.test(clause)
+        || !/直径[^，,；;]{0,8}(?:\d|[零〇一二两三四五六七八九十百])/u.test(clause)) continue;
+      const measurement = measurements[0];
+      if (!new RegExp(`直径[^，,；;]{0,8}${amount}\\s*(?:cm|厘米|mm|毫米)`, 'iu').test(clause)) continue;
+      if (new RegExp(`(?:${amount})\\s*(?:-|–|—|至|到)\\s*$`, 'u')
+        .test(clause.slice(0, measurement.index))) continue;
+      const parsed = /^\d/u.test(measurement[1]) ? Number(measurement[1]) : parseNumber(measurement[1]);
+      const value = /^(?:mm|毫米)$/iu.test(measurement[2]) ? parsed / 10 : parsed;
+      if (!Number.isFinite(value) || value < 0) continue;
+      facts.push({ id: `HEMATOMADIAMETER${sentence.index + segmentIndex}`, field: 'organ_hematoma_diameter_cm', value,
+        certainty: certaintyFor(clause, 0, clause.length), source_type: 'user_text', source_excerpt: clause.slice(-MAX_FACT_EVIDENCE_CHARS) });
+    }
+  }
+  return facts;
+}
+
 function normalizeExtractedFacts(value, { description = '', recognizedText = '' } = {}) {
   const parsed = factExtractionSchema.parse(normalizeFactExtractionResponse(value));
   const rawFactIds = new Set(parsed.facts.map(fact => fact.id).filter(Boolean));
@@ -4466,6 +4495,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       ...normalizeLocalBurnAreaFacts(sourceText),
       ...normalizeScalpSurfaceAreaFacts(sourceText),
       ...normalizeSkinSurfaceAreaFacts(sourceText),
+      ...normalizeOrganHematomaDiameterFacts(sourceText),
       ...normalizeCheekPenetratingWoundFacts(sourceText),
       ...normalizeSharedSuffixBoneFractureFacts(sourceText),
       ...normalizeBrainCompressionEvidenceFacts(sourceText),
@@ -4708,6 +4738,11 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
         && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
       if (!deterministicMatch) { invalidEvidence = true; continue; }
+    }
+    if (field === 'organ_hematoma_diameter_cm') {
+      const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field
+        && fact.value === value && normalizeInput(fullEvidence).includes(normalizeInput(fact.evidence)));
+      if (!deterministicMatch || typeof value !== 'number') { invalidEvidence = true; continue; }
     }
     if (['scalp_defect_area_cm2', 'scalp_avulsion_area_cm2'].includes(field)) {
       const deterministicMatch = deterministicFacts.find(fact => fact.source === source && fact.field === field

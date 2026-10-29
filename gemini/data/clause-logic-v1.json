@@ -7696,11 +7696,12 @@
               "op": "condition",
               "sourceText": "肝脏实质内血肿直径2.0cm以上",
               "conditionText": "肝脏实质内血肿直径2.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "肝脏实质内血肿直径2.0cm以上"
-                ]
+              "predicate": {
+                "field": "organ_hematoma_diameter_cm",
+                "operator": "gte",
+                "value": 2,
+                "unit": "cm",
+                "evidenceGroups": [["肝脏", "肝"], ["实质"], ["血肿"], ["直径"]]
               }
             }
           ]
@@ -7728,11 +7729,12 @@
               "op": "condition",
               "sourceText": "脾实质内血肿直径2.0cm以上",
               "conditionText": "脾实质内血肿直径2.0cm以上",
-              "factMatch": {
-                "field": "clinical_finding",
-                "values": [
-                  "脾实质内血肿直径2.0cm以上"
-                ]
+              "predicate": {
+                "field": "organ_hematoma_diameter_cm",
+                "operator": "gte",
+                "value": 2,
+                "unit": "cm",
+                "evidenceGroups": [["脾"], ["实质"], ["血肿"], ["直径"]]
               }
             }
           ]
