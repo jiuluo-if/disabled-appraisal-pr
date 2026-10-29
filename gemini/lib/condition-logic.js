@@ -1,7 +1,7 @@
 import { conditionFactFields } from './condition-fields.js';
 import { normalizeForMatching } from './text-normalization.js';
 import { reliableCertainties } from './fact-certainty.js';
-import { explicitInjuryEventDateKeys, normalizeInjuryDateValue } from './facts.js';
+import { explicitInjuryEventDateKeys, normalizeInjuryDateValue } from './event-date-logic.js';
 
 export function uniqueEvidenceText(values) {
   const seen = new Set();
