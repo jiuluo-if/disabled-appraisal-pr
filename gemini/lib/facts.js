@@ -3546,11 +3546,12 @@ function normalizeFactExtractionResponse(value) {
   };
 }
 
-function sourceClause(sourceText, evidence) {
+function sourceClause(sourceText, evidence, position = null) {
   const text = normalizeInput(sourceText || '');
   const quote = normalizeInput(evidence || '');
   if (!quote) return '';
-  const index = text.indexOf(quote);
+  const index = Number.isInteger(position) && text.slice(position, position + quote.length) === quote
+    ? position : text.indexOf(quote);
   if (index < 0) return '';
   const left = Math.max(text.lastIndexOf('。', index), text.lastIndexOf('；', index), text.lastIndexOf(';', index), text.lastIndexOf('，', index), text.lastIndexOf(',', index), text.lastIndexOf('\n', index)) + 1;
   const quoteEnd = index + quote.length;
@@ -3578,6 +3579,18 @@ function sourceSentence(sourceText, evidence, position = null) {
   const tail = text.slice(quoteEnd);
   const endOffset = tail.search(/[。！？\n]/);
   return text.slice(left, endOffset < 0 ? text.length : quoteEnd + endOffset).trim();
+}
+
+function uniqueSourceClauseForExactValue(sourceText, value) {
+  const text = normalizeInput(sourceText || '');
+  const quote = normalizeInput(value || '');
+  if (!quote) return undefined;
+  const clauses = new Set();
+  for (let position = text.indexOf(quote); position >= 0; position = text.indexOf(quote, position + quote.length)) {
+    clauses.add(sourceClause(text, quote, position));
+    if (clauses.size > 1) return null;
+  }
+  return clauses.size ? clauses.values().next().value : undefined;
 }
 
 function diagnosisEvidenceSupportsValue(value, evidence) {
@@ -4684,6 +4697,16 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       : sourceClause(sourceTexts[source], providedEvidence) || providedEvidence;
     let field = canonicalField(sourceFact.field);
     let value = stableJson(sourceFact.value);
+    let treatmentEvidenceReanchored = false;
+    if (field === 'treatment' && typeof value === 'string'
+      && !normalizeInput(fullEvidence).includes(normalizeInput(value))) {
+      const sourceEvidence = uniqueSourceClauseForExactValue(sourceTexts[source], value);
+      if (sourceEvidence === null) { invalidEvidence = true; continue; }
+      if (typeof sourceEvidence === 'string') {
+        fullEvidence = sourceEvidence;
+        treatmentEvidenceReanchored = true;
+      }
+    }
     if (['clinical_finding', 'contusion_tbsa_percent', 'diagnosis', 'injury_type', 'imaging_finding', 'symptom', 'functional_impairment',
       'treatment', 'anatomical_site', 'laterality', 'injury_cause', 'facial_skin_abnormality_area_percent'].includes(field)
       || field.startsWith('burn_tbsa_')
@@ -4872,7 +4895,7 @@ function normalizeExtractedFacts(value, { description = '', recognizedText = '' 
       || field === 'anatomical_site' && /肋骨|rib/i.test(`${value} ${fullEvidence}`)
       || field === 'diagnosis' && hasRibSpecificFractureStatement(fullEvidence)
       || field === 'injury_type' && /肋骨|rib|fracture|骨折/i.test(`${value} ${fullEvidence}`);
-    const eventId = ribRelatedRawFact && conflictingRibEventIds.has(sourceFact.eventId) ? null
+    const eventId = treatmentEvidenceReanchored ? null : ribRelatedRawFact && conflictingRibEventIds.has(sourceFact.eventId) ? null
       : ribRelatedRawFact && inferredEventIds[source]
         ? inferredEventIds[source] : sourceFact.eventId || null;
     const historicalRibFact = field !== 'fracture_site_count' && ribRelatedRawFact && (Boolean(priorFact)
