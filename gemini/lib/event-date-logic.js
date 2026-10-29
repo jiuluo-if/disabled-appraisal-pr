@@ -1,3 +1,5 @@
+import { reliableCertainties } from './fact-certainty.js';
+
 export const HEAD_IMPACT_EVENT_CUE_SOURCE = '(?:头(?:面|颈)?部|身体)(?:受击|遭(?:受)?打击|被击打|被击中)(?:后)?';
 export const BLUNT_OBJECT_BODY_IMPACT_CUE = /(?:头(?:面|颈)?部|身体|面部|躯干|(?:(?:左|右)(?:侧)?|双侧)?(?:额|顶|颞|枕){1,3}部|(?:(?:左|右)(?:侧)?|双侧)?(?:肩|胸|背|腹|腰|臂|腿|手|足)部)[^。！？；;\n]{0,12}被[^。！？；;\n]{1,12}击中|被[^。！？；;\n]{1,12}击中(?:头(?:面|颈)?部|身体|面部|躯干|(?:(?:左|右)(?:侧)?|双侧)?(?:额|顶|颞|枕){1,3}部|(?:(?:左|右)(?:侧)?|双侧)?(?:肩|胸|背|腹|腰|臂|腿|手|足)部)/u;
 
@@ -127,6 +129,21 @@ export function eventDateAnchorsConflict(anchors) {
     }
   }
   return false;
+}
+
+export function eventIdForSelectedInjuryDate(facts, selectedDate) {
+  if (!Array.isArray(facts) || typeof selectedDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/u.test(selectedDate)) {
+    return null;
+  }
+  const eventIds = new Set(facts.filter(fact => fact.field === 'injury_date' && fact.value === selectedDate
+    && fact.source === 'description' && reliableCertainties.has(fact.certainty)
+    && /^[EU][1-9]\d{0,2}$/u.test(fact.eventId || '')
+    && fact.sourceRefs?.some(reference => reference.source === 'description'
+      && reference.sourceId === 'description' && reference.evidence === fact.evidence))
+    .map(fact => fact.eventId));
+  if (eventIds.size !== 1) return null;
+  const [eventId] = eventIds;
+  return /^E[1-9]\d{0,2}$/u.test(eventId) ? eventId : null;
 }
 
 export function normalizeInjuryDateValue(value) {

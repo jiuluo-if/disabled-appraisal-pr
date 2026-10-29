@@ -103,3 +103,24 @@ test('selected injury date reaches fact extraction as non-evidentiary event scop
   assert.doesNotMatch(payload.description, /2025-05-12/u);
   assert.match(extractionRequest.messages[0].content, /selectedInjuryDate 是用户选择的范围提示，不是原文证据/u);
 });
+
+test('a source-matched injury date permits deterministic grading of only that event', async () => {
+  const calls = [];
+  const provider = { complete: async request => {
+    calls.push(request.name);
+    return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+  } };
+  const description = '2014年1月1日交通事故后左侧第3肋骨骨折、左侧第4肋骨骨折，共2处骨折。2020年2月2日交通事故后头部受伤。';
+
+  const result = await assess({ ...input, description, injuryDate: '2014-01-01' },
+    { provider, config, requestId: 'selected-event-deterministic-grade' });
+
+  assert.deepEqual(calls, ['fact_extraction']);
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻伤二级');
+  const support = result.references.find(reference => reference.id === '5.6.4.b');
+  assert.equal(support?.relation, 'supports');
+  assert.ok(support.conditions.flatMap(condition => condition.factIds || []).every(id =>
+    result.facts.find(fact => fact.id === id)?.eventId === 'E1'));
+  assert.ok(result.facts.some(fact => fact.eventId === 'E2'));
+});

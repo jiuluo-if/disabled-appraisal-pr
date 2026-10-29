@@ -8,6 +8,7 @@ import { ServiceError } from './provider.js';
 import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot } from './assessment-snapshot.js';
 import { logicFactFields } from './condition-fields.js';
 import { normalizeForMatching } from './text-normalization.js';
+import { eventIdForSelectedInjuryDate } from './event-date-logic.js';
 
 const genericConditionTerms = new Set(['一侧', '双侧', '或者', '以及', '损伤', '外伤', '骨折', '治疗', '手术',
   '术后', '功能', '障碍', '症状', '体征', '程度', '以上', '以下', '影响', '异常', '形成', '缺失']);
@@ -90,6 +91,9 @@ export async function assess(input, { provider, config, signal, requestId, onMet
     ],
   });
   const extracted = normalizeExtractedFacts(factResponse, { description: input.description, recognizedText });
+  const assessmentEventId = eventIdForSelectedInjuryDate(extracted.facts, input.injuryDate);
+  const factsInAssessmentScope = facts => assessmentEventId
+    ? facts.filter(fact => !fact.eventId || fact.eventId === assessmentEventId) : facts;
   extractionWarnings.push(...(extracted.warnings || []));
   const analysisSnapshot = createAssessmentSnapshot(input, extracted, config, {
     factPromptVersion: FACT_EXTRACTION_PROMPT_VERSION,
@@ -102,7 +106,7 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const resultContext = { clauses, recognizedText, extractionWarnings, requestId, model,
     extractedFacts: extracted.facts, conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
     reviewReasons: extracted.reviewReasons,
-    factMissingMaterials: extracted.missingMaterials, factAudit: extracted.factAudit, analysisSnapshot };
+    factMissingMaterials: extracted.missingMaterials, factAudit: extracted.factAudit, analysisSnapshot, assessmentEventId };
   const deterministicSeed = {
     status: 'insufficient', grade: null, summary: '现有材料不足以形成可靠的等级评估。',
     reasoning: '等待服务端依据来源核验后的事实和完整条款条件计算。', facts: [], references: [],
@@ -114,16 +118,17 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const pendingReferences = deterministicResult.references.filter(reference => reference.grade
     && reference.relation === 'incomplete' && reference.conditions.some(condition => condition.met === true)
     && reference.conditions.some(condition => condition.met === null));
-  const availableFactFields = new Set(deterministicResult.facts.filter(fact => fact.gradeEligible !== false)
+  const deterministicFacts = factsInAssessmentScope(deterministicResult.facts);
+  const availableFactFields = new Set(deterministicFacts.filter(fact => fact.gradeEligible !== false)
     .map(fact => fact.field));
   const currentGradeRank = gradeOrder[input.assessmentType].indexOf(deterministicResult.grade);
   const semanticCandidates = clauses.filter(clause => {
     if (!clause.grade || clause.conditionLogic?.annotation !== 'explicit'
       || ![...logicFactFields(clause.conditionLogic.logic)].some(field => availableFactFields.has(field))
       || currentGradeRank >= 0 && gradeOrder[input.assessmentType].indexOf(clause.grade) >= currentGradeRank) return false;
-    const evaluation = evaluateConditionLogic(clause.conditionLogic, deterministicResult.facts);
+    const evaluation = evaluateConditionLogic(clause.conditionLogic, deterministicFacts);
     return evaluation.met === true || evaluation.met === null
-      && (evaluation.factIds.length > 0 || hasQuotedConditionEvidence(clause, deterministicResult.facts));
+      && (evaluation.factIds.length > 0 || hasQuotedConditionEvidence(clause, deterministicFacts));
   });
   const pendingIds = new Set([...pendingReferences.map(reference => reference.id),
     ...semanticCandidates.map(clause => clause.id)]);
@@ -134,10 +139,11 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const pendingFactIds = new Set(pendingReferences.flatMap(reference => reference.conditions
     .flatMap(condition => condition.factIds || [])));
   const reviewFields = new Set(reviewClauses.flatMap(clause => [...logicFactFields(clause.conditionLogic.logic)]));
-  const factsById = new Map(extracted.facts.map(fact => [fact.id, fact]));
+  const scopedExtractedFacts = factsInAssessmentScope(extracted.facts);
+  const factsById = new Map(scopedExtractedFacts.map(fact => [fact.id, fact]));
   const relevantFactIds = new Set(pendingFactIds);
   for (const id of pendingFactIds) for (const parentId of factsById.get(id)?.derivedFrom || []) relevantFactIds.add(parentId);
-  const targetedFacts = conflictReview ? extracted.facts : extracted.facts.filter(fact => relevantFactIds.has(fact.id)
+  const targetedFacts = conflictReview ? scopedExtractedFacts : scopedExtractedFacts.filter(fact => relevantFactIds.has(fact.id)
     || availableFactFields.has(fact.field) && reviewFields.has(fact.field));
   const referencesById = new Map(deterministicResult.references.map(reference => [reference.id, reference]));
   const assessmentInput = {

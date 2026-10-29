@@ -10,6 +10,7 @@ import { canonicalMissingMaterials, confirmsSixWeekUnhealedTympanicPerforation, 
   hasExplicitOrbitalFractureEnophthalmosLink, isCanonicalCardiacRuptureEvidence, normalizeMuscleStrengthFacts,
   hasExplicitLimbLengthDifferenceLink, hasVerifiedModerateShockEvidence, parseNumber, quotedDentalDefectCount,
   sourceReferenceMatches, hasSameEyeInjuryContext } from './facts.js';
+import { eventDateAnchorsConflict, eventIdForSelectedInjuryDate, parseEventDateAnchors } from './event-date-logic.js';
 
 export const gradeOrder = {
   injury: Object.freeze(['重伤一级', '重伤二级', '轻伤一级', '轻伤二级', '轻微伤']),
@@ -34,17 +35,9 @@ const normalize = normalizeForMatching;
 export const includesEvidence = includesNormalizedText;
 
 function hasDistinctDatedInjuryEvents(text) {
-  const anchors = [...String(text || '').matchAll(/(?<year>(?:19|20)\d{2})年(?:\s*(?<month>\d{1,2})月(?:\s*(?<day>\d{1,2})日)?)?(?:发生|因)?(?:交通)?(?:事故|外伤|车祸|受伤)/gu)]
-    .map(match => {
-      const year = Number(match.groups.year);
-      const month = match.groups.month == null ? null : Number(match.groups.month);
-      const day = match.groups.day == null ? null : Number(match.groups.day);
-      if (month != null && (month < 1 || month > 12) || day != null && (day < 1 || day > 31)) return null;
-      return { start: year * 10000 + (month ?? 1) * 100 + (day ?? 1),
-        end: year * 10000 + (month ?? 12) * 100 + (day ?? 31) };
-    }).filter(Boolean);
-  return anchors.some((left, index) => anchors.slice(index + 1)
-    .some(right => left.end < right.start || right.end < left.start));
+  const anchors = parseEventDateAnchors(text);
+  return anchors.some(anchor => anchor.explicitlySeparate)
+    || eventDateAnchorsConflict(anchors.map(anchor => anchor.range));
 }
 
 function hasExplicitAndRelativeInjuryDate(text) {
@@ -2479,13 +2472,13 @@ export function normalizeResult(raw, input, context) {
   const unknownInlineCitation = inlineIds.some(id => !allowedIds.has(id) && !allowedIds.has(id.replace(/(\d)([a-z])$/, '$1.$2')));
   const warnings = [];
   const unmappedConditionClauseIds = new Set();
-  const conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
+  let conflicts = Array.isArray(context.conflicts) ? context.conflicts : [];
   const unsupportedDiscrepancyLanguage = /(?:冲突|矛盾|不一致|两种(?:测量|数据)|数据.{0,12}(?:存在差异|不一致))/u;
   const multipleDatedEvents = hasDistinctDatedInjuryEvents(input.description);
+  const assessmentEventId = eventIdForSelectedInjuryDate(context.extractedFacts, input.injuryDate);
   const reviewReasons = Array.isArray(context.reviewReasons) ? context.reviewReasons : [];
-  let requiresReview = multipleDatedEvents || reviewReasons.some(reason => reason !== 'fact_conflict')
+  let requiresReview = reviewReasons.some(reason => reason !== 'fact_conflict')
     || context.requiresReview === true && conflicts.length === 0 && reviewReasons.length === 0;
-  if (multipleDatedEvents) warnings.push('材料涉及多个日期不同的受伤事件，当前事实未能可靠确定本次评估对象，需先核实事件归属。');
   if (hasExplicitAndRelativeInjuryDate(input.description)) {
     warnings.push('材料同时记载具体受伤日期与相对时间，请结合原始病历核实时间线及骨折与本次事件的关联；该提示本身不等同于骨折证据冲突。');
   }
@@ -2496,7 +2489,7 @@ export function normalizeResult(raw, input, context) {
     ...(hasValidatedFacts ? [] : generated.missingMaterials),
     ...(Array.isArray(context.factMissingMaterials) ? context.factMissingMaterials : []),
   ]);
-  const facts = [];
+  let facts = [];
   const sourceFacts = Array.isArray(context.extractedFacts) ? context.extractedFacts : generated.facts.map((fact, index) => ({
     id: `F${index + 1}`, field: 'other', value: fact.finding, certainty: 'reported',
     source: fact.source, evidence: fact.evidence, finding: fact.finding,
@@ -2528,6 +2521,25 @@ export function normalizeResult(raw, input, context) {
     if (sourceRefs && sourceRefs.length !== fact.sourceRefs.length) warnings.push('部分事实来源无法对应到原始页面，已移除无效来源链接。');
     facts.push({ ...fact, ...(sourceRefs ? { sourceRefs } : {}), finding: fact.finding || `${fact.field}：${Array.isArray(fact.value) ? fact.value.join('、') : String(fact.value ?? '')}`,
       verification: fact.source === 'image' ? 'image_pending' : 'quoted' });
+  }
+  const allFacts = facts;
+  const allConflicts = conflicts;
+  if (assessmentEventId) {
+    facts = allFacts.filter(fact => !fact.eventId || fact.eventId === assessmentEventId);
+    const scopedFactIds = new Set(facts.map(fact => fact.id));
+    conflicts = allConflicts.filter(conflict => {
+      const ids = [...new Set(conflict.factIds || conflict.fact_ids || conflict.between || [])];
+      return !ids.length || ids.some(id => scopedFactIds.has(id));
+    });
+    if (conflicts.length < allConflicts.length) {
+      warnings.push('其他日期事件的冲突事实未用于本次定级；本次评估已按原文可核验的受伤日期限定范围。');
+    }
+  }
+  if (multipleDatedEvents && !assessmentEventId) {
+    requiresReview = true;
+    warnings.push('材料涉及多个日期不同的受伤事件，当前事实未能可靠确定本次评估对象，需先核实事件归属。');
+  } else if (multipleDatedEvents) {
+    warnings.push('已按用户所选受伤日期对应的原文事件限定本次评估；其他事件事实未用于定级。');
   }
   if (!requiresReview && conflicts.length && conflictCouldAffectGrade(conflicts, facts, input.assessmentType)) {
     requiresReview = true;
@@ -3144,7 +3156,7 @@ export function normalizeResult(raw, input, context) {
       : status === 'preliminary' && supportedReference
         ? `经来源核验的材料事实与本地条款 ${supportedReference.id}（${supportedReference.text}）列出的适用条件相符。此结果仅为辅助评估，仍需专业人员结合完整材料复核。`
         : generated.reasoning;
-  const serializedFacts = facts.map(fact => fact.eventId && /^U[1-9]\d{0,2}$/u.test(fact.eventId)
+  const serializedFacts = allFacts.map(fact => fact.eventId && /^U[1-9]\d{0,2}$/u.test(fact.eventId)
     ? { ...fact, eventId: null } : fact);
   return resultSchema.parse({
     ...generated, schemaVersion: 2, assessmentType: input.assessmentType, status, grade,
