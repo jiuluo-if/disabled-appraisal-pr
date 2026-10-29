@@ -19,12 +19,17 @@ const combine = (op, states) => {
 };
 
 test('generic condition tree preserves three-valued all and any logic', () => {
-  assert.equal(combine('all', [['a', true], ['b', null]]).met, null);
-  assert.equal(combine('all', [['a', true], ['b', false]]).met, false);
-  assert.equal(combine('all', [['a', true], ['b', true]]).met, true);
-  assert.equal(combine('any', [['a', false], ['b', null]]).met, null);
-  assert.equal(combine('any', [['a', false], ['b', true]]).met, true);
-  assert.equal(combine('any', [['a', false], ['b', false]]).met, false);
+  const states = [true, false, null];
+  for (const left of states) for (const right of states) {
+    const allExpected = left === false || right === false ? false
+      : left === true && right === true ? true : null;
+    const anyExpected = left === true || right === true ? true
+      : left === false && right === false ? false : null;
+    assert.equal(combine('all', [['a', left], ['b', right]]).met, allExpected, `all(${left}, ${right})`);
+    assert.equal(combine('any', [['a', left], ['b', right]]).met, anyExpected, `any(${left}, ${right})`);
+    assert.equal(combine('all', [['b', right], ['a', left]]).met, allExpected, `all permutation(${right}, ${left})`);
+    assert.equal(combine('any', [['b', right], ['a', left]]).met, anyExpected, `any permutation(${right}, ${left})`);
+  }
 });
 
 test('generic not condition keeps unknown distinct from false', () => {
@@ -39,4 +44,22 @@ test('generic not condition keeps unknown distinct from false', () => {
   assert.equal(evaluate(true).met, false);
   assert.equal(evaluate(false).met, true);
   assert.equal(evaluate(undefined).met, null);
+});
+
+test('all conditions cannot borrow positive facts from separate injury events', () => {
+  const logic = { annotation: 'explicit', logic: { op: 'all', children: [condition('a'), condition('b')] } };
+  const facts = [
+    { id: 'F1', eventId: 'E1', field: 'a', value: true, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: 'a evidence' },
+    { id: 'F2', eventId: 'E2', field: 'b', value: true, certainty: 'reported',
+      source: 'description', verification: 'quoted', evidence: 'b evidence' },
+  ];
+  const evaluateLeaf = (node, scopedFacts) => {
+    const fact = scopedFacts.find(item => item.field === node.factMatch.field);
+    return fact ? { met: fact.value, evidence: fact.evidence, factIds: [fact.id] }
+      : { met: null, evidence: '', factIds: [] };
+  };
+
+  assert.equal(evaluateConditionTree(logic, facts, evaluateLeaf).met, null);
+  assert.equal(evaluateConditionTree(logic, facts.map(fact => ({ ...fact, eventId: 'E1' })), evaluateLeaf).met, true);
 });
