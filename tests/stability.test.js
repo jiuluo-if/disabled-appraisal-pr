@@ -53,15 +53,18 @@ test('fact extraction prompt separates conditional, historical, source, time and
 
 test('catalog attaches explicit condition logic and an always-unknown opaque fallback', () => {
   const ribThreshold = catalogs.injury.clauses.find(clause => clause.id === '5.6.4.b');
-  const ambiguousQualifier = catalogs.injury.clauses.find(clause => clause.id === '5.2.2.a');
+  const opaqueClause = catalogs.disability.clauses.find(clause => clause.conditionLogic.annotation === 'opaque');
 
   assert.equal(ribThreshold.conditionLogic.annotation, 'explicit');
   assert.equal(ribThreshold.conditionLogic.logic.op, 'all');
   assert.deepEqual(ribThreshold.conditionLogic.logic.children[1].predicate, {
     field: 'fracture_site_count', operator: 'gte', value: 2, unit: '处',
   });
-  assert.equal(ambiguousQualifier.conditionLogic.annotation, 'opaque');
-  assert.equal(ambiguousQualifier.conditionLogic.logic.op, 'condition');
+  assert.ok(opaqueClause);
+  assert.equal(opaqueClause.conditionLogic.annotation, 'opaque');
+  assert.equal(opaqueClause.conditionLogic.logic.op, 'condition');
+  assert.ok(opaqueClause.conditionLogic.reason.length > 30);
+  assert.equal(opaqueClause.conditionLogic.logic.sourceText, opaqueClause.text);
   assert.equal(catalogs.injury.clauses.find(clause => clause.id === '5.6.3.c').conditionLogic.annotation, 'explicit');
 });
 
@@ -207,8 +210,11 @@ test('a model rib-fracture fact cannot borrow evidence from a nasal fracture', (
     ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
     assert.equal(snapshot.facts.some(fact => ['injury_type', 'fractured_rib_count', 'fractured_rib_numbers', 'fracture_site_count'].includes(fact.field)), false, claim.field);
     assert.equal(snapshot.facts.some(fact => fact.field === claim.field && JSON.stringify(fact.value) === JSON.stringify(claim.value)), false, claim.field);
-    if (claim.field === 'fracture_site_count') assert.ok(snapshot.missingMaterials.some(item => /骨折处数/.test(item)));
-    else assert.equal(snapshot.requiresReview, true, claim.field);
+    if (claim.field === 'fracture_site_count') {
+      assert.equal(snapshot.missingMaterials.some(item => /骨折处数/.test(item)), false);
+      assert.equal(snapshot.warnings.length, 0);
+    } else assert.equal(snapshot.warnings.length, 1, claim.field);
+    assert.equal(snapshot.requiresReview, false, claim.field);
   }
 });
 
@@ -251,8 +257,9 @@ test('a model count above the quoted fracture-site count cannot support a rib th
     extractedFacts: snapshot.facts, conflicts: snapshot.conflicts, requiresReview: snapshot.requiresReview,
     factMissingMaterials: snapshot.missingMaterials });
   assert.equal(siteCount.value, 1);
-  assert.equal(result.status, 'insufficient');
-  assert.equal(result.grade, null);
+  assert.equal(result.status, 'preliminary');
+  assert.equal(result.grade, '轻微伤');
+  assert.deepEqual(result.references.map(reference => reference.id), ['5.6.5.a']);
 });
 
 test('a model laterality value cannot contradict the source-quoted rib side', () => {
@@ -270,7 +277,8 @@ test('two model rib counts cannot conflict when the source only gives rib ordina
     { id: 'F1', field: 'fractured_rib_count', value: 1, certainty: 'reported', source: 'description', evidence: description },
     { id: 'F2', field: 'fractured_rib_count', value: 2, certainty: 'reported', source: 'description', evidence: description },
   ], missingMaterials: [], conflicts: [], requiresReview: false }, { description });
-  assert.equal(snapshot.facts.some(fact => fact.field === 'fractured_rib_count'), false);
+  assert.deepEqual(snapshot.facts.filter(fact => fact.field === 'fractured_rib_count')
+    .map(fact => ({ value: fact.value, certainty: fact.certainty })), [{ value: 2, certainty: 'derived' }]);
   assert.equal(snapshot.conflicts.length, 0);
   assert.equal(snapshot.requiresReview, false);
   assert.deepEqual(snapshot.facts.filter(fact => fact.field === 'fractured_rib_numbers')
