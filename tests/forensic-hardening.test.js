@@ -1913,6 +1913,11 @@ test('carotid thrombosis and stenosis conditions must bind the same artery and s
 
   assert.ok(internal[0].sourceText.includes('颈内动脉'));
   assert.ok(common[0].sourceText.includes('颈总动脉'));
+
+  const sideUnspecifiedThrombosis = fact('T3', '颈总动脉血栓形成', 'CTA证实颈总动脉血栓形成。');
+  assert.equal(assess('5.5.3.e', [sideUnspecifiedThrombosis]), true);
+  assert.notEqual(assess('5.5.3.e', [sideUnspecifiedThrombosis,
+    fact('T4', '颈总动脉血栓形成', 'CTA报告未见左颈总动脉血栓形成。', 'excluded')]), true);
 });
 
 test('auricle defect ratio facts bind every matching threshold clause at the inclusive boundary', () => {

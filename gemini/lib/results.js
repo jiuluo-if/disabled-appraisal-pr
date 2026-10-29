@@ -1571,9 +1571,9 @@ function carotidObservations(fact, kind) {
   const observations = [];
   for (const sentence of fact.evidence.normalize('NFKC').split(/[。！？；;\n]/u)) {
     if (/(?:条款引用|条文引用|标准条文|鉴定标准|标准规定)/u.test(sentence)) continue;
-    const arteryPattern = /(左|右)(?:侧)?\s*颈(内|总)动脉([^，,。！？；;\n]{0,32})/gu;
+    const arteryPattern = /(?:(左|右)(?:侧)?\s*)?颈(内|总)动脉([^，,。！？；;\n]{0,32})/gu;
     for (const match of sentence.matchAll(arteryPattern)) {
-      const side = match[1] === '左' ? 'left' : 'right';
+      const side = match[1] === '左' ? 'left' : match[1] === '右' ? 'right' : null;
       const artery = match[2] === '内' ? 'internal' : 'common';
       const tail = match[3];
       if (kind === 'thrombosis' && !/血栓形成|血栓/u.test(tail)
@@ -1626,16 +1626,18 @@ function evaluateCarotidCondition(node, facts, requirement) {
     reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain && item.value < requirement.threshold);
   const uncertain = observations.some(item => ['uncertain', 'unknown', 'conflicted'].includes(item.certainty)
     || item.uncertain);
+  const sameVessel = (left, right) => left.artery === right.artery
+    && (!left.side || !right.side || left.side === right.side);
   const contradictory = observations.some(item => item.negated || item.certainty === 'excluded')
-    && positive.some(affirmative => observations.some(negative => negative.side === affirmative.side
-      && negative.artery === affirmative.artery && (negative.negated || negative.certainty === 'excluded')));
+    && positive.some(affirmative => observations.some(negative => sameVessel(negative, affirmative)
+      && (negative.negated || negative.certainty === 'excluded')));
   const conflictingMeasurements = requirement.kind === 'stenosis' && observations.some(item =>
     reliableCertainties.has(item.certainty) && !item.negated && !item.uncertain && item.value >= requirement.threshold
-    && observations.some(other => other.artery === item.artery && other.side === item.side
+    && observations.some(other => sameVessel(other, item)
       && reliableCertainties.has(other.certainty) && !other.negated && !other.uncertain
       && other.value < requirement.threshold));
-  const uncertainSameVessel = positive.some(item => observations.some(other => other.side === item.side
-    && other.artery === item.artery && (other.uncertain || ['uncertain', 'unknown', 'conflicted'].includes(other.certainty))));
+  const uncertainSameVessel = positive.some(item => observations.some(other => sameVessel(other, item)
+    && (other.uncertain || ['uncertain', 'unknown', 'conflicted'].includes(other.certainty))));
   if (contradictory || conflictingMeasurements || uncertainSameVessel) {
     return { met: null, evidence: '', factIds: [], carotidAssertions: observations };
   }
