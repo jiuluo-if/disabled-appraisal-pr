@@ -425,12 +425,12 @@ test('ordinary identical requests reuse validated results; forceReanalysis bypas
     const firstBody = await first.json();
     const repeated = await post(url, inputs.injury); assert.equal(repeated.status, 200);
     const repeatedBody = await repeated.json();
-    assert.deepEqual(calls, ['fact_extraction', 'assessment_result']);
+    assert.deepEqual(calls, ['fact_extraction']);
     assert.equal(firstBody.result.grade, repeatedBody.result.grade);
     assert.equal(firstBody.result.status, repeatedBody.result.status);
     assert.notEqual(firstBody.result.requestId, repeatedBody.result.requestId);
     const forced = await post(url, { ...inputs.injury, forceReanalysis: true }); assert.equal(forced.status, 200);
-    assert.deepEqual(calls, ['fact_extraction', 'assessment_result', 'fact_extraction', 'assessment_result']);
+    assert.deepEqual(calls, ['fact_extraction', 'fact_extraction']);
   });
 });
 
@@ -475,7 +475,7 @@ test('zero cache configuration causes every repeated analysis to call the provid
   await withApp({ provider }, async url => {
     assert.equal((await post(url, inputs.injury)).status, 200);
     assert.equal((await post(url, inputs.injury)).status, 200);
-    assert.deepEqual(calls, ['fact_extraction', 'assessment_result', 'fact_extraction', 'assessment_result']);
+    assert.deepEqual(calls, ['fact_extraction', 'fact_extraction']);
     const stats = await (await fetch(url + '/api/cache/stats')).json();
     assert.equal(stats.entries, 0);
     assert.equal(stats.inFlight, 0);
@@ -495,7 +495,7 @@ test('twenty concurrent identical requests share one fact and assessment run', a
     const responses = await Promise.all(Array.from({ length: 20 }, () => post(url, inputs.injury)));
     assert.ok(responses.every(response => response.status === 200));
     const results = await Promise.all(responses.map(response => response.json()));
-    assert.deepEqual(calls, ['fact_extraction', 'assessment_result']);
+    assert.deepEqual(calls, ['fact_extraction']);
     assert.equal(new Set(results.map(item => item.result.grade)).size, 1);
     assert.equal(new Set(results.map(item => item.result.requestId)).size, 20);
   });

@@ -55,14 +55,23 @@ export async function assess(input, { provider, config, signal, requestId }) {
     injuryDate: input.injuryDate,
     treatmentStatus: input.treatmentStatus,
   };
+  const resultContext = { clauses, recognizedText, extractionWarnings, requestId, model,
+    extractedFacts: extracted.facts, conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
+    factMissingMaterials: extracted.missingMaterials };
+  const deterministicSeed = {
+    status: 'insufficient', grade: null, summary: '现有材料不足以形成可靠的等级评估。',
+    reasoning: '等待服务端依据来源核验后的事实和完整条款条件计算。', facts: [], references: [],
+    missingMaterials: [], nextSteps: [], warnings: [],
+  };
+  const deterministicResult = normalizeResult(deterministicSeed, input, resultContext);
+  if (deterministicResult.status === 'preliminary') return deterministicResult;
+
   const result = await provider.complete({ model, schema: providerResultSchema, name: 'assessment_result', signal, messages: [
     { role: 'system', content: `${rules}\n\n本次评估类型：${input.assessmentType}\n官方原文依据：${catalogContext(input.assessmentType, clauses)}` },
     { role: 'user', content: `<verified_facts>\n${JSON.stringify(assessmentInput)}\n</verified_facts>` },
   ] });
   try {
-    return normalizeResult(result, input, { clauses, recognizedText, extractionWarnings, requestId, model,
-      extractedFacts: extracted.facts, conflicts: extracted.conflicts, requiresReview: extracted.requiresReview,
-      factMissingMaterials: extracted.missingMaterials });
+    return normalizeResult(result, input, resultContext);
   } catch (error) {
     if (error.name === 'ZodError') throw new ServiceError(502, 'INVALID_RESULT', '分析结果未通过完整性校验，未生成评估结论，请重试。');
     throw error;
