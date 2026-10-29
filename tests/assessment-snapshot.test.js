@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot, hashAssessmentSources } from '../gemini/lib/assessment-snapshot.js';
+import { ANALYSIS_SNAPSHOT_VERSION, ASSESSMENT_CODE_VERSION, createAssessmentSnapshot,
+  hashAssessmentSources } from '../gemini/lib/assessment-snapshot.js';
 
 test('assessment code version is independent of the checkout root', () => {
   const sources = root => {
@@ -26,6 +27,8 @@ test('assessment snapshots retain the source digest even when a release label is
     factPromptVersion: 'fact-v1', assessmentPromptVersion: 'assessment-v1', codeVersion: 'stable-release-label',
   });
 
+  assert.equal(ANALYSIS_SNAPSHOT_VERSION, '1.1');
+  assert.equal(snapshot.snapshot, ANALYSIS_SNAPSHOT_VERSION);
   assert.equal(snapshot.code, 'stable-release-label');
   assert.equal(snapshot.codeHash, ASSESSMENT_CODE_VERSION);
 });

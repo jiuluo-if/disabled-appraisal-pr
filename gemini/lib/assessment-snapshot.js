@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { FACT_SCHEMA_VERSION } from './facts.js';
 import { RULES_VERSION } from './catalog.js';
 
-export const ANALYSIS_SNAPSHOT_VERSION = '1.0';
+export const ANALYSIS_SNAPSHOT_VERSION = '1.1';
 
 const digest = value => createHash('sha256').update(JSON.stringify(value), 'utf8').digest('hex');
 

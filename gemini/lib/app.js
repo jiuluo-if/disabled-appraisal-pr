@@ -5,7 +5,7 @@ import { assessmentTypeSchema, requestSchema } from './contracts.js';
 import { catalogs, RULES_VERSION } from './catalog.js';
 import { createProvider, ServiceError } from './provider.js';
 import { assess, ASSESSMENT_PROMPT_VERSION } from './assessment.js';
-import { ASSESSMENT_CODE_VERSION } from './assessment-snapshot.js';
+import { ANALYSIS_SNAPSHOT_VERSION, ASSESSMENT_CODE_VERSION } from './assessment-snapshot.js';
 import { FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
 import { FACT_SCHEMA_VERSION, validateImage } from './facts.js';
 import { legacyResponse } from './results.js';
@@ -229,6 +229,7 @@ export function createApp(config, options = {}) {
   const app = express();
   const provider = options.provider || createProvider(config, options.fetchImpl);
   const cacheVersions = options.cacheVersions || {
+    snapshot: ANALYSIS_SNAPSHOT_VERSION,
     code: config.codeVersion || process.env.APP_CODE_VERSION || process.env.GIT_COMMIT || ASSESSMENT_CODE_VERSION,
     codeHash: ASSESSMENT_CODE_VERSION,
     provider: config.provider || 'unknown', textModel: config.textModel, visionModel: config.visionModel,
