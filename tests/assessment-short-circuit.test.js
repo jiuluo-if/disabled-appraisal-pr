@@ -11,8 +11,10 @@ const input = {
 
 test('complete source-verified criteria skip the assessment model call', async () => {
   const calls = [];
+  let extractionRequest;
   const provider = { complete: async request => {
     calls.push(request.name);
+    extractionRequest = request;
     assert.equal(request.name, 'fact_extraction');
     return { facts: [
       { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported',
@@ -31,6 +33,9 @@ test('complete source-verified criteria skip the assessment model call', async (
   assert.match(result.analysisSnapshot?.snapshotId, /^[a-f0-9]{64}$/u);
   assert.ok(result.references.some(reference => reference.relation === 'supports'
     && reference.grade === result.grade));
+  const extractionPayload = JSON.parse(extractionRequest.messages[1].content);
+  assert.equal('assessmentContext' in extractionPayload, false);
+  assert.doesNotMatch(extractionRequest.messages[0].content, /assessmentContext\.selectedInjuryDate/u);
 
   const repeated = await assess(input, { provider, config, requestId: 'deterministic-short-circuit-repeat' });
   assert.equal(repeated.grade, result.grade);
@@ -81,4 +86,20 @@ test('facts with no grade-relevant rule candidate return insufficiency without a
   assert.deepEqual(calls, ['fact_extraction']);
   assert.equal(result.status, 'insufficient');
   assert.equal(result.grade, null);
+});
+
+test('selected injury date reaches fact extraction as non-evidentiary event scope context', async () => {
+  let extractionRequest;
+  const provider = { complete: async request => {
+    extractionRequest = request;
+    return { facts: [], missingMaterials: [], conflicts: [], requiresReview: false };
+  } };
+
+  await assess({ ...input, description: '当前材料尚未提供诊断或检查结果。', injuryDate: '2025-05-12' },
+    { provider, config, requestId: 'selected-injury-date-context' });
+
+  const payload = JSON.parse(extractionRequest.messages[1].content);
+  assert.deepEqual(payload.assessmentContext, { selectedInjuryDate: '2025-05-12' });
+  assert.doesNotMatch(payload.description, /2025-05-12/u);
+  assert.match(extractionRequest.messages[0].content, /selectedInjuryDate 是用户选择的范围提示，不是原文证据/u);
 });

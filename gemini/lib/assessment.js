@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 import { extractionSchema, factExtractionSchema, providerResultSchema } from './contracts.js';
-import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION } from './prompts.js';
+import { FACT_EXTRACTION_PROMPT, FACT_EXTRACTION_PROMPT_VERSION, SELECTED_INJURY_DATE_CONTEXT_PROMPT } from './prompts.js';
 import { normalizeExtractedFacts } from './facts.js';
 import { catalogContext, catalogs, retrieveClauses } from './catalog.js';
 import { evaluateConditionLogic, gradeOrder, includesEvidence, normalizeResult } from './results.js';
@@ -83,8 +83,10 @@ export async function assess(input, { provider, config, signal, requestId, onMet
 
   const factResponse = await complete({ model: config.textModel, schema: factExtractionSchema,
     name: 'fact_extraction', signal, messages: [
-      { role: 'system', content: `${FACT_EXTRACTION_PROMPT}\n\n输出版本：${FACT_EXTRACTION_PROMPT_VERSION}` },
-      { role: 'user', content: JSON.stringify({ description: input.description, recognizedText }) },
+      { role: 'system', content: `${FACT_EXTRACTION_PROMPT}${input.injuryDate
+        ? `\n\n${SELECTED_INJURY_DATE_CONTEXT_PROMPT}` : ''}\n\n输出版本：${FACT_EXTRACTION_PROMPT_VERSION}` },
+      { role: 'user', content: JSON.stringify({ description: input.description, recognizedText,
+        ...(input.injuryDate ? { assessmentContext: { selectedInjuryDate: input.injuryDate } } : {}) }) },
     ],
   });
   const extracted = normalizeExtractedFacts(factResponse, { description: input.description, recognizedText });
