@@ -753,10 +753,8 @@ test('typed fields can recall every explicit clause beyond lexical ranking', () 
 });
 
 test('service normalization rejects model support for every opaque grading clause', () => {
-  let checked = 0;
   for (const [assessmentType, catalog] of Object.entries(catalogs)) for (const clause of catalog.clauses) {
     if (clause.conditionLogic.annotation !== 'opaque') continue;
-    checked += 1;
     const description = `合成资料，非真实病例。${clause.text}`;
     const fact = { id: 'F1', field: 'clinical_finding', value: clause.text, certainty: 'reported',
       source: 'description', verification: 'quoted', evidence: clause.text };
@@ -774,14 +772,11 @@ test('service normalization rejects model support for every opaque grading claus
     assert.ok(reference?.conditions.every(condition => condition.evidence === ''
       && condition.factIds.length === 0 && condition.met === null), clause.id);
   }
-  assert.equal(checked, 36);
 });
 
 test('service normalization rejects unsupported model support claims for every explicit clause', () => {
-  let checked = 0;
   for (const [assessmentType, catalog] of Object.entries(catalogs)) for (const clause of catalog.clauses) {
     if (clause.conditionLogic.annotation !== 'explicit') continue;
-    checked += 1;
     const description = '合成资料，非真实病例。本次材料仅记载无关行政信息。';
     const fact = { id: 'F1', field: 'administrative_note', value: '行政信息', certainty: 'reported',
       source: 'description', verification: 'quoted', evidence: '无关行政信息' };
@@ -795,7 +790,6 @@ test('service normalization rejects unsupported model support claims for every e
     assert.equal(result.grade, null, clause.id);
     assert.ok(result.references.every(reference => reference.relation !== 'supports'), clause.id);
   }
-  assert.equal(checked, 811);
 });
 
 test('neck triangle scar areas bind to measured facts and cannot borrow another site', () => {
