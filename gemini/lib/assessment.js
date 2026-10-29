@@ -123,6 +123,7 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   };
   const deterministicResult = normalizeResult(deterministicSeed, input, resultContext);
   const conflictReview = deterministicResult.status === 'needs_review';
+  if (conflictReview) return deterministicResult;
 
   const pendingReferences = deterministicResult.references.filter(reference => reference.grade
     && reference.relation === 'incomplete' && reference.conditions.some(condition => condition.met === true)
@@ -141,9 +142,8 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   });
   const pendingIds = new Set([...pendingReferences.map(reference => reference.id),
     ...semanticCandidates.map(clause => clause.id)]);
-  if (!pendingIds.size && !conflictReview) return deterministicResult;
-  const reviewClauses = conflictReview ? clauses
-    : catalogs[input.assessmentType].clauses.filter(clause => pendingIds.has(clause.id));
+  if (!pendingIds.size) return deterministicResult;
+  const reviewClauses = catalogs[input.assessmentType].clauses.filter(clause => pendingIds.has(clause.id));
   if (!reviewClauses.length) return deterministicResult;
   const pendingFactIds = new Set(pendingReferences.flatMap(reference => reference.conditions
     .flatMap(condition => condition.factIds || [])));
@@ -152,18 +152,18 @@ export async function assess(input, { provider, config, signal, requestId, onMet
   const factsById = new Map(scopedExtractedFacts.map(fact => [fact.id, fact]));
   const relevantFactIds = new Set(pendingFactIds);
   for (const id of pendingFactIds) for (const parentId of factsById.get(id)?.derivedFrom || []) relevantFactIds.add(parentId);
-  const targetedFacts = conflictReview ? scopedExtractedFacts : scopedExtractedFacts.filter(fact => relevantFactIds.has(fact.id)
+  const targetedFacts = scopedExtractedFacts.filter(fact => relevantFactIds.has(fact.id)
     || availableFactFields.has(fact.field) && reviewFields.has(fact.field));
   const referencesById = new Map(deterministicResult.references.map(reference => [reference.id, reference]));
   const assessmentInput = {
     assessmentType: input.assessmentType,
     facts: targetedFacts,
-    conflicts: conflictReview ? extracted.conflicts : [],
-    requiresReview: conflictReview,
+    conflicts: [],
+    requiresReview: false,
     missingMaterials: extracted.missingMaterials,
     injuryDate: input.injuryDate,
     treatmentStatus: input.treatmentStatus,
-    reviewConditions: conflictReview ? [] : reviewClauses.map(clause => {
+    reviewConditions: reviewClauses.map(clause => {
       const reference = referencesById.get(clause.id);
       const conditions = reference?.conditions.filter(condition => condition.met === null);
       return { clauseId: clause.id, conditionLogic: clause.conditionLogic.logic,

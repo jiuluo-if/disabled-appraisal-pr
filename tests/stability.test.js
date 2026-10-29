@@ -125,8 +125,15 @@ test('every catalog clause has a validated explicit tree or a full-text opaque f
 });
 
 test('assessment extracts facts first and gives the second stage only the normalized fact snapshot', async () => {
-  const { provider, calls } = mockProvider(rawConflictFacts);
-  await assess(conflictInput, { provider, config: { textModel: 'kimi-k2.6', visionModel: 'kimi-k2.6' }, requestId: 'two-stage-test' });
+  const input = { ...conflictInput, description: 'CT报告明确记载左侧第3肋骨骨折。' };
+  const factExtraction = { facts: [
+    { id: 'F1', field: 'injury_type', value: 'rib_fracture', certainty: 'reported', source: 'description',
+      evidence: '左侧第3肋骨骨折', eventId: 'E1' },
+    { id: 'F2', field: 'fractured_rib_numbers', value: [3], certainty: 'reported', source: 'description',
+      evidence: '左侧第3肋骨骨折', eventId: 'E1' },
+  ], missingMaterials: [], conflicts: [], requiresReview: false };
+  const { provider, calls } = mockProvider(factExtraction);
+  await assess(input, { provider, config: { textModel: 'kimi-k2.6', visionModel: 'kimi-k2.6' }, requestId: 'two-stage-test' });
   assert.deepEqual(calls.map(call => call.name), ['fact_extraction', 'assessment_result']);
   const tagged = calls[1].messages[1].content.match(/<verified_facts>\s*([\s\S]*?)\s*<\/verified_facts>/);
   assert.ok(tagged);

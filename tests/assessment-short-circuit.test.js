@@ -88,6 +88,31 @@ test('facts with no grade-relevant rule candidate return insufficiency without a
   assert.equal(result.grade, null);
 });
 
+test('source conflicts stop before a model round that cannot clear the review gate', async () => {
+  const calls = [];
+  const provider = { complete: async request => {
+    calls.push(request.name);
+    if (request.name === 'fact_extraction') return { facts: [
+      { id: 'C1', field: 'clinical_finding', value: '左侧第3肋骨骨折', certainty: 'reported',
+        source: 'description', evidence: 'CT报告显示左侧第3肋骨骨折', eventId: 'E1' },
+      { id: 'C2', field: 'clinical_finding', value: '左侧第3肋骨骨折', certainty: 'excluded',
+        source: 'description', evidence: '复查CT未见左侧第3肋骨骨折', eventId: 'E1' },
+    ], missingMaterials: [], conflicts: [{ factIds: ['C1', 'C2'], reason: '同一事件存在相反影像结论' }], requiresReview: true };
+    return { status: 'preliminary', grade: '轻伤二级', summary: '模型建议等级', reasoning: '模型认为可能符合。',
+      facts: [], references: [], missingMaterials: [], nextSteps: [], warnings: [] };
+  } };
+
+  const result = await assess({ ...input,
+    description: 'CT报告显示左侧第3肋骨骨折。复查CT未见左侧第3肋骨骨折。',
+  }, { provider, config, requestId: 'conflict-review-short-circuit' });
+
+  assert.deepEqual(calls, ['fact_extraction']);
+  assert.equal(result.status, 'needs_review');
+  assert.equal(result.grade, null);
+  assert.equal(result.requiresReview, true);
+  assert.ok(result.conflicts.length > 0);
+});
+
 test('selected injury date reaches fact extraction as non-evidentiary event scope context', async () => {
   let extractionRequest;
   const provider = { complete: async request => {
