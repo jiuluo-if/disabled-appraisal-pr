@@ -1446,6 +1446,102 @@ test('single-leaf compound organ and function clauses do not grade from one comp
   }
 });
 
+test('generic large-joint threshold clause text cannot substitute for a named injured joint', () => {
+  const cases = [
+    ['injury', '5.9.2.a'],
+    ['injury', '5.9.3.a'],
+    ['injury', '5.9.4.a'],
+    ['disability', '5.8.6.8'],
+    ['disability', '5.9.6.9'],
+    ['disability', '5.10.6.11'],
+  ];
+
+  for (const [assessmentType, id] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    const conclusion = clause.text.replace(/[。；;]$/u, '');
+    const description = `本次交通事故后，${conclusion}。`;
+    const fact = { id: 'F1', eventId: 'E1', field: 'clinical_finding', value: conclusion,
+      certainty: 'reported', source: 'description', verification: 'quoted', evidence: conclusion };
+    const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: id, relation: 'supports', evidence: conclusion, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: conclusion, factIds: ['F1'], met: true }] }] },
+    { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `generic-joint-loss-${id}`,
+      model: 'test-model', extractedFacts: [fact], conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(result.grade, null, id);
+    assert.notEqual(result.references.find(reference => reference.id === id)?.relation, 'supports', id);
+  }
+});
+
+test('explicit site-specific joint loss percentages support only their numeric standard threshold', () => {
+  const cases = [
+    ['injury', '5.9.2.a', '左膝关节功能丧失50%以上', '左膝关节功能丧失50%以上', '重伤二级'],
+    ['injury', '5.9.3.a', '右肩关节功能丧失25%以上', '右肩关节功能丧失25%以上', '轻伤一级'],
+    ['injury', '5.9.4.a', '左腕关节功能丧失10%以上', '左腕关节功能丧失10%以上', '轻伤二级'],
+    ['disability', '5.8.6.8', '右髋关节功能丧失75%以上', '右髋关节功能丧失75%以上', '八级伤残'],
+    ['disability', '5.9.6.9', '左膝关节功能丧失50%以上', '左膝关节功能丧失50%以上', '九级伤残'],
+    ['disability', '5.10.6.11', '右肘关节功能丧失25%以上', '右肘关节功能丧失25%以上', '十级伤残'],
+  ];
+
+  for (const [assessmentType, id, finding, evidence, grade] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    const description = `本次交通事故后${evidence}。`;
+    const extractedFacts = normalizeExtractedFacts({ ...emptyExtraction, facts: [{ id: 'F1', eventId: 'E1',
+      field: 'clinical_finding', value: finding, certainty: 'reported', source: 'description', evidence: description }] },
+    { description }).facts.map(fact => ({ ...fact, verification: 'quoted' }));
+    const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `site-specific-joint-loss-${id}`,
+      model: 'test-model', extractedFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(result.grade, grade, id);
+    assert.equal(result.references.find(reference => reference.id === id)?.relation, 'supports', id);
+  }
+});
+
+test('joint loss support cannot come from a below-threshold value, excluded ankle, or uncomputed motion measures', () => {
+  const cases = [
+    ['disability', '5.9.6.9', '本次交通事故后左膝关节功能丧失49%。', '十级伤残'],
+    ['disability', '5.10.6.11', '本次交通事故后一侧踝关节功能丧失100%。', null],
+    ['disability', '5.9.6.9', '本次交通事故后左膝关节被动屈曲30度，肌力3级。', null],
+    ['disability', '5.9.6.9', '本次交通事故后左髋臼骨折功能丧失50%。', null],
+    ['disability', '5.9.6.9', '本次交通事故后左肩峰骨折功能丧失50%。', null],
+  ];
+
+  for (const [assessmentType, id, description, expectedGrade] of cases) {
+    const clause = catalogs[assessmentType].clauses.find(item => item.id === id);
+    const extractedFacts = normalizeExtractedFacts({ ...emptyExtraction, facts: [{ id: 'F1', eventId: 'E1',
+      field: 'clinical_finding', value: description.replace(/^本次交通事故后/u, '').replace(/。$/u, ''),
+      certainty: 'reported', source: 'description', evidence: description }] }, { description }).facts
+      .map(fact => ({ ...fact, verification: 'quoted' }));
+    const result = normalizeResult({ ...providerFixture(assessmentType), status: 'preliminary', grade: clause.grade,
+      facts: [], references: [{ clauseId: id, relation: 'supports', evidence: description, reasoning: '',
+        conditions: [{ condition: clause.text, evidence: description, factIds: ['F1'], met: true }] }] },
+    { ...inputs[assessmentType], description }, { clauses: [clause], requestId: `invalid-joint-loss-${id}`,
+      model: 'test-model', extractedFacts, conflicts: [], requiresReview: false, factMissingMaterials: [] });
+
+    assert.equal(result.grade, expectedGrade, description);
+    assert.notEqual(result.references.find(reference => reference.id === id)?.relation, 'supports', description);
+  }
+
+  const clause = catalogs.disability.clauses.find(item => item.id === '5.9.6.9');
+  const fact = (id, certainty, evidence) => ({ id, eventId: 'E1', field: 'clinical_finding',
+    value: '左膝关节功能丧失50%以上', certainty, source: 'description', verification: 'quoted', evidence });
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [
+    fact('F1', 'reported', '本次交通事故后左膝关节功能丧失50%以上。'),
+    fact('F2', 'excluded', '复查明确未见左膝关节功能丧失50%以上。'),
+  ]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [
+    fact('F1', 'excluded', '本次交通事故后明确未见左膝关节功能丧失50%以上。'),
+  ]).met, null);
+  assert.equal(evaluateConditionLogic(clause.conditionLogic, [
+    fact('F1', 'reported', '本次交通事故后左膝关节功能丧失50%以上。'),
+    { ...fact('F2', 'uncertain', '本次交通事故后左膝关节可能功能丧失50%以上。'),
+      value: '左膝关节可能功能丧失50%以上' },
+  ]).met, null);
+});
+
 test('procedure evidence links to the same mapped organ and rejects another event or side', () => {
   const uterusClause = catalogs.disability.clauses.find(item => item.id === '5.7.5.4');
   const uterusOperation = { id: 'U1', eventId: 'E1', field: 'clinical_finding',

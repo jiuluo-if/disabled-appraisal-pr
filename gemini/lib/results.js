@@ -1194,6 +1194,9 @@ function uniqueEvidenceText(values) {
 
 function conditionFactIsExplicitlyNegated(node, fact) {
   if (!node.factMatch || typeof fact.evidence !== 'string') return false;
+  if (largeJointLossRequirement(node)) {
+    return Boolean(largeJointLossEvidence(node, fact.evidence, fact.value)?.negated);
+  }
   const terms = [...new Set([...(node.factMatch.values || []), ...(node.factMatch.valueIncludes || []),
     ...(node.factMatch.evidenceAliases || [])].filter(value => typeof value === 'string' && value))];
   const clauses = normalize(fact.evidence).split(/[，,。！？；;、\n]/u);
@@ -1210,6 +1213,69 @@ function isSpinalEpiduralHematomaFact(fact) {
   if (/硬膜外(?:血肿|出血)/u.test(value) && spinalLocation.test(value)) return true;
   const evidenceSegments = String(fact.evidence || '').normalize('NFKC').split(/[，,。；;！？!?\n]/u);
   return evidenceSegments.some(segment => /硬膜外(?:血肿|出血)/u.test(segment) && spinalLocation.test(segment));
+}
+
+function largeJointLossRequirement(node) {
+  if (node.factMatch?.field !== 'clinical_finding') return null;
+  const condition = normalize(`${node.sourceText || ''} ${node.conditionText || ''}`);
+  if (!condition.includes('大关节')) return null;
+  const threshold = /功能丧失(?:率)?(\d+(?:\.\d+)?)%/u.exec(condition);
+  const ankylosis = condition.includes('强直畸形');
+  if (!threshold && !ankylosis) return null;
+  return { threshold: threshold ? Number(threshold[1]) : null, ankylosis,
+    excludeAnkle: condition.includes('踝关节除外') };
+}
+
+function largeJointLossEvidence(node, evidence, factValue) {
+  const requirement = largeJointLossRequirement(node);
+  if (!requirement || typeof evidence !== 'string' || typeof factValue !== 'string'
+    || !includesEvidence(evidence, factValue)) return null;
+  const sitePattern = /(?:肩|肘|腕|髋|膝|踝)关节/gu;
+  const text = evidence.normalize('NFKC');
+  for (const segmentMatch of text.matchAll(/[^。！？；;\n]+/gu)) {
+    const segment = segmentMatch[0];
+    const jointMatches = [...segment.matchAll(sitePattern)].filter(match =>
+      !(requirement.excludeAnkle && match[0].startsWith('踝')));
+    if (jointMatches.length !== 1) continue;
+    const joint = jointMatches[0];
+    const lateralityContext = segment.slice(Math.max(0, joint.index - 3), joint.index);
+    const side = /左/u.test(lateralityContext) ? 'left' : /右/u.test(lateralityContext) ? 'right' : null;
+    const valueJointMatches = [...factValue.normalize('NFKC').matchAll(sitePattern)];
+    if (valueJointMatches.length !== 1
+      || valueJointMatches[0][0].replace(/关节/u, '') !== joint[0].replace(/关节/u, '')) continue;
+    const valueSideContext = factValue.normalize('NFKC').slice(Math.max(0, valueJointMatches[0].index - 3), valueJointMatches[0].index);
+    const valueSide = /左/u.test(valueSideContext) ? 'left' : /右/u.test(valueSideContext) ? 'right' : null;
+    if (side && valueSide && side !== valueSide) continue;
+    if (requirement.ankylosis && /强直畸形/u.test(segment)) {
+      const findingIndex = segment.indexOf('强直畸形');
+      const nearby = segment.slice(Math.max(0, findingIndex - 24), findingIndex + 6);
+      const negated = /(?:未见|未发现|否认|排除|没有|无|不伴)[^，,。！？；;\n]{0,16}$/u.test(nearby);
+      const uncertain = /(?:疑似|可能|考虑|待排|待查|待核|待明确|不确定)/u.test(nearby);
+      if (joint.index <= findingIndex && findingIndex - joint.index <= 24 && /强直畸形/u.test(factValue)) {
+        return { matched: true, joint: joint[0], side, negated, uncertain,
+          supports: !negated && !uncertain && requirement.threshold === null };
+      }
+    }
+    if (requirement.threshold === null) continue;
+    const lossPattern = /功能丧失(?:率)?\s*(?:(?:为|达|≥|不少于|不低于)\s*)?(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*%/gu;
+    const lossMatches = [...segment.matchAll(lossPattern)];
+    if (lossMatches.length !== 1) continue;
+    const loss = lossMatches[0];
+    if (joint.index > loss.index || loss.index - joint.index > 24) continue;
+    const parsedPercent = /^\d/u.test(loss[1]) ? Number(loss[1]) : parseNumber(loss[1]);
+    if (!Number.isFinite(parsedPercent) || parsedPercent < 0 || parsedPercent > 100) continue;
+    const quotedLoss = /功能丧失(?:率)?\s*(?:(?:为|达|≥|不少于|不低于)\s*)?(\d+(?:\.\d+)?|[零〇一二两三四五六七八九十百]+)\s*%/u.exec(factValue.normalize('NFKC'));
+    const quotedPercent = quotedLoss && (/^\d/u.test(quotedLoss[1]) ? Number(quotedLoss[1]) : parseNumber(quotedLoss[1]));
+    if (quotedPercent !== parsedPercent) continue;
+    const context = segment.slice(Math.max(0, joint.index - 20), Math.min(segment.length, loss.index + loss[0].length + 8));
+    const negated = /(?:未见|未发现|否认|排除|没有|无|未达|不超过|小于|低于|不足|少于)[^，,。！？；;\n]{0,16}(?:功能丧失|功能丧失率)/u.test(context)
+      || /功能丧失(?:率)?\s*(?:低于|小于|不足|不超过|未达)/u.test(context)
+      || /功能丧失(?:率)?[^，,。！？；;\n]{0,12}(?:以下|以内)/u.test(context);
+    const uncertain = /(?:约|大约|左右|接近|估计|疑似|可能|考虑|待排|待查|待核|待明确|不确定|不能确定)/u.test(context);
+    return { matched: true, joint: joint[0], side, percent: parsedPercent, negated, uncertain,
+      supports: !negated && !uncertain && parsedPercent >= requirement.threshold };
+  }
+  return null;
 }
 
 function isIntracranialCondition(node) {
@@ -1412,6 +1478,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
       return { met: null, evidence: '', factIds: [] };
     }
   }
+  const jointLossRequirement = largeJointLossRequirement(node);
   const acceptedFields = conditionFactFields(node.factMatch, predicate);
   const cardiacRuptureCondition = node.factMatch?.field === 'clinical_finding'
     && node.factMatch.values?.some(value => ['心脏破裂', '心包破裂'].includes(value));
@@ -1426,6 +1493,7 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
     && (fact.verification === 'quoted' || parserQuotedCardiacFact(fact)));
   const relevant = candidates.filter(fact => {
     if (isIntracranialCondition(node) && isSpinalEpiduralHematomaFact(fact)) return false;
+    const jointLossEvidence = jointLossRequirement ? largeJointLossEvidence(node, fact.evidence, fact.value) : null;
     if (predicate?.field === 'aggregate_wound_length_cm'
       && !aggregateWoundLengthSitesSupportPredicate(predicate, fact)) return false;
     if (predicate && ['wound_length_cm', 'aggregate_wound_length_cm'].includes(predicate.field)
@@ -1455,7 +1523,8 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
           .test(surgicalConditionText);
       const performedSurgicalTreatment = genericSurgicalRequirement && acceptedFields.has('treatment')
         && requiresCurrentProcedureLink(node) && isPerformedSurgicalTreatmentFact(fact);
-      const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue || performedSurgicalTreatment;
+      const valueMatches = exactValueMatches || includedValueMatches || genericBrainContusionValue
+        || performedSurgicalTreatment || Boolean(jointLossEvidence?.matched);
       const reducedStrengthSign = normalize(node.conditionText || '') === normalize('神经系统症状和体征')
         && isReducedMuscleStrengthEvidence(fact.evidence);
       const sharedSuffixEvidence = fact.sharedFracturePredicate === true && fact.field === 'imaging_finding'
@@ -1474,8 +1543,9 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
             && isCanonicalCardiacRuptureEvidence(cardiacRuptureValue, fact.evidence));
       const moderateShockCondition = node.factMatch.field === 'clinical_finding'
         && node.factMatch.values?.some(value => normalize(value) === normalize('各种损伤引起休克（中度）'));
-      const evidenceMatches = performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
-        ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
+      const evidenceMatches = jointLossRequirement ? Boolean(jointLossEvidence?.matched)
+        : performedSurgicalTreatment || (cardiacRuptureCondition || moderateShockCondition
+          ? canonicalEvidence : exactEvidence || evidenceAlias || ribFractureEvidence || canonicalEvidence);
       const currentProcedureLink = !requiresCurrentProcedureLink(node)
         || !isUnperformedProcedureEvidence(fact.evidence) && hasCurrentEventLinkForProcedure(fact, facts, node);
       return (valueMatches && !historicalEvidence && !evidenceAliasHistorical && currentProcedureLink
@@ -1492,10 +1562,32 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   const excluded = relevant.filter(fact => fact.certainty === 'excluded'
     && conditionFactIsExplicitlyNegated(node, fact));
   const uncertain = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty));
-  const conflictingExclusions = excluded.filter(negative => positive.some(affirmative =>
-    !explicitlySeparateBrainFindings(affirmative, negative)));
+  const conflictingExclusions = excluded.filter(negative => positive.some(affirmative => jointLossRequirement
+    ? sameLargeJointSide(largeJointLossEvidence(node, affirmative.evidence, affirmative.value),
+      largeJointLossEvidence(node, negative.evidence, negative.value))
+    : !explicitlySeparateBrainFindings(affirmative, negative)));
   if (positive.length && conflictingExclusions.length || !positive.length && uncertain) {
     return { met: null, evidence: '', factIds: [] };
+  }
+  if (jointLossRequirement && positive.length) {
+    const assertions = positive.map(fact => ({ fact, assessment: largeJointLossEvidence(node, fact.evidence, fact.value) }))
+      .filter(item => item.assessment?.matched);
+    for (let left = 0; left < assertions.length; left += 1) {
+      for (let right = left + 1; right < assertions.length; right += 1) {
+        if (sameLargeJointSide(assertions[left].assessment, assertions[right].assessment)
+          && assertions[left].assessment.percent !== assertions[right].assessment.percent) {
+          return { met: null, evidence: '', factIds: [] };
+        }
+      }
+    }
+    const supporting = assertions.filter(item => item.assessment.supports);
+    if (!supporting.length) return { met: null, evidence: '', factIds: [] };
+    const uncertainSameJoint = relevant.some(fact => ['uncertain', 'unknown', 'conflicted'].includes(fact.certainty)
+      && assertions.some(item => sameLargeJointSide(item.assessment,
+        largeJointLossEvidence(node, fact.evidence, fact.value))));
+    if (uncertainSameJoint) return { met: null, evidence: '', factIds: [] };
+    return { met: true, evidence: uniqueEvidenceText(supporting.map(item => item.fact.evidence)),
+      factIds: supporting.map(item => item.fact.id) };
   }
   if (predicate && positive.length) {
     const states = positive.map(fact => comparePredicate(predicate, predicateEvidenceValue(predicate, fact, facts)));
@@ -1533,9 +1625,17 @@ function evaluateConditionLeaf(node, facts, eventId = null, ageAdjustmentEnabled
   }
   if (positive.length) return { met: true, evidence: uniqueEvidenceText(positive.map(fact => fact.evidence)),
     factIds: positive.map(fact => fact.id) };
+  if (jointLossRequirement && excluded.length) return { met: null, evidence: '', factIds: [] };
   if (excluded.length) return { met: false, evidence: uniqueEvidenceText(excluded.map(fact => fact.evidence)),
     factIds: excluded.map(fact => fact.id) };
   return { met: null, evidence: '', factIds: [] };
+}
+
+function sameLargeJointSide(left, right) {
+  if (!left?.matched || !right?.matched) return false;
+  const jointName = value => value.replace(/关节/u, '');
+  return jointName(left.joint) === jointName(right.joint)
+    && (!left.side || !right.side || left.side === right.side);
 }
 
 function combineLogicResults(op, results, eventId = null, allowSharedFact = false) {
