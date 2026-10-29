@@ -24,6 +24,8 @@ const sourceFiles = [
   ...readdirSync(sourceDirectory).filter(name => name.endsWith('.js')).sort()
     .map(name => new URL(name, sourceDirectory)),
   new URL('../server.js', import.meta.url),
+  new URL('../package.json', import.meta.url),
+  new URL('../package-lock.json', import.meta.url),
 ];
 export const ASSESSMENT_CODE_VERSION = hashAssessmentSources(fileURLToPath(sourceDirectory), sourceFiles
   .map(file => ({ path: fileURLToPath(file), content: readFileSync(file, 'utf8') })));
@@ -53,6 +55,7 @@ export function createAssessmentSnapshot(input, extracted, config, { factPromptV
     assessmentPrompt: assessmentPromptVersion,
     rules: RULES_VERSION,
     code: codeVersion,
+    codeHash: ASSESSMENT_CODE_VERSION,
     provider: config.provider || 'unknown',
     textModel: config.textModel,
     visionModel: config.visionModel,

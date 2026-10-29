@@ -230,6 +230,7 @@ export function createApp(config, options = {}) {
   const provider = options.provider || createProvider(config, options.fetchImpl);
   const cacheVersions = options.cacheVersions || {
     code: config.codeVersion || process.env.APP_CODE_VERSION || process.env.GIT_COMMIT || ASSESSMENT_CODE_VERSION,
+    codeHash: ASSESSMENT_CODE_VERSION,
     provider: config.provider || 'unknown', textModel: config.textModel, visionModel: config.visionModel,
     temperature: config.temperature ?? null, maxTokens: config.maxTokens ?? null,
     thinking: config.thinking ?? null, jsonMode: config.jsonMode ?? null,

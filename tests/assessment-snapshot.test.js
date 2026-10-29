@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { hashAssessmentSources } from '../gemini/lib/assessment-snapshot.js';
+import { ASSESSMENT_CODE_VERSION, createAssessmentSnapshot, hashAssessmentSources } from '../gemini/lib/assessment-snapshot.js';
 
 test('assessment code version is independent of the checkout root', () => {
   const sources = root => {
@@ -17,4 +17,15 @@ test('assessment code version is independent of the checkout root', () => {
   assert.equal(hashAssessmentSources('/home/runner/work/project', sources('/home/runner/work/project')),
     hashAssessmentSources('/home/runner/work/project', sources('/home/runner/work/project').reverse()
       .map(source => ({ ...source, content: source.content.replace(/\n/gu, '\r\n') }))));
+});
+
+test('assessment snapshots retain the source digest even when a release label is supplied', () => {
+  const snapshot = createAssessmentSnapshot({ assessmentType: 'injury', description: '已核验事实', images: [],
+    injuryDate: '', treatmentStatus: 'unknown' }, { facts: [], factAudit: [], conflicts: [], requiresReview: false,
+    reviewReasons: [], missingMaterials: [] }, { provider: 'test', textModel: 'test-text', visionModel: 'test-vision' }, {
+    factPromptVersion: 'fact-v1', assessmentPromptVersion: 'assessment-v1', codeVersion: 'stable-release-label',
+  });
+
+  assert.equal(snapshot.code, 'stable-release-label');
+  assert.equal(snapshot.codeHash, ASSESSMENT_CODE_VERSION);
 });

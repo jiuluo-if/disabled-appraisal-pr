@@ -125,6 +125,7 @@ export const resultSchema = providerResultSchema.omit({ references: true, facts:
     assessmentPrompt: shortText,
     rules: shortText,
     code: shortText,
+    codeHash: z.string().regex(/^[a-f0-9]{64}$/),
     provider: shortText,
     textModel: shortText,
     visionModel: shortText,
