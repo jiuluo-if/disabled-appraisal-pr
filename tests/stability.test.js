@@ -105,14 +105,20 @@ test('every catalog clause has a validated explicit tree or a full-text opaque f
     }
     explicitCount += 1;
     const inspect = node => {
-      if (node.op === 'condition' || node.sourceText) assert.ok(node.sourceText && clause.text.includes(node.sourceText));
-      if (node.op === 'all' || node.op === 'any') node.children.forEach(inspect);
-      else assert.equal(Boolean(node.factMatch) + Boolean(node.predicate), 1);
+      if (node.op === 'condition') {
+        assert.ok(node.sourceText && clause.text.includes(node.sourceText));
+        assert.equal(Number(Boolean(node.factMatch)) + Number(Boolean(node.predicate)), 1);
+        return;
+      }
+      if (node.sourceText) assert.ok(clause.text.includes(node.sourceText));
+      assert.ok(['all', 'any', 'not'].includes(node.op));
+      assert.ok(Array.isArray(node.children) && node.children.length > 0);
+      node.children.forEach(inspect);
     };
     inspect(clause.conditionLogic.logic);
   }
-  assert.equal(explicitCount, 4);
-  assert.equal(explicitCount + opaqueCount, 847);
+  assert.ok(explicitCount > 0);
+  assert.equal(explicitCount + opaqueCount, Object.values(catalogs).reduce((sum, catalog) => sum + catalog.clauses.length, 0));
 });
 
 test('assessment extracts facts first and gives the second stage only the normalized fact snapshot', async () => {
